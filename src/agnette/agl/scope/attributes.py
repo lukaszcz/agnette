@@ -7,7 +7,7 @@ admitted target, the arguments match the declared schema, the attribute is not
 repeated or contradicted — and turns the surviving attributes into typed
 side-table entries.
 
-Eleven facts are built: a parameter's zone, from the ``@arg-*`` attribute an
+Twelve facts are built: a parameter's zone, from the ``@arg-*`` attribute an
 entry or its owning declaration carries; an ``extern def``'s Python companion
 name, from ``@extern-name`` — the walk sees every extern of a module, so it is
 also where their companion names are held apart; host-facing parameters'
@@ -20,7 +20,9 @@ resolution and type checking to give meaning to; the static warnings each
 declaration allows within itself, from ``@allow``; and the warnings each
 function's call results are exempt from, from ``@exempts`` — both validated
 against the warning catalog — and the functions returning shell words, from
-``@shell-quoted``. The walk is the seam a
+``@shell-quoted``; and the module's and each scope region's documentation and
+allowed warnings, from their inner attributes (``@!doc``, ``@!allow``), validated
+like any prefix. The walk is the seam a
 further attribute meaning joins through — a new fact reads the attributes the
 walk already hands it and fills a table of its own, so it costs one more
 builder, never one more traversal.
@@ -29,7 +31,7 @@ builder, never one more traversal.
 from __future__ import annotations
 
 import keyword
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
 from agnette.agl.attributes import (
@@ -61,6 +63,7 @@ from agnette.agl.attributes import (
     invalid_json_name,
     invalid_program_command_path,
 )
+from agnette.agl.modules.ids import spell_scope_path
 from agnette.agl.scope.symbols import AglScopeError, AllowRegion, AttributeFacts
 from agnette.agl.semantics.external_names import ExternalName
 from agnette.agl.syntax.module_constants import FoldFailure, ModuleConstants
@@ -78,6 +81,7 @@ from agnette.agl.syntax.nodes import (
     Param,
     Program,
     RecordDef,
+    ScopeRegion,
     TypeAlias,
     VarDecl,
     VariantDef,
@@ -89,7 +93,12 @@ from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import ParamZone
 
-__all__ = ["recognize_attributes", "recognize_program_registration"]
+__all__ = [
+    "module_allow_regions",
+    "module_allowed_names",
+    "recognize_attributes",
+    "recognize_program_registration",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +164,8 @@ _TARGET_LABEL: Mapping[AttributeTarget, str] = {
     AttributeTarget.LAMBDA_PARAMETER: "lambda parameter",
     AttributeTarget.FIELD: "field",
     AttributeTarget.PROGRAM_PARAMETER: "program parameter",
+    AttributeTarget.MODULE: "module",
+    AttributeTarget.SCOPE_REGION: "scope region",
 }
 
 
@@ -202,16 +213,11 @@ def recognize_attributes(
     positional-only and admits no zone attribute of its own. *source_text* is
     the text *program* was parsed from, which places each ``@allow`` region.
     """
-    static_binding_ids = frozenset(
-        item.node_id
-        for item in static_items(program.body.items)
-        if isinstance(item, (LetDecl, VarDecl))
-    )
-    recognizer = _Recognizer(
-        declares_receiver, static_binding_ids, ModuleConstants(program), source_text
-    )
+    recognizer = _recognizer(program, declares_receiver, source_text)
     walk(program, recognizer.visit)
     return AttributeFacts(
+        module_doc=recognizer.module_doc,
+        region_docs=recognizer.region_docs,
         param_zones=recognizer.param_zones,
         extern_names=recognizer.extern_names,
         program_options=recognizer.program_options,
@@ -226,20 +232,74 @@ def recognize_attributes(
     )
 
 
+def _recognizer(
+    program: Program, declares_receiver: Callable[[FuncDef], bool] | None, source_text: str
+) -> "_Recognizer":
+    """A recognizer for *program*; without *declares_receiver* it leaves parameter zones open."""
+    static_binding_ids = frozenset(
+        item.node_id
+        for item in static_items(program.body.items)
+        if isinstance(item, (LetDecl, VarDecl))
+    )
+    return _Recognizer(
+        declares_receiver,
+        static_binding_ids,
+        ModuleConstants(program),
+        source_text,
+        dict(region_paths(program.body.items, ())),
+    )
+
+
+def module_allow_regions(
+    program: Program, *, source_text: str, items: tuple[Item, ...] | None = None
+) -> list[AllowRegion]:
+    """The ``@allow`` and ``@!allow`` regions of *program*, parsed from *source_text*.
+
+    Read off the parse alone, for a host that cannot resolve the module: the same
+    regions scope files, as receiver classification changes none of them. Only the
+    module's inner attributes and *items* (default: all of *program*'s) are recognized,
+    for a host that already resolved the rest; *program* still supplies the module's
+    constants. Parameter zones, which need that classification, are not validated. Raises
+    ``AglScopeError`` when an attribute is invalid, as resolving the module would.
+    """
+    recognizer = _recognizer(program, None, source_text)
+    recognizer.visit(program)
+    for item in program.body.items if items is None else items:
+        walk(item, recognizer.visit)
+    return recognizer.warning_allows
+
+
+def module_allowed_names(program: Program) -> frozenset[str]:
+    """The warning names *program*'s module-level ``@!allow`` lists, validated.
+
+    Empty when the module has none or its inner attributes are invalid (their
+    validation error is reported where the module is resolved).
+    """
+    try:
+        recognized = _validate_attribute_prefix(
+            program.attributes, AttributeTarget.MODULE, ModuleConstants(program), ()
+        )
+    except AglScopeError:
+        return frozenset()
+    return frozenset(recognized.lists.get(ALLOW_ATTRIBUTE, ()))
+
+
 class _Recognizer:
     """One module's attribute walk, accumulating facts as it goes."""
 
     def __init__(
         self,
-        declares_receiver: Callable[[FuncDef], bool],
+        declares_receiver: Callable[[FuncDef], bool] | None,
         static_binding_ids: frozenset[int],
         constants: ModuleConstants,
         source_text: str,
+        region_paths: Mapping[int, tuple[str, ...]],
     ) -> None:
         self._declares_receiver = declares_receiver
         self._static_binding_ids = static_binding_ids
         self._constants = constants
         self._source_text = source_text
+        self._region_paths = region_paths
         self._scope_path: tuple[str, ...] = ()
         self.param_zones: dict[int, ParamZone] = {}
         self.extern_names: dict[int, str] = {}
@@ -252,6 +312,8 @@ class _Recognizer:
         self.warning_exemptions: dict[int, frozenset[str]] = {}
         self.shell_quoted: set[int] = set()
         self.opaque: set[int] = set()
+        self.module_doc: str | None = None
+        self.region_docs: dict[tuple[str, ...], str] = {}
         self._companion_owners: dict[str, str] = {}
 
     def visit(self, node: object) -> None:
@@ -261,6 +323,8 @@ class _Recognizer:
         its parameters or fields — resolve a constant reference from; a
         declaration nested in a body keeps the enclosing item's path.
         """
+        if isinstance(node, (Program, ScopeRegion)):
+            self._inner(node)
         if isinstance(node, Item):
             declared_scope = self._constants.static_scope_path_of(node.node_id)
             if declared_scope is not None:
@@ -283,7 +347,10 @@ class _Recognizer:
                     else AttributeTarget.PARAMETER
                 ),
                 form_default=(ParamZone.NAMED_ONLY if node.is_program else ParamZone.STANDARD),
-                has_receiver=self._declares_receiver(node),
+                has_receiver=(
+                    False if self._declares_receiver is None else self._declares_receiver(node)
+                ),
+                ordered=self._declares_receiver is not None,
                 owner_name=node.name,
             )
         elif isinstance(node, Lambda):
@@ -344,6 +411,43 @@ class _Recognizer:
             self.opaque.add(node_id)
         self._warning_names(node_id, span, recognized)
         return recognized
+
+    def _inner(self, node: Program | ScopeRegion) -> None:
+        """Recognize the inner attributes of the module root or a scope region.
+
+        Their arguments resolve from the module root or the region's scope; the
+        ``@!doc`` text is filed as the module's or the region's, and ``@!allow``
+        hides its warnings across the whole module or region. Regions sharing a
+        full scope path share one ``@!doc``, which they may spell only once.
+        """
+        path: tuple[str, ...] = ()
+        if isinstance(node, Program):
+            target = AttributeTarget.MODULE
+            span = _whole_source(node.span, self._source_text)
+        else:
+            target = AttributeTarget.SCOPE_REGION
+            path = self._region_paths[node.node_id]
+            span = _from_blank_line_start(node.span, self._source_text)
+        recognized = _validate_attribute_prefix(node.attributes, target, self._constants, path)
+        documentation = recognized.text_of(DOC_ATTRIBUTE)
+        if documentation is not None:
+            if target is AttributeTarget.MODULE:
+                self.module_doc = documentation
+            else:
+                self._file_region_doc(path, documentation, recognized.nodes[DOC_ATTRIBUTE])
+        self._warning_names(node.node_id, span, recognized)
+
+    def _file_region_doc(
+        self, path: tuple[str, ...], documentation: str, attribute: Attribute
+    ) -> None:
+        """File a scope path's ``@!doc`` text, rejecting a second one for the path."""
+        if path in self.region_docs:
+            raise AglScopeError(
+                f"Attribute '{attribute.spelling}' cannot be repeated for scope "
+                f"'{spell_scope_path(path)}': regions spelling one path share one doc.",
+                span=attribute.span,
+            )
+        self.region_docs[path] = documentation
 
     # ------------------------------------------------------------------
     # Fact builder: static host parameters
@@ -422,9 +526,8 @@ class _Recognizer:
         """
         allowed = recognized.lists.get(ALLOW_ATTRIBUTE)
         if allowed is not None:
-            self.warning_allows.append(
-                AllowRegion(_from_blank_line_start(span, self._source_text), frozenset(allowed))
-            )
+            region_span = _from_blank_line_start(span, self._source_text)
+            self.warning_allows.append(AllowRegion(region_span, frozenset(allowed)))
         exempted = recognized.lists.get(EXEMPTS_ATTRIBUTE)
         if exempted is not None:
             self.warning_exemptions[node_id] = frozenset(exempted)
@@ -504,6 +607,7 @@ class _Recognizer:
         target: AttributeTarget,
         form_default: ParamZone = ParamZone.STANDARD,
         has_receiver: bool = False,
+        ordered: bool = True,
         owner_name: str | None = None,
     ) -> None:
         """Validate and zone every entry of one parameter or field list.
@@ -511,7 +615,8 @@ class _Recognizer:
         An entry's own ``@arg-*`` attribute wins; otherwise the owning
         declaration's sets the list default; otherwise *form_default* applies.
         A classified method's receiver is positional-only regardless. Entries
-        then have to run positional-only, standard, named-only.
+        then have to run positional-only, standard, named-only, unless not *ordered*:
+        without receiver classification the first entry's zone is unknown.
         """
         list_default = form_default if owner_zone is None else owner_zone
         highest = _ZONE_SEQUENCE[0]
@@ -528,7 +633,7 @@ class _Recognizer:
                 zone = ParamZone.POSITIONAL_ONLY
             else:
                 zone = list_default if declared is None else declared
-            if _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
+            if ordered and _ZONE_SEQUENCE.index(zone) < _ZONE_SEQUENCE.index(highest):
                 raise AglScopeError(
                     f"{entry.name!r} is {_ZONE_LABEL[zone]} but follows a "
                     f"{_ZONE_LABEL[highest]} entry; entries are ordered "
@@ -608,7 +713,7 @@ def _validate_attribute_prefix(
     for attribute in attributes:
         spec = BUILTIN_ATTRIBUTES.get(attribute.name)
         if spec is None:
-            raise AglScopeError(f"Unknown attribute '@{attribute.name}'.", span=attribute.span)
+            raise AglScopeError(f"Unknown attribute '{attribute.spelling}'.", span=attribute.span)
         validation_target = (
             AttributeTarget.BINDING
             if target is AttributeTarget.PARAM_BINDING and attribute.name == PARAM_ATTRIBUTE
@@ -616,17 +721,18 @@ def _validate_attribute_prefix(
         )
         if validation_target not in spec.targets:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' cannot be attached to a {_TARGET_LABEL[target]}.",
+                f"Attribute '{attribute.spelling}' cannot be attached to a "
+                f"{_TARGET_LABEL[target]}.",
                 span=attribute.span,
             )
         if attribute.name in nodes:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' cannot be repeated.", span=attribute.span
+                f"Attribute '{attribute.spelling}' cannot be repeated.", span=attribute.span
             )
         for other in spec.conflicts:
             if other in nodes:
                 raise AglScopeError(
-                    f"Attribute '@{attribute.name}' conflicts with '@{other}'.",
+                    f"Attribute '{attribute.spelling}' conflicts with '{attribute.sigil}{other}'.",
                     span=attribute.span,
                 )
         argument = _check_arguments(attribute, spec, constants, scope_path)
@@ -680,19 +786,19 @@ def _check_list_elements(attribute: Attribute, spec: AttributeSpec, texts: tuple
     for text, argument in zip(texts, attribute.args, strict=True):
         if text in seen:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' lists {spec.element} {text!r} more than once; "
+                f"Attribute '{attribute.spelling}' lists {spec.element} {text!r} more than once; "
                 "an element cannot be repeated.",
                 span=argument.span,
             )
         seen.add(text)
         if spec.known is not None and text not in spec.known:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' names unknown {spec.element} {text!r}.",
+                f"Attribute '{attribute.spelling}' names unknown {spec.element} {text!r}.",
                 span=argument.span,
             )
         if spec.admitted is not None and text not in spec.admitted:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' does not admit {spec.element} {text!r}; "
+                f"Attribute '{attribute.spelling}' does not admit {spec.element} {text!r}; "
                 f"it admits only {', '.join(sorted(spec.admitted))}.",
                 span=argument.span,
             )
@@ -708,7 +814,8 @@ def _fold_text(
     folded = constants.fold_text(argument, scope_path=scope_path)
     if isinstance(folded, FoldFailure):
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' requires a constant text argument: {folded.message}.",
+            f"Attribute '{attribute.spelling}' requires a constant text argument: "
+            f"{folded.message}.",
             span=folded.span,
         )
     return folded
@@ -734,28 +841,28 @@ def _check_arguments(
     if spec.arguments is AttributeArguments.KEYED_ENTRIES:
         if attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes only keyed arguments.", span=attribute.span
+                f"Attribute '{attribute.spelling}' takes only keyed arguments.", span=attribute.span
             )
         if not attribute.keyed_args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' requires at least one keyed argument.",
+                f"Attribute '{attribute.spelling}' requires at least one keyed argument.",
                 span=attribute.span,
             )
         return None
     if attribute.keyed_args:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' takes no named argument.", span=attribute.span
+            f"Attribute '{attribute.spelling}' takes no named argument.", span=attribute.span
         )
     if spec.arguments is AttributeArguments.NONE:
         if attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes no arguments.", span=attribute.span
+                f"Attribute '{attribute.spelling}' takes no arguments.", span=attribute.span
             )
         return None
     if spec.arguments is AttributeArguments.TEXT_LIST:
         if not attribute.args:
             raise AglScopeError(
-                f"Attribute '@{attribute.name}' takes at least one text argument.",
+                f"Attribute '{attribute.spelling}' takes at least one text argument.",
                 span=attribute.span,
             )
         texts = tuple(_fold_text(attribute, arg, constants, scope_path) for arg in attribute.args)
@@ -763,13 +870,13 @@ def _check_arguments(
         return texts
     if len(attribute.args) != 1:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' takes exactly one text argument.",
+            f"Attribute '{attribute.spelling}' takes exactly one text argument.",
             span=attribute.span,
         )
     folded = _fold_text(attribute, attribute.args[0], constants, scope_path)
     if spec.pattern is not None and spec.pattern.fullmatch(folded) is None:
         raise AglScopeError(
-            f"Attribute '@{attribute.name}' {spec.expected} {folded!r}.",
+            f"Attribute '{attribute.spelling}' {spec.expected} {folded!r}.",
             span=attribute.span,
         )
     return folded
@@ -782,6 +889,34 @@ def _zone_attribute(recognized: _Recognized) -> ParamZone | None:
         if zone is not None:
             return zone
     return None
+
+
+def region_paths(
+    items: tuple[object, ...], prefix: tuple[str, ...]
+) -> Iterator[tuple[int, tuple[str, ...]]]:
+    """Yield ``(node_id, full path)`` for every scope region nested in *items*."""
+    for item in items:
+        if isinstance(item, ScopeRegion):
+            path = (*prefix, item.segment.name)
+            yield item.node_id, path
+            yield from region_paths(item.items, path)
+
+
+def _whole_source(span: SourceSpan, text: str) -> SourceSpan:
+    """Return a span covering all of *text*, which *span* indexes, to the end of its last line.
+
+    The exclusive end is the start of the line after the last, so no column on the last line
+    lies past it.
+    """
+    return replace(
+        span,
+        start_line=1,
+        start_col=1,
+        start_offset=0,
+        end_line=text.count("\n") + 2,
+        end_col=1,
+        end_offset=len(text),
+    )
 
 
 def _from_blank_line_start(span: SourceSpan, text: str) -> SourceSpan:

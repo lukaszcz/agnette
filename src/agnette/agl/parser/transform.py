@@ -158,6 +158,39 @@ class _RouteToken:
     span: SourceSpan
 
 
+@dataclass(frozen=True, slots=True)
+class _ModuleBody:
+    """Transformer-internal module-root block with its inner attributes."""
+
+    block: syntax.Block
+    attributes: tuple[syntax.Attribute, ...]
+
+
+MISPLACED_INNER_ATTRIBUTE_MESSAGE = (
+    "inner attribute must precede every other item of its module or scope region."
+)
+
+
+def _split_inner_attributes(args: _Args) -> tuple[tuple[syntax.Attribute, ...], _Args]:
+    """Split the inner attributes off a module or region's children.
+
+    They head the module or region that encloses them, so one after the first
+    item is rejected. Tokens and scope paths are structure, not items.
+    """
+    attributes: list[syntax.Attribute] = []
+    rest: _Args = []
+    seen_item = False
+    for arg in args:
+        if isinstance(arg, syntax.Attribute):
+            if seen_item:
+                raise AglSyntaxError(MISPLACED_INNER_ATTRIBUTE_MESSAGE, span=arg.span)
+            attributes.append(arg)
+            continue
+        rest.append(arg)
+        seen_item = seen_item or not isinstance(arg, (Token, _ScopePath))
+    return tuple(attributes), rest
+
+
 def _prefix_scope_path(
     item: syntax.ScopeItem, prefix: tuple[syntax.ScopeSegment, ...]
 ) -> syntax.ScopeItem:
@@ -401,8 +434,8 @@ class AstBuilder(Transformer):
         # Source identity stamped on every span this builder constructs.
         # Defaults to UNKNOWN_SOURCE when no source is supplied.
         self._source: SourceId = source if source is not None else UNKNOWN_SOURCE
-        # Transcript parsing discovers entry boundaries only; each entry is
-        # parsed normally before evaluation and owns its own header ordering.
+        # A file load converts items apart from their module; each entry owns its own
+        # header ordering.
         self._allow_late_uses = allow_late_uses
 
     def _source_start_span(self) -> SourceSpan:
@@ -459,12 +492,24 @@ class AstBuilder(Transformer):
     # ------------------------------------------------------------------
 
     def start(self, meta: Meta, args: _Args) -> syntax.Program:
-        block = cast(syntax.Block, args[0])
+        body = cast(_ModuleBody, args[0])
+        block = body.block
         stray_end = next((item for item in block.items if _is_stray_scope_end(item)), None)
         if stray_end is not None:
             raise AglSyntaxError("stray 'end'; no scope region is open.", span=stray_end.span)
         span = self._span_from_meta(meta)
-        return syntax.Program(body=block, span=span, node_id=self._next_id())
+        return syntax.Program(
+            body=block, span=span, node_id=self._next_id(), attributes=body.attributes
+        )
+
+    def type_entry(
+        self, meta: Meta, args: _Args
+    ) -> tuple[tuple[syntax.Attribute, ...], syntax.TypeExpr]:
+        """Build a REPL bare type entry: its inner attributes and its type expression."""
+        attributes = tuple(a for a in args if isinstance(a, syntax.Attribute))
+        # A ``;`` separator reaches the children as a token; the type is the last non-token.
+        type_expr = next(a for a in reversed(args) if not isinstance(a, Token))
+        return attributes, cast(syntax.TypeExpr, type_expr)
 
     def _build_block(self, meta: Meta, args: _Args) -> syntax.Block:
         """Build a root or suite block from its non-layout children."""
@@ -477,16 +522,17 @@ class AstBuilder(Transformer):
             node_id=self._next_id(),
         )
 
-    def module_block(self, meta: Meta, args: _Args) -> syntax.Block:
+    def module_block(self, meta: Meta, args: _Args) -> _ModuleBody:
         """Build the module-root block, whose items may include scope regions.
 
         It is also the only block that may be empty: a source holding no items
-        is a legal, empty module.
+        is a legal, empty module. Leading inner attributes are split off.
         """
-        block = self._build_block(meta, args)
+        attributes, rest = _split_inner_attributes(args)
+        block = self._build_block(meta, rest)
         if not self._allow_late_uses:
             self._validate_use_placement(block.items)
-        return block
+        return _ModuleBody(block, attributes)
 
     def _validate_use_placement(self, items: tuple[syntax.Item, ...]) -> None:
         """Require use declarations to remain in the header portion of a block.
@@ -600,6 +646,7 @@ class AstBuilder(Transformer):
 
     def scope_region(self, meta: Meta, args: _Args) -> syntax.ScopeRegion:
         """Build and normalize a scope region with a matching closer."""
+        attributes, args = _split_inner_attributes(args)
         paths = [arg for arg in args if isinstance(arg, _ScopePath)]
         header, closer = paths
         if tuple(name for name, _span in closer.segments) != tuple(
@@ -633,7 +680,11 @@ class AstBuilder(Transformer):
         *outer, innermost = segments
         span = self._span_from_meta(meta)
         region = syntax.ScopeRegion(
-            segment=innermost, items=items, span=span, node_id=self._next_id()
+            segment=innermost,
+            items=items,
+            span=span,
+            node_id=self._next_id(),
+            attributes=attributes,
         )
         for segment in reversed(outer):
             region = syntax.ScopeRegion(
@@ -738,7 +789,14 @@ class AstBuilder(Transformer):
         return tuple(a for a in args if isinstance(a, syntax.Attribute))
 
     def attribute(self, meta: Meta, args: _Args) -> syntax.Attribute:
-        """attribute: AT NAME (LPAR attr_arg_list? RPAR)? — kept exactly as written."""
+        """attribute: AT NAME (LPAR attr_arg_list? RPAR)? — kept as written."""
+        return self._attribute(meta, args, inner=False)
+
+    def inner_attribute(self, meta: Meta, args: _Args) -> syntax.Attribute:
+        """inner_attribute: the same shape, introduced by ``@!``."""
+        return self._attribute(meta, args, inner=True)
+
+    def _attribute(self, meta: Meta, args: _Args, *, inner: bool) -> syntax.Attribute:
         name_tok = next(a for a in args if _is_name_token(a))
         span = self._span_from_meta(meta)
         raw_pos: list[_RawAttrPosArg] = []
@@ -752,6 +810,7 @@ class AstBuilder(Transformer):
             keyed_args=tuple(keyed_args),
             span=span,
             node_id=self._next_id(),
+            inner=inner,
         )
 
     # ------------------------------------------------------------------

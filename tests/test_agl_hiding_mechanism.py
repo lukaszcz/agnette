@@ -22,7 +22,6 @@ import pytest
 from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.scope.symbols import (
-    AglScopeError,
     AmbiguousConstructorError,
     DuplicateDeclarationError,
     UnknownMemberError,
@@ -124,7 +123,7 @@ _SCENARIOS = {
         modules={"lib": _LIB},
         header=("import lib::* hiding f",),
         probes={
-            "bare-unknown": rejected("f()", AglScopeError, "f"),
+            "bare-unknown": rejected("f()", HiddenMemberError, "f"),
             "route-hidden": rejected("lib::f()", HiddenMemberError, "lib::f"),
             "kept": accepted("lib::S::y()", "int"),
         },
@@ -248,7 +247,7 @@ _SCENARIOS = {
         modules={"lib": _LIB},
         header=("import lib::* hiding S::x\nuse S::*",),
         probes={
-            "bare-hidden": rejected("x()", AglScopeError, "x"),
+            "bare-hidden": rejected("x()", HiddenMemberError, "x"),
             "bare-kept": accepted("y()", "int"),
         },
     ),
@@ -408,7 +407,7 @@ _REACHED_ONE_WAY = {
         },
         header=("import mid::*",),
         probes={
-            "bare": rejected("f()", AglScopeError, "f"),
+            "bare": rejected("f()", HiddenMemberError, "f"),
             "member": rejected("S::x()", HiddenMemberError, "S::x"),
             "use-alias": rejected("use S as X", HiddenMemberError, "use S as X"),
             "region-kept": accepted("R::S::x()", "int"),

@@ -254,6 +254,10 @@ class AglError(Exception):
         primary = diagnostic_from_span(str(self), self.span)
         return replace(primary, related=related)
 
+    def diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Every diagnostic this error reports; consumers render this, not one diagnostic."""
+        return (self.to_diagnostic(),)
+
 
 class AglSyntaxError(AglError):
     """A syntax error: raised by the parser, and by operator grouping and fixity.

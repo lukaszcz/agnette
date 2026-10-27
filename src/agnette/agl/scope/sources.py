@@ -44,6 +44,7 @@ from agnette.agl.scope.imports import (
     QName,
     ScopeOrigins,
     contribution_routes,
+    import_env_depth,
     qualifier_candidates,
     qualifier_exposures,
     qualifier_member_ways,
@@ -71,6 +72,7 @@ from agnette.agl.scope.lookup import (
     read_steps,
     shadowed_by_type_parameter,
 )
+from agnette.agl.scope.read_memo import ReadMemo, ValueReads
 from agnette.agl.scope.symbols import (
     AmbiguousConstructorError,
     BinderKind,
@@ -93,6 +95,7 @@ from agnette.agl.scope.symbols import (
     anchored_layers,
     contribution_origin,
     contribution_origins,
+    import_item_path,
     layered,
     relative_under,
 )
@@ -302,11 +305,45 @@ class ModuleSources(SourcesHost):
         # What the imports a qualifier route names expose -- the root-position
         # tails' under ``None`` -- by the first segment of each exposed path.
         self._exposures: dict[Route | None, dict[str, list[_Exposed]]] = {}
+        # The first names of the paths beneath each imported module's root
+        # (:meth:`module_first_names`).
+        self._module_names: dict[ModuleId, frozenset[str]] = {}
         # Once the tables the resolver collects are complete (:meth:`_keep_readings`),
         # the contributions at each full path and the own types, by what they are read with.
         self._keeping_readings = False
-        self._kept_contributions: dict[tuple[ScopePath, ScopePath, LookupKind], Reading] = {}
-        self._kept_own_types: dict[ScopePath, Reading] = {}
+        # The reads of own values, which tell the kept results that depend on them.
+        self.value_reads = ValueReads()
+        self._kept_contributions = ReadMemo[
+            tuple[int | None, tuple[ScopePath, ScopePath, LookupKind]], Reading
+        ](self.value_reads)
+        self._kept_own_types = ReadMemo[tuple[int | None, ScopePath], Reading](self.value_reads)
+        self._reach_depth: tuple[int, int] | None = None
+
+    @property
+    def reach_depth(self) -> int:
+        """Twice the longest stored path, plus slack for a route and a path beneath an alias.
+
+        Stored paths are the module's scopes, declarations and retained types,
+        its uses' targets and items, and what its imports name or expose.
+        Recomputed when a use is written.
+        """
+        written = self._uses.write_count
+        if self._reach_depth is None or self._reach_depth[0] != written:
+            longest = [
+                import_env_depth(self._import_env),
+                *(len(path) for path in self._scope_nodes),
+                *(len(path) for path in self._repl_session_type_paths),
+                *(len(path) + 1 for _declaration, path in self._type_declarations),
+                *(len(path) + 1 for _module_id, path, _name in self._declarations),
+            ]
+            for layer in (self._root_scope, *self._scope_nodes.values()):
+                for decl in layer.uses:
+                    items = (*(decl.tail or ()), *decl.hidden)
+                    longest.append(
+                        len(decl.target) + max((len(import_item_path(i)) for i in items), default=0)
+                    )
+            self._reach_depth = written, 2 * max(longest) + 2
+        return self._reach_depth[1]
 
     def _declared_type_owners(self) -> dict[ScopePath, TypeOwner]:
         """Return the owner each type this module declares resolves to."""
@@ -540,23 +577,32 @@ class ModuleSources(SourcesHost):
     def _keep_readings(self) -> None:
         """Keep what each full path's contributions and own types read from now on.
 
-        The resolver calls this once the tables it collects are complete, its
-        own types are resolved, and its walk binds nothing a path read sees.
-        A type's resolution reads only its declaring module, so no read from
-        now on presumes a type being resolved. A read made while a use's own
-        read is in progress, which sees only the uses written before it, is
-        not kept.
+        The resolver calls this once the tables it collects are complete and
+        its own types are resolved. A type's resolution reads only its
+        declaring module, so no read from now on presumes a type being
+        resolved. A read made while a use's own read is in progress, which
+        sees only the uses written before it, is kept for that use. A walk
+        that binds an own value discards only the kept results that read
+        that value (:meth:`_bound_own_value`).
         """
         self._keeping_readings = True
+        self._uses.share_reads()
 
-    def _kept[K, V](self, kept: dict[K, V], key: K, read: Callable[[], V]) -> V:
-        """Return what *read* reads, kept in *kept* under *key* when it is final."""
-        if not (self._keeping_readings and self._uses.reads_every_use):
+    def _bound_own_value(self, path: ScopePath) -> None:
+        """Discard what was kept from the own value at *path*: the walk bound it.
+
+        A static-root module binds every value up front; any other installs a
+        root or scoped let/var only where its walk reaches it.
+        """
+        self.value_reads.bound(path)
+
+    def _kept[K, V](
+        self, kept: ReadMemo[tuple[int | None, K], V], key: K, read: Callable[[], V]
+    ) -> V:
+        """Return what *read* reads, kept in *kept* under *key* and the uses it sees when final."""
+        if not (self._keeping_readings and self._uses.settled_view):
             return read()
-        found = kept.get(key)
-        if found is None:
-            found = kept[key] = read()
-        return found
+        return kept.get((self._uses.horizon, key), read)
 
     def own_at(self, path: ScopePath, kind: LookupKind) -> Reading:
         """This module's own declarations of *kind* at full *path*."""
@@ -573,10 +619,13 @@ class ModuleSources(SourcesHost):
                 if self._type_owners.is_declared(qname)
                 else None
             )
-        elif len(path) == 1:
-            target = self._own_root_value(path[0])
         else:
-            target = self._own_scoped_value(path[:-1], path[-1])
+            self.value_reads.note(path)
+            target = (
+                self._own_root_value(path[0])
+                if len(path) == 1
+                else self._own_scoped_value(path[:-1], path[-1])
+            )
         if target is None or not self.fits(target, kind):
             return Reading()
         layer = ContributionLayer.DECLARED
@@ -1518,7 +1567,7 @@ class ModuleSources(SourcesHost):
                         self._region_import_ways(layer, exposed, qname),
                         typed=ref.contributes_a_type,
                     )
-            for decl in self._uses.visible(layer):
+            for decl in self._uses.visible_exposing(layer, relative):
                 found |= self._uses.origins(layer.scope_path, decl, relative)
         env = self._import_env
         for exposed, qname, ways in self._exposed(None).get(path[0], ()):
@@ -1533,6 +1582,24 @@ class ModuleSources(SourcesHost):
                             (module, _route_root(source, rest)), (ImportWay(node_id),)
                         )
         return frozenset(found | self.module_route_origins((path[0],), path[1:], anchored=False))
+
+    def module_first_names(self, origin: QName) -> frozenset[str] | None:
+        """The first names a path beneath *origin* can start with, a module's root alone.
+
+        Every name an imported module's routes bring, whatever the route; ``None`` for any
+        other origin, whose surface is not enumerated.
+        """
+        module, atom = origin
+        contribution = self._import_env.contributions.get(module)
+        if atom != () or module == self._module_id or contribution is None:
+            return None
+        found = self._module_names.get(module)
+        if found is None:
+            atoms = [*contribution.members, *contribution.exports]
+            for surface in contribution.routes.values():
+                atoms.extend((*surface.members, *surface.scope_paths))
+            found = self._module_names[module] = frozenset(_bare_path(a)[0] for a in atoms)
+        return found
 
     def routed_origins(self, route: Route, path: ScopePath) -> frozenset[Origin]:
         """The scopes and types module *route* reaches as *path* beneath it."""
@@ -1799,10 +1866,9 @@ class ModuleSources(SourcesHost):
     ) -> Iterator[tuple[Candidate, UseDecl]]:
         """Yield what each use visible at or above *step* exposes of *kind* at full *path*."""
         for layer, atom in anchored_layers(self._scope_nodes, step, path):
-            for decl in self._uses.visible(layer):
-                for candidate in self._uses.exposure(
-                    layer.scope_path, decl, _bare_path(atom), kind
-                ):
+            relative = _bare_path(atom)
+            for decl in self._uses.visible_exposing(layer, relative):
+                for candidate in self._uses.exposure(layer.scope_path, decl, relative, kind):
                     yield candidate, decl
 
     def _value_binding(self, target: QualifiedTarget, span: SourceSpan) -> BindingRef | None:

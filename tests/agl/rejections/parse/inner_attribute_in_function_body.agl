@@ -1,0 +1,5 @@
+def f() -> int =
+  @!doc("x")
+  1
+
+program def main() -> unit = print f()

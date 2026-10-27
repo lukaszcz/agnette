@@ -60,7 +60,7 @@ Local captures apply only in code, including brackets and interpolation:
 
 | Construct | Approximation |
 | --- | --- |
-| Attributes | `@` and an identifier on the same line; arguments remain ordinary code. |
+| Attributes | `@` or `@!` and an identifier on the same line; arguments remain ordinary code. |
 | Declarations | Identifier immediately after `record`, `enum`, `type`, or `exception`; no intervening attributes/comments or reference seeding. |
 | Variants | Identifier immediately after standalone `\|`, without enum-owner tracking. |
 | Modules | Contiguous slash paths, wildcard suffixes and qualifiers anywhere in code, not just module headers; qualifier type arguments remain call syntax. |

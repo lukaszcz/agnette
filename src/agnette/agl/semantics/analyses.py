@@ -173,6 +173,7 @@ class _InhabitationSolver:
         "_relevant",
         "_rank",
         "_inhabited",
+        "_chain_inhabited",
         "_demanded",
         "_readers",
         "_queue",
@@ -195,6 +196,8 @@ class _InhabitationSolver:
         )
         self._rank = {decl_id: rank for rank, comp in enumerate(components) for decl_id in comp}
         self._inhabited: set[InhabitationKey] = set()
+        # Exceptions whose own and inherited fields are all inhabited.
+        self._chain_inhabited: set[DeclId] = set()
         self._demanded: set[InhabitationKey] = set()
         # Key -> same-SCC keys whose evaluation read it while not yet inhabited.
         self._readers: dict[InhabitationKey, set[InhabitationKey]] = {}
@@ -258,18 +261,25 @@ class _InhabitationSolver:
             return _any_inhabited(
                 self._read((child_id, ())) for child_id in self._table.exception_children(decl_id)
             )
+        # Walk up to the nearest ancestor already known to be inhabited with all of
+        # its own ancestors: what lies above it need not be read again.
         chain = [decl_id]
+        seen = {decl_id}
         base = typedef.base
-        while base is not None:
-            if base in chain:
+        while base is not None and base not in self._chain_inhabited:
+            if base in seen:
                 return False
+            seen.add(base)
             chain.append(base)
             base = self._defs[base].base
-        return _all_inhabited(
+        result = _all_inhabited(
             self._type_inhabited(t, {})
             for ancestor in chain
             for _fname, t in self._defs[ancestor].fields
         )
+        if result:
+            self._chain_inhabited.update(chain)
+        return result
 
     def _type_inhabited(self, t: Type, env: Mapping[str, bool]) -> bool | None:
         match t:

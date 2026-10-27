@@ -85,7 +85,7 @@
 %declare TO DOWNTO STEP
 %declare INT DECIMAL
 %declare ASSIGN EQ EQ_EQ NEQ LT LE GT GE
-%declare PLUS MINUS STAR SLASH AT
+%declare PLUS MINUS STAR SLASH AT INNER_AT
 %declare ARROW THIN_ARROW
 %declare LPAR RPAR LSQB INDEX_LSQB TYPEARG_LSQB RSQB LBRACE CALL_LBRACE RBRACE COLON DCOLON COMMA SEMICOLON PIPE DOT
 %declare DO_LSQB
@@ -96,13 +96,19 @@
 
 start: module_block
 
+// REPL bare type entry: optional leading inner attributes, then one type expression.
+type_entry: (inner_attribute _sep)* type_expr _sep?
+
 // The module root is the only normal block that admits scope regions.  It is
 // also the only block that may be empty: a source file holding no items at all
 // is a legal, empty module.
 module_block: (module_item (_sep module_item)* _sep?)?
 
+// Inner attributes are accepted anywhere in the module's item sequence; the
+// tree builder requires them to lead it.
 ?module_item: scope_region
             | item
+            | inner_attribute
 
 // A block is a sequence of non-region items separated by newlines or semicolons.
 // The block's value is its last item.
@@ -155,10 +161,13 @@ scope_region: SCOPE scope_path _sep END scope_path
 
 scope_path: MODQUAL* NAME
 
+// Inner attributes are accepted anywhere here; the tree builder requires them
+// to lead the region.
 ?scope_item: scope_region
            | declaration
            | binder
            | expr
+           | inner_attribute
 
 // ---------------------------------------------------------------------------
 // Declaration attributes
@@ -172,6 +181,10 @@ scope_path: MODQUAL* NAME
 attributes: attribute+
 
 attribute: AT NAME (LPAR attr_arg_list? RPAR)? _NEWLINE?
+
+// An inner attribute `@!name` / `@!name(args)` heads the module or scope region
+// that encloses it. It takes no trailing `_NEWLINE?`: the item separator ends it.
+inner_attribute: INNER_AT NAME (LPAR attr_arg_list? RPAR)?
 
 // An attribute's own argument list: an ordinary positional argument, or a
 // keyed argument whose key is a reference (see AttributeKeyedArg for the

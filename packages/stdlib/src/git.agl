@@ -1,22 +1,25 @@
-# Git repositories, driven by the `git` executable (minimum git 2.36).
-#
-# Paths: every repository-content path, argument or result, is relative to the work-tree root and
-# matched literally (no globbing). `repo` names any directory inside the target work tree and, like
-# every filesystem location, resolves relative to the process working directory; for `init` and
-# `clone` it is the directory to create.
-#
-# Refs: a `ref` is any revision text git accepts. Functions that pass it to git do so in a form
-# that cannot be read as an option.
-#
-# Errors: every failed git invocation raises `GitError`; failures are never classified by message
-# text. An operation that can stop on conflicts returns an outcome with a `Conflicted` member and
-# leaves the repository mid-operation. `exec` failures (timeout, undecodable output) propagate as
-# `ExecError`.
-#
-# Git runs with the ambient `std/env::environ` and `std/config::timeout`, plus fixed
-# non-interactive overrides: git's terminal prompts are off, while credential helpers and askpass
-# programs of the environment still apply. ssh's own prompts (host key, passphrase on /dev/tty) are
-# not covered by `GIT_TERMINAL_PROMPT`.
+@!doc("""
+  Git repositories, driven by the `git` executable (minimum git 2.36).
+
+  Paths: every repository-content path, argument or result, is relative to the work-tree root and
+  matched literally (no globbing). `repo` names any directory inside the target work tree and, like
+  every filesystem location, resolves relative to the process working directory; for `init` and
+  `clone` it is the directory to create.
+
+  Refs: a `ref` is any revision text git accepts. Functions that pass it to git do so in a form
+  that cannot be read as an option.
+
+  Errors: every failed git invocation raises `GitError`; failures are never classified by message
+  text. An operation that can stop on conflicts returns an outcome with a `Conflicted` member and
+  leaves the repository mid-operation. `exec` failures (timeout, undecodable output) propagate as
+  `ExecError`.
+
+  Git runs with the ambient `std/env::environ` and `std/config::timeout`, plus fixed
+  non-interactive overrides: git's terminal prompts are off, while credential helpers and askpass
+  programs of the environment still apply. ssh's own prompts (host key, passphrase on /dev/tty) are
+  not covered by `GIT_TERMINAL_PROMPT`.
+""")
+
 import std/array
 import std/env
 import std/errors::Exception

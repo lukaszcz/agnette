@@ -27,7 +27,7 @@ from prompt_toolkit.output import Output
 from agnette.agl.highlight.categories import Category
 from agnette.agl.highlight.lexical import repl_spans
 from agnette.agl.keywords import KEYWORDS, SOFT_KEYWORDS
-from agnette.agl.lexer import lex_open_quote_start
+from agnette.agl.lexer import LexedSource, lex_open_quote_start, lex_source
 from agnette.agl.repl import meta as meta_mod
 from agnette.agl.repl.loop import CONTINUATION, PROMPT, is_incomplete, run_repl_loop
 from agnette.agl.repl.themes import get_style
@@ -172,7 +172,7 @@ class AglCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         del complete_event
-        if document.text_before_cursor.lstrip().startswith(":"):
+        if meta_mod.is_meta_line(document.text_before_cursor):
             yield from self._meta_completions(document)
             return
         yield from self._word_completions(document)
@@ -214,14 +214,34 @@ def _completion_word_before_cursor(text_before_cursor: str) -> str | None:
     return None if match is None else match.group(0)
 
 
-def _make_key_bindings() -> KeyBindings:
+class _EntryClassifier:
+    """Lexes the buffer the Enter key classifies and remembers that lex.
+
+    The entry the prompt then returns is the lexed buffer, so :func:`run_repl_loop`
+    reuses the lex instead of scanning the entry again.
+    """
+
+    def __init__(self) -> None:
+        self._latest: LexedSource | None = None
+
+    def is_incomplete(self, text: str) -> bool:
+        self._latest = lex_source(text)
+        return is_incomplete(self._latest)
+
+    def entry(self, text: str) -> str | LexedSource:
+        """Return the entry the prompt returned as its lex when the last classification was it."""
+        latest, self._latest = self._latest, None
+        return latest if latest is not None and latest.text == text else text
+
+
+def _make_key_bindings(classifier: _EntryClassifier) -> KeyBindings:
     """Bind Enter to AgL-aware continuation without using the Any-typed app."""
     bindings = KeyBindings()
 
     @bindings.add("enter")
     def _on_enter(event: KeyPressEvent) -> None:
         buffer = event.current_buffer
-        if is_incomplete(buffer.text):
+        if classifier.is_incomplete(buffer.text):
             buffer.insert_text("\n")
         else:
             buffer.validate_and_handle()
@@ -243,6 +263,7 @@ def build_prompt_session(
     history_path: Path | None = None,
     input: Input | None = None,
     output: Output | None = None,
+    classifier: _EntryClassifier | None = None,
 ) -> PromptSession[str]:
     """Construct the styled, multiline REPL prompt with injectable terminal I/O."""
     return PromptSession(
@@ -252,7 +273,7 @@ def build_prompt_session(
         history=_make_history(history_path),
         style=get_style(theme),
         multiline=True,
-        key_bindings=_make_key_bindings(),
+        key_bindings=_make_key_bindings(classifier or _EntryClassifier()),
         prompt_continuation=_prompt_continuation,
         input=input,
         output=output,
@@ -277,9 +298,18 @@ def run_console(
     output: Output | None = None,
 ) -> None:
     """Wire prompt_toolkit to the shared loop, including live theme persistence."""
+    classifier = _EntryClassifier()
     prompt_session = build_prompt_session(
-        session, theme=theme, history_path=history_path, input=input, output=output
+        session,
+        theme=theme,
+        history_path=history_path,
+        input=input,
+        output=output,
+        classifier=classifier,
     )
+
+    def reader() -> str | LexedSource:
+        return classifier.entry(prompt_session.prompt())
 
     def on_setting_change(key: str, value: str | bool) -> None:
         if key == "theme" and isinstance(value, str):
@@ -297,7 +327,7 @@ def run_console(
 
     run_repl_loop(
         session,
-        reader=prompt_session.prompt,
+        reader=reader,
         writer=print,
         echo=echo,
         echo_unit=echo_unit,

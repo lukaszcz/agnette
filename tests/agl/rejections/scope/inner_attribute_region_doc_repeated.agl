@@ -1,0 +1,6 @@
+scope S
+  @!doc("one")
+  @!doc("two")
+end S
+
+program def main() -> unit = ()

@@ -363,7 +363,7 @@ class TestAliasMembersBesideSameSpelledImports:
 
 _DECOY = 'scope S\n  record T\n    x: int\n  def T::f() -> text = ""\nend S\n'
 _INNER = (
-    "  scope S\n    record T\n      x: int\n    def T::f() -> int = 1\n  end S\n  type A = S::T\n"
+    "  scope S\n    record T\n      x: int\n    def T::f() -> int = 1\n  end S\n\n  type A = S::T\n"
 )
 _REGION = f"scope R\n{_INNER}end R\n"
 _NESTED_LIB = f"{_DECOY}\n{_REGION}"

@@ -76,6 +76,7 @@ __all__ = [
     "Route",
     "Via",
     "lookup_bare",
+    "lookup_bare_hidden",
     "lookup_constructors",
     "lookup_declared",
     "lookup_hidden",
@@ -213,6 +214,17 @@ type PathReader = Callable[[ScopePath, LookupKind], Reading]
 
 class PathSources(DeclarationNames, Protocol):
     """The declarations and contributions a lookup reads, by full path."""
+
+    @property
+    def reach_depth(self) -> int:
+        """The segment count beyond which no path names a scope or type, or lies in a surface.
+
+        A path reaches only what some declaration, import or use stores a path
+        for; none longer than this (with the slack a route and a path beneath
+        an alias add) reaches anything, so a longer written chain is not read
+        prefix by prefix.
+        """
+        ...
 
     def own_at(self, path: ScopePath, kind: LookupKind) -> Reading:
         """The module's own declarations of *kind* at full *path*."""
@@ -411,6 +423,36 @@ def lookup_bare(
     return walk.find(kind)
 
 
+def lookup_bare_hidden(
+    sources: PathSources,
+    name: str,
+    scope_path: ScopePath,
+    kind: LookupKind,
+    *,
+    span: SourceSpan,
+    contributions: bool = True,
+    constructors: bool = False,
+) -> HiddenMemberError | None:
+    """Return bare *name* of *kind*, as hidden when only ``hiding`` lost it.
+
+    Reached, at some step, are declarations, scopes or types every way reaching
+    them removes and, at no step, one that is kept: the verdict a qualified
+    spelling gets in that case (:meth:`_Walk.bare_removed`). Meant for a
+    spelling :func:`lookup_bare` found nothing for. With *constructors*, only the
+    constructors count, as in a pattern.
+    """
+    steps = tuple(
+        _step(sources, step, injects=kind is LookupKind.VALUE, contributions=contributions)
+        for step in lookup_steps(scope_path)
+    )
+    walk = _Walk(sources, scope_path, steps, (), None, (name,), span, in_pattern=constructors)
+    return (
+        HiddenMemberError("", name, span=span)
+        if walk.bare_removed(kind, constructors=constructors)
+        else None
+    )
+
+
 def lookup_constructors(
     sources: PathSources, name: str, scope_path: ScopePath
 ) -> tuple[Candidate, ...]:
@@ -516,6 +558,23 @@ def lookup_reached_origins(
     return _chain_walk(sources, chain, scope_path, chain.span).origins()
 
 
+def spelled_origins(
+    sources: PathSources,
+    target: tuple[str, ...] | QualifierChain,
+    scope_path: ScopePath,
+    *,
+    anchored: bool = False,
+) -> frozenset[Origin]:
+    """Return the scopes and types *target* names, removed ones too.
+
+    A slash route (a tuple, ``anchored`` when written ``/a/b``) names modules; a chain
+    is walked as :func:`lookup_reached_origins` does.
+    """
+    if isinstance(target, tuple):
+        return sources.routed_origins(Route(target, anchored), ())
+    return lookup_reached_origins(sources, target, scope_path)
+
+
 def lookup_hidden(
     sources: PathSources, chain: QualifierChain, scope_path: ScopePath, owners_within: int | None
 ) -> HiddenMemberError | None:
@@ -539,10 +598,11 @@ def _chain_walk(
     via: Via | None = None,
     *,
     constructors: Callable[[Mapping[ConstructorRef, Layers]], AglError] | None = None,
+    in_pattern: bool = False,
 ) -> _Walk:
     """The walk of *chain*'s full path, written in *scope_path*, read through *via*.
 
-    *span* locates a ``::name`` miss.
+    *span* locates a ``::name`` miss; *in_pattern* is as for :class:`_Walk`.
     """
     names = (*(segment.name for segment in chain.segments), chain.member)
     anchor = _anchor(sources, chain, scope_path, via)
@@ -555,6 +615,7 @@ def _chain_walk(
         names,
         span,
         constructors=constructors,
+        in_pattern=in_pattern,
     )
 
 
@@ -573,7 +634,14 @@ def lookup_qualified(
     :class:`Misfit`. *span* locates a ``::name`` miss; *constructors*, when
     given, reports an ambiguity among constructors alone.
     """
-    walk = _chain_walk(sources, chain, scope_path, span, constructors=constructors)
+    walk = _chain_walk(
+        sources,
+        chain,
+        scope_path,
+        span,
+        constructors=constructors,
+        in_pattern=kind is LookupKind.CONSTRUCTOR,
+    )
     names = walk.names
     found = walk.find(kind)
     if found is not None:
@@ -593,7 +661,7 @@ def lookup_qualified(
     hidden = walk.reached_hidden()
     if hidden is not None:
         return hidden
-    return _unknown(chain, names, walk.written)
+    return _unknown(chain, names, walk.reaching(len(names)), walk.written)
 
 
 def unknown_member(
@@ -773,7 +841,9 @@ class _Walk:
 
     *site* is the scope the spelling is written in; *route* is the module
     route it leads with, if any; *constructors*, when given, reports an
-    ambiguity among constructors alone.
+    ambiguity among constructors alone. With *in_pattern*, ``hiding`` removes
+    only constructors, as a pattern or ``is`` spelling reads them: any other
+    declaration it reaches is read as the visible one.
     """
 
     def __init__(
@@ -787,10 +857,12 @@ class _Walk:
         span: SourceSpan,
         *,
         constructors: Callable[[Mapping[ConstructorRef, Layers]], AglError] | None = None,
+        in_pattern: bool = False,
     ) -> None:
         self._sources = sources
         self._site = site
         self._constructors = constructors
+        self._in_pattern = in_pattern
         self._steps = steps
         self._route = route
         self._chain = chain
@@ -798,6 +870,8 @@ class _Walk:
         self._span = span
         self._refusals: list[AglError] = []
         self._reached: dict[tuple[ScopePath, int], tuple[Candidate, ...]] = {}
+        # Per step path: how far its counts were scanned, and those reaching a type.
+        self._owning: dict[ScopePath, tuple[int, list[int]]] = {}
 
     def find(self, kind: LookupKind) -> QualifiedTarget | AglError | None:
         """Return what the first step selecting a declaration of *kind* selects."""
@@ -834,7 +908,7 @@ class _Walk:
         owning the rest of the path.
         """
         sources, names = self._sources, self._names
-        for count in range(self._steps[0].start + 1, len(names) + 1):
+        for count in range(self._steps[0].start + 1, self.reaching(len(names)) + 1):
             reached = False
             for step in self._steps:
                 owners = self._owners(step, count) if count < len(names) else ()
@@ -850,10 +924,21 @@ class _Walk:
                     return True
         return False
 
+    def reaching(self, count: int) -> int:
+        """*count* names, or as many as can reach anything: no longer prefix names a scope or type.
+
+        A chain far longer than any stored path is not read prefix by prefix.
+        """
+        return min(count, self._sources.reach_depth + max(step.start for step in self._steps) + 1)
+
     def written(self, prefix: QualifierChain) -> _Walk:
         """The walk of *prefix*, a prefix of this walk's spelling, over the same steps."""
         names = self._names[: len(prefix.segments) + 1]
-        return _Walk(self._sources, self._site, self._steps, self._route, prefix, names, self._span)
+        walk = _Walk(self._sources, self._site, self._steps, self._route, prefix, names, self._span)
+        # A prefix's walk reads the same names, so it shares the types they reach.
+        walk._reached = self._reached
+        walk._owning = self._owning
+        return walk
 
     def reached(
         self,
@@ -891,6 +976,28 @@ class _Walk:
                 break
             removed = removed or dropped
         return removed if keep_removed else ()
+
+    def bare_removed(self, kind: LookupKind, *, constructors: bool = False) -> bool:
+        """Whether the bare name reaches declarations of *kind*, scopes or types, all removed.
+
+        Reached at some step and kept at none. With *constructors*, only
+        constructors are declarations, and scopes and types are none.
+        """
+        sources = self._sources
+        any_removed = False
+        for step in self._steps:
+            reading = self._reading(step, kind, injects=True, owners_within=len(self._names))[0]
+            kept, dropped = self._unremoved(reading)
+            kept_candidates = kept.candidates
+            origins: frozenset[Origin] = frozenset()
+            if constructors:
+                kept_candidates = tuple(c for c in kept_candidates if c.target.constructor)
+            else:
+                origins = step.origins((*step.path, *self._names))
+            if kept_candidates or not all(removed(o.hiding, o.key, sources) for o in origins):
+                return False
+            any_removed = any_removed or bool(dropped or origins)
+        return any_removed
 
     def _decide(self, step: _Step, kind: LookupKind) -> QualifiedTarget | AglError | None:
         """Decide the full path at *step*: own first, then one distinct contribution."""
@@ -964,7 +1071,7 @@ class _Walk:
         As :meth:`_reading` reads it, *owners_within* as there.
         """
         reading = Reading()
-        for count in range(step.start + 1, len(self._names)):
+        for count in self._owning_counts(step, len(self._names)):
             for owner in self._owners(step, count):
                 key = owner.target.key
                 if key is not None and (count <= owners_within or self._sources.aliases(key)):
@@ -983,6 +1090,20 @@ class _Walk:
             prefix = (*step.path, *self._names[:count])
             owners = self._reached[at] = step.owners(prefix).candidates
         return owners
+
+    def _owning_counts(self, step: _Step, upto: int) -> list[int]:
+        """The counts in ``(step.start, upto)`` whose first names reach a type at *step*, ascending.
+
+        Scanned once per count however many prefix walks ask, so a long chain
+        reaching few types costs each walk only those.
+        """
+        scanned, counts = self._owning.get(step.path, (step.start, []))
+        upto = self.reaching(upto)
+        for count in range(scanned + 1, upto):
+            if self._owners(step, count):
+                counts.append(count)
+        self._owning[step.path] = (max(scanned, upto - 1), counts)
+        return [count for count in counts if count < upto]
 
     def _beneath(
         self,
@@ -1027,7 +1148,7 @@ class _Walk:
         found: set[Origin] = set()
         for step in self._steps:
             found |= step.origins((*step.path, *names))
-            for count in range(step.start + 1, len(names)):
+            for count in self._owning_counts(step, len(names)):
                 for owner in self._owners(step, count):
                     key = owner.target.key
                     for origin in sources.projected_origins(key, names[count:]) if key else ():
@@ -1072,7 +1193,9 @@ class _Walk:
         kept: list[Candidate] = []
         dropped: list[Candidate] = []
         for candidate in reading.candidates:
-            gone = removed(candidate.hiding, candidate.target.key, self._sources)
+            gone = (not self._in_pattern or candidate.target.constructor is not None) and removed(
+                candidate.hiding, candidate.target.key, self._sources
+            )
             (dropped if gone else kept).append(candidate)
         chain = self._chain
         if not dropped or chain is None:
@@ -1162,9 +1285,7 @@ class _Walk:
         for its target's spelling. Where no shorter prefix reaches a type,
         nothing is beneath one.
         """
-        if not selecting and any(
-            self._owners(step, shorter) for shorter in range(step.start + 1, count)
-        ):
+        if not selecting and self._owning_counts(step, count):
             prefix = replace(
                 chain, segments=chain.segments[: count - 1], member=self._names[count - 1]
             )
@@ -1179,6 +1300,7 @@ class _Walk:
             )
             # The prefixes it reads are this walk's own.
             walk._reached = self._reached
+            walk._owning = self._owning
             selecting = walk._through_prefixes(
                 step, prefix, LookupKind.TYPE, owners_within=step.start
             ).candidates
@@ -1200,7 +1322,10 @@ class _Walk:
 
 
 def _unknown(
-    chain: QualifierChain, names: ScopePath, written: Callable[[QualifierChain], _Walk]
+    chain: QualifierChain,
+    names: ScopePath,
+    reaching: int,
+    written: Callable[[QualifierChain], _Walk],
 ) -> AglScopeError:
     """An unknown member of the longest prefix naming something, else an unknown qualifier.
 
@@ -1208,9 +1333,10 @@ def _unknown(
     or reaches a type -- through an alias, the path it stands
     for -- whatever its reading's verdict, as a visible path is. A prefix
     naming a value but no qualifier, a removed one included, ends the search:
-    a function, binding or injected enum member is never a qualifier.
+    a function, binding or injected enum member is never a qualifier. No prefix
+    beyond *reaching* names reaches anything, so none is read.
     """
-    for length in range(len(chain.segments), 0, -1):
+    for length in range(min(len(chain.segments), reaching), 0, -1):
         prefix = replace(chain, segments=chain.segments[: length - 1])
         walk = written(prefix)
         if walk.named() or walk.find(LookupKind.TYPE) is not None:

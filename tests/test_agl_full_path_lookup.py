@@ -31,7 +31,6 @@ from agnette.agl.scope.symbols import (
     AmbiguousQualificationError,
     DeclarationSelection,
     DuplicateDeclarationError,
-    NoVisibleConstructorError,
     OwnerMemberSelection,
     TypeArgumentsError,
     UnknownMemberError,
@@ -320,7 +319,7 @@ _SCENARIOS = {
             ),
             "selected-from-both": accepted(_in_region("use Agent::{f, g}", "f() + g()"), "int"),
             "hiding-an-imported-member": rejected(
-                _in_region("use Agent::* hiding f", "f()"), AglScopeError, "f"
+                _in_region("use Agent::* hiding f", "f()"), HiddenMemberError, "f"
             ),
             "selecting-a-member-neither-declares": rejected(
                 _in_region("use Agent::{h}", "1"), UnknownMemberError, "use Agent::{h}"
@@ -390,7 +389,7 @@ _SCENARIOS = {
         header=("import one",),
         probes={
             "hidden-member": rejected(
-                _in_region("use one::C::* hiding Red", "Red"), AglScopeError, "Red"
+                _in_region("use one::C::* hiding Red", "Red"), HiddenMemberError, "Red"
             ),
             "kept-member": accepted(
                 _in_region("use one::C::* hiding Red", "Blue(v = 1)"), _ONE_BLUE
@@ -528,9 +527,9 @@ _SCENARIOS = {
         modules={"a": _REFERENCED_R},
         header=("import std/prelude::* hiding Option::Some", "import a::* hiding R"),
         probes={
-            "prelude-member": rejected("Some(1)", AglScopeError, "Some"),
+            "prelude-member": rejected("Some(1)", HiddenMemberError, "Some"),
             "prelude-sibling": accepted("[None, Option::None]", "array[std/option::Option::None]"),
-            "referenced-member": rejected("R(x = 1)", AglScopeError, "R"),
+            "referenced-member": rejected("R(x = 1)", HiddenMemberError, "R"),
             "referencing-sibling": accepted("B", "record a::A::B"),
         },
     ),
@@ -635,7 +634,7 @@ _SCENARIOS = {
             ),
             "hidden": rejected(
                 _in_region("import lib::* hiding Point\n", "case p of\n    | Point(x) => x"),
-                NoVisibleConstructorError,
+                HiddenMemberError,
                 "Point(x)",
             ),
         },
@@ -702,7 +701,7 @@ _SCENARIOS = {
             ),
             "hiding-a-member-both-declare": rejected(
                 _in_region("use A::*\n  use B::*\n  use X::* hiding h", "h()"),
-                AglScopeError,
+                HiddenMemberError,
                 "h",
             ),
             "exposed-by-enclosing-and-own-region": accepted(
@@ -1566,7 +1565,7 @@ _SCENARIOS = {
             "member": accepted("g()", "int"),
             "through-the-earlier-use": accepted("T::g()", "int"),
             "hidden-by-the-later-use-only": accepted("T::f()", "int"),
-            "hidden": rejected("f()", AglScopeError, "f"),
+            "hidden": rejected("f()", HiddenMemberError, "f"),
         },
     ),
     "a-use-reads-own-bindings-declared-after-it": Scenario(
@@ -1746,7 +1745,7 @@ _SCENARIOS = {
             ),
             "hidden-member": rejected(
                 "scope R\n  import lib::* hiding Color::Red\n  def v() = Red\nend R\n\nR::v()",
-                AglScopeError,
+                HiddenMemberError,
                 "Red",
             ),
             "outside-the-region": rejected(
@@ -1758,7 +1757,7 @@ _SCENARIOS = {
         modules={"M": "scope Agent\n  def f() -> int = 1\n  def g() -> int = 2\nend Agent\n"},
         header=("import M",),
         probes={
-            "bare": rejected(_in_nested("use M::Agent::* hiding f", "f()"), AglScopeError, "f"),
+            "bare": rejected(_in_nested("use M::Agent::* hiding f", "f()"), HiddenMemberError, "f"),
             "bare-kept": accepted(_in_nested("use M::Agent::* hiding f", "g()"), "int"),
             "qualified": rejected(
                 _in_nested("use M::* hiding Agent::f", "Agent::f()"),

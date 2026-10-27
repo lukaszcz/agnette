@@ -1,0 +1,3 @@
+@!allow("no-such-warning")
+
+program def main() -> unit = ()

@@ -32,7 +32,15 @@ The layout rules:
 1. **Indentation width.** Leading spaces count 1 column each; a tab advances
    to the next multiple of 4 columns, but draws the `tab-indentation` [static
    warning](warnings.md). A dedent must return to an active prior
-   indentation level — a misaligned dedent is a lexical error.
+   indentation level, else it is a lexical error. The indentation of the line
+   holding a source's first token is its base; indentation is read relative to
+   it, and a line indented less than the base is a misaligned dedent, except
+   inside brackets (rule 3) and after a line ending in an operator that still
+   awaits its operand, `:=` included (rule 5), where indentation is not
+   measured. Tab stops are measured from the start of the line, so a tab after
+   a base that is not a multiple of 4 spans fewer columns than without the
+   base. The lines inside a triple-quoted string are not layout: when its
+   margin is 0 they keep every column they have, base included.
 2. **Blank lines and comment-only lines** are ignored for layout purposes.
 3. **Implicit continuation inside brackets.** While any `(`, `[`, or `{` is
    open, newlines do not terminate the item; the logical line continues until
@@ -42,8 +50,8 @@ The layout rules:
 4. **Continuation markers.** None of `|`, `else`, `catch`, `until`, `done`,
    `->`, `=>`, and `=` can begin a construct, so a line whose first token is
    one of them always continues the line before it rather than starting a new
-   item, and may sit at any column — including the enclosing construct's —
-   without opening a new block.
+   item, and may sit at any column not less than the base — including the
+   enclosing construct's — without opening a new block.
 
    This is what lets `if`/`case` branches, `else` branches, `catch` clauses,
    enum members, and the `until`/`done` terminator of a loop align with the
@@ -264,8 +272,10 @@ is a qualifier, while `foo / bar::thing` is division followed by a separate
 qualifier. `/` is the division operator only when written with whitespace on
 **both** sides. This matches `+`, `-` and `*`, which are identifier characters
 and so already need surrounding space to read as operators (`a+b` is one
-name). Left unspaced, `/` separates route segments, so a `/` that touches an
-operand on exactly one side is rejected:
+name). Left unspaced, `/` separates route segments: a `/` touching an operand on
+either side (`1/2`, `a/2`, `(1)/(2)`, `a/ b`, `a /b`) is rejected, and so is a
+module route `a/b`, `a/b/c` or `/a/b` anywhere, being no value; reach a member
+of an imported module with `::`:
 
 <!-- agl-check: error -->
 ```agl
@@ -273,6 +283,7 @@ let q = a / b        # division
 let r = a/b::thing   # qualifier
 let s = a/ b         # error: reads as a path, but the segments are split
 let t = a /b         # error: same
+let u = a/b          # error: a module route is not a value
 ```
 
 A chain segment may carry type arguments, as in `Option[int]::Some`, only when
@@ -527,6 +538,20 @@ enum Shape
       width: int
       height: int
   | Empty
+```
+
+`@!` introduces an **inner attribute**: `@!name`, or `@!name(args)`, with `!`
+directly after the `@`. Unlike a prefix attribute it is a complete item that
+ends at the item separator (a newline or `;`): it attaches to the enclosing module or scope region, not to
+what follows.
+
+```agl
+@!doc("Shared helpers.")
+@!allow("tab-indentation")
+
+scope internal
+  @!doc("Not for direct use.")
+end internal
 ```
 
 Placement, catalog, and arguments: [Attributes](attributes.md).

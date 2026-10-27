@@ -279,6 +279,7 @@ def _walk_attributes(attributes: tuple[Attribute, ...], callback: Callback) -> N
 
 
 def _walk_program(node: Program, callback: Callback) -> None:
+    _walk_attributes(node.attributes, callback)
     walk(node.body, callback)
 
 
@@ -427,6 +428,7 @@ def _walk_builtin_var_decl(node: BuiltinVarDecl, callback: Callback) -> None:
 
 
 def _walk_scope_region(node: ScopeRegion, callback: Callback) -> None:
+    _walk_attributes(node.attributes, callback)
     walk(node.segment, callback)
     for scope_item in node.items:
         walk(scope_item, callback)

@@ -1,0 +1,42 @@
+# Inner attributes document the module root or a scope region they head.
+# Constant folding and holes resolve from the module root or the region.
+@!doc("""
+  Inner attribute demo, version %{version}.
+
+  Covers `%{unit-name}` and regions.
+""")
+
+let version = "1"
+let unit-name = "docs"
+
+scope empty
+  @!doc("A region holding nothing else.")
+end empty
+
+scope inline
+  @!doc("Indented items: %{base} apples.")
+  let base = 2
+  def double() -> int = base * 2
+end inline
+
+scope outer::inner
+  @!doc("Header-path region, %{limit} at most.")
+  @!allow("noop-parse-retries")
+  let limit = 3
+  def capped(n: int) -> int = if n > limit => limit | else => n
+
+  scope deepest
+    @!doc("Nested region.")
+    def one() -> int = 1
+  end deepest
+end outer::inner
+
+scope documented-and-quiet
+  @!doc("Items follow.")
+
+  def extra() -> int = 10
+end documented-and-quiet
+
+program def main() -> unit =
+  print(inline::double() + outer::inner::capped(9) + outer::inner::deepest::one())
+  print(documented-and-quiet::extra())

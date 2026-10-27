@@ -1,0 +1,26 @@
+{
+  "scenarios": [
+    {
+      "name": "only_the_unallowed_region_reports",
+      "expect": {
+        "stdout": "1\n",
+        "warnings": [
+          {
+            "name": "noop-parse-retries",
+            "line": 20
+          }
+        ]
+      }
+    },
+    {
+      "name": "allow_level_overrides_everywhere",
+      "warning_levels": {
+        "noop-parse-retries": "allow"
+      },
+      "expect": {
+        "stdout": "1\n",
+        "warnings": []
+      }
+    }
+  ]
+}

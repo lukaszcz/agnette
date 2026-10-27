@@ -29,7 +29,8 @@ from agnette.agl.pipeline import RunError
 from agnette.agl.repl import meta as meta_mod
 from agnette.agl.repl import render as render_mod
 from agnette.agl.repl.entry import EntryKind, EntryResult
-from agnette.agl.repl.session import ReplSession
+from agnette.agl.repl.info_sections import SECTION_RE
+from agnette.agl.repl.session import ReplSession, SessionOpenError
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.scope.symbols import (
     AglScopeError,
@@ -582,6 +583,11 @@ class TestType:
         assert session.bindings() == []
 
 
+def _section_labels(info: str) -> list[str]:
+    """The headings of the code sections of one ``:info`` description."""
+    return [m.group(0).removesuffix(":\n") for m in SECTION_RE.finditer(info)]
+
+
 class TestInfo:
     def test_info_reports_a_binding_type_value_and_location(self) -> None:
         session = _open_session()
@@ -597,6 +603,199 @@ class TestInfo:
         assert "<repl>:1:" in outcome.text
         assert outcome.highlight_as_agl is True
         assert outcome.agl_ranges[0] == (0, len("count"))
+
+    @pytest.mark.parametrize("name", ["int", "text", "decimal", "unit", "json"])
+    def test_info_describes_a_builtin_type_as_an_entry_reads_it(self, name: str) -> None:
+        session = _open_session()
+        assert session.eval_entry(name).kind == "type"
+
+        info = session.info_of(name)
+
+        assert info is not None
+        assert "builtin type" in info.splitlines()[0]
+        assert _section_labels(info) == ["Type"]
+        assert f"builtin type {name}" in info
+
+    @pytest.mark.parametrize(
+        ("setup", "name", "sources", "headline"),
+        [
+            (
+                "import std/json",
+                "json",
+                ["Type (builtin)", "Module (std/json)"],
+                "json names a builtin type and a module.",
+            ),
+            (
+                "",
+                "bool",
+                ["Type (builtin)", "Scope (std/math)"],
+                "bool names a builtin type and a scope.",
+            ),
+        ],
+    )
+    def test_info_shows_a_builtin_type_beside_the_modules_and_scopes_it_names(
+        self, setup: str, name: str, sources: list[str], headline: str
+    ) -> None:
+        session = _open_session()
+        if setup:
+            assert session.eval_entry(setup).ok
+
+        info = session.info_of(name)
+
+        assert info is not None
+        assert _section_labels(info) == sources
+        assert info.splitlines()[0] == headline
+
+    def test_info_counts_the_modules_a_name_reaches(self, tmp_path: Path) -> None:
+        for directory in ("p", "q"):
+            (tmp_path / directory).mkdir()
+            (tmp_path / directory / "m.agl").write_text("def f() -> int = 1\n", encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        assert session.eval_entry("import p/m\nimport q/m").ok
+
+        info = session.info_of("m")
+
+        assert info is not None
+        assert info.splitlines()[0] == "m names two modules."
+
+    def test_info_prefers_a_binding_to_the_builtin_type_of_the_same_name(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("let json = 1").ok
+
+        info = session.info_of("json")
+
+        assert info is not None
+        assert info.startswith("json is a binding.")
+
+    @pytest.mark.parametrize("name", ["array", "dict"])
+    def test_info_of_an_unapplied_builtin_container_is_as_undefined_as_its_entry(
+        self, name: str
+    ) -> None:
+        session = _open_session()
+        entry = session.eval_entry(name)
+        assert entry.failure is not None
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert type(raised.value) is type(entry.failure)
+
+    def test_info_works_after_reset(self) -> None:
+        ctx = _session_ctx()
+        before = meta_mod.dispatch_meta(":info Some", ctx)
+        meta_mod.dispatch_meta(":reset", ctx)
+
+        assert meta_mod.dispatch_meta(":info Some", ctx) == before
+
+    @staticmethod
+    def _session_with_tabbed_prelude(tmp_path: Path) -> tuple[ReplSession, Path, str]:
+        """A session whose library image is rejected (two denied tab diagnostics).
+
+        Returns the session, the broken prelude path and its repaired text.
+        """
+        from shutil import copytree
+
+        from agnette.agl.warning_policy import WarningPolicy
+        from agnette.packages.layout import MODULE_TREE_DIRNAME
+        from tests._agl_helpers import REPO_STDLIB_ROOT
+
+        stdlib = tmp_path / "stdlib"
+        copytree(REPO_STDLIB_ROOT, stdlib)
+        prelude = stdlib / MODULE_TREE_DIRNAME / "prelude.agl"
+        good = prelude.read_text(encoding="utf-8")
+        prelude.write_text(
+            good + "\ndef tabbed() -> int =\n\t1\ndef tabbed2() -> int =\n\t1\n",
+            encoding="utf-8",
+        )
+        session = ReplSession(
+            stdlib_root=stdlib, warning_policy=WarningPolicy({"tab-indentation": "deny"})
+        )
+        return session, prelude, good
+
+    def test_info_shows_a_rejected_library_image_as_diagnostics(self, tmp_path: Path) -> None:
+        session, _, _ = self._session_with_tabbed_prelude(tmp_path)
+        with pytest.raises(SessionOpenError) as raised:
+            session.info_of("print")
+        expected = len(raised.value.diagnostics())
+        assert expected >= 2
+
+        outcome = meta_mod.dispatch_meta(":info print", _session_ctx(session))
+
+        assert outcome.text and not outcome.highlight_as_agl
+        assert outcome.text.count("tab-indentation") == expected
+
+    def test_info_forgets_a_rejected_image_once_an_entry_succeeds(self, tmp_path: Path) -> None:
+        session, prelude, good = self._session_with_tabbed_prelude(tmp_path)
+        with pytest.raises(SessionOpenError):
+            session.info_of("print")
+        prelude.write_text(good, encoding="utf-8")
+        assert session.eval_entry("let x = 2").ok
+
+        info = session.info_of("x")
+
+        assert info is not None and info.startswith("x is a binding.")
+
+    @pytest.mark.parametrize(
+        ("source", "setup", "name", "entry"),
+        [
+            pytest.param(
+                "def c() -> int = 2\n", "import lib::* hiding c", "c", "c", id="hidden-def"
+            ),
+            pytest.param("let v = 1\n", "import lib::* hiding v", "v", "v", id="hidden-let"),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D::c",
+                "D::c",
+                id="hidden-scope",
+            ),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D::c::x",
+                "D::c::x",
+                id="hidden-scope-deep",
+            ),
+            pytest.param(
+                "record T\n  a: int\n", "import lib::* hiding T", "T::x", "T::x", id="hidden-type"
+            ),
+            pytest.param(
+                "record T\n  a: int\n", "import lib::* hiding T", "T", "T::x", id="bare-hidden-type"
+            ),
+            pytest.param(
+                "scope D\n  def c() -> int = 1\nend D\n",
+                "import lib::* hiding D",
+                "D",
+                "D::c",
+                id="bare-hidden-scope",
+            ),
+            pytest.param(
+                "def c() -> int = 2\n",
+                "import lib hiding c",
+                "lib::c",
+                "lib::c",
+                id="qualified-hidden-def",
+            ),
+            pytest.param(
+                "let v = 1\n", "import lib hiding v", "::v", "::v", id="anchored-hidden-let"
+            ),
+        ],
+    )
+    def test_info_reports_a_hidden_name_as_an_entry_does(
+        self, tmp_path: Path, source: str, setup: str, name: str, entry: str
+    ) -> None:
+        """A bare hidden scope or type reads as a qualifier, a hidden declaration as undefined."""
+        (tmp_path / "lib.agl").write_text(source, encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(setup).ok
+        entry = session.eval_entry(entry)
+        assert entry.failure is not None
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert type(raised.value) is type(entry.failure)
 
     def test_info_reports_a_function_signature_and_location(self) -> None:
         session = _open_session()
@@ -615,7 +814,8 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(f":info {name}", _session_ctx(_open_session()))
 
         assert outcome.text is not None
-        assert outcome.text.startswith(f"{name} is a function.\nSignature:\n  def {name}")
+        assert outcome.text.startswith(f"{name} is a function.\nSignature:\n")
+        assert f"\n  def {name}" in outcome.text
 
     def test_info_reports_a_qualified_standard_library_function(self) -> None:
         session = _open_session()
@@ -624,9 +824,8 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(":info fs::read", _session_ctx(session))
 
         assert outcome.text is not None
-        assert outcome.text.startswith(
-            "fs::read is a function.\nSignature:\n  def read(path: text) -> text"
-        )
+        assert outcome.text.startswith("fs::read is a function.\nSignature:\n")
+        assert "\n  def read(path: text) -> text" in outcome.text
 
     def test_info_resolves_an_unqualified_function_like_a_repl_expression(self) -> None:
         session = _open_session()
@@ -635,15 +834,15 @@ class TestInfo:
         outcome = meta_mod.dispatch_meta(":info print", _session_ctx(session))
 
         assert outcome.text is not None
-        assert outcome.text.startswith("print is a function.\nSignature:\n  def print[T](value: T)")
+        assert outcome.text.startswith("print is a function.\nSignature:\n")
+        assert "\n  def print[T](value: T)" in outcome.text
         assert "std/log::Level" not in outcome.text
 
         log = meta_mod.dispatch_meta(":info log::print", _session_ctx(session))
 
         assert log.text is not None
-        assert log.text.startswith(
-            "log::print is a function.\nSignature:\n  def print[T](lvl: std/log::Level, val: T)"
-        )
+        assert log.text.startswith("log::print is a function.\nSignature:\n")
+        assert "\n  def print[T](lvl: std/log::Level, val: T)" in log.text
 
     @pytest.mark.parametrize(
         ("modules", "setup", "name", "error", "span_text"),
@@ -993,6 +1192,136 @@ class TestInfo:
             "Ready is a constructor.\nSignature:\n  State::Ready() -> State::Ready"
         )
 
+    def test_an_unimported_module_route_is_reported_as_a_route_by_entry_and_info(self) -> None:
+        session = _open_session()
+        entry = session.eval_entry("std/fs")
+        assert entry.failure is not None
+
+        with pytest.raises(AglSyntaxError) as raised:
+            session.info_of("std/fs")
+
+        assert type(raised.value) is type(entry.failure)
+        assert "std/fs" in str(raised.value)
+
+    def test_info_reports_an_exception_as_its_declaration(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("exception Boom\n  msg: text").ok
+        assert session.eval_entry("exception Bam extends Boom\n  n: int").ok
+
+        boom = session.info_of("Boom")
+        bam = session.info_of("Bam")
+
+        assert boom is not None and "exception Boom extends Exception\n    msg: text" in boom
+        assert bam is not None and "exception Bam extends Boom\n    n: int" in bam
+        assert "msg" not in bam
+
+    def test_an_exception_extending_an_imported_base_shows_a_writable_base(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/fs::{FsError}").ok
+        assert session.eval_entry("exception Mine extends FsError\n  code: int").ok
+
+        shown = session.info_of("Mine")
+
+        assert shown is not None
+        declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
+        assert session.eval_entry(declaration.replace("Mine", "Again")).ok
+
+    def test_info_shows_field_docs_above_their_fields(self) -> None:
+        session = _open_session()
+        source = (
+            'record R\n  @doc("the a")\n  a: int\n'
+            '  @doc("""\n    multi\n    line\n  """)\n  b: text\n'
+            '\nexception E\n  @doc("the code")\n  code: int\n'
+            '\nenum En\n  | @doc("first") A\n'
+            '      @doc("x doc")\n      x: int\n      y: int\n  | B\n'
+        )
+        assert session.eval_entry(source).ok
+
+        record = session.info_of("R")
+        exception = session.info_of("E")
+        enum = session.info_of("En")
+
+        assert record is not None and exception is not None and enum is not None
+        assert '    @doc("the a")\n    a: int' in record
+        assert "multi\n" in record and "    b: text" in record
+        assert '    @doc("the code")\n    code: int' in exception
+        assert (
+            '| @doc("first") A\n        @doc("x doc")\n        x: int\n        y: int\n    | B'
+            in enum
+        )
+
+    def _redeclares(self, session: ReplSession, name: str, as_name: str) -> bool:
+        """Whether the declaration ``:info`` prints for *name* evaluates again as *as_name*."""
+        shown = session.info_of(name)
+        assert shown is not None
+        lines = shown.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith("exception "))
+        body = [
+            lines[start].strip(),
+            *(line for line in lines[start + 1 :] if line.startswith("      ")),
+        ]
+        return session.eval_entry("\n".join(body).replace(name, as_name, 1)).ok
+
+    def test_an_exception_extending_an_aliased_base_shows_a_name_that_resolves(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "ex.agl").write_text("exception Boom\n  n: int\n")
+        session = ReplSession(cwd=tmp_path)
+        session.open()
+        assert session.eval_entry("import ex").ok
+        assert session.eval_entry("type Bang = ex::Boom").ok
+        assert session.eval_entry("exception E extends Bang").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_extending_a_base_visible_bare_keeps_its_name(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "ex.agl").write_text("exception Boom\n  n: int\n")
+        session = ReplSession(cwd=tmp_path)
+        session.open()
+        assert session.eval_entry("import ex::{Boom}").ok
+        assert session.eval_entry("exception E extends Boom").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_extending_a_scoped_base_shows_its_alias(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("scope sc\n  exception Inner\nend sc").ok
+        assert session.eval_entry("type Top = sc::Inner").ok
+        assert session.eval_entry("exception E extends Top").ok
+
+        assert self._redeclares(session, "E", "Again")
+
+    def test_an_exception_whose_base_has_no_top_level_spelling_still_shows_its_declaration(
+        self,
+    ) -> None:
+        session = _open_session()
+        assert session.eval_entry(
+            "scope sc\n  exception Inner\n  exception E extends Inner\nend sc"
+        ).ok
+
+        shown = session.info_of("sc::E")
+
+        assert shown is not None
+        declaration = next(line.strip() for line in shown.splitlines() if "extends" in line)
+        assert declaration == "exception sc::E extends Inner"
+
+    def test_the_root_exception_type_entry_has_no_base(self) -> None:
+        shown = render_mod.render_entry_result(_open_session().eval_entry("Exception"), echo=True)
+
+        assert shown is not None
+        assert "extends" not in shown
+        assert "message" in shown
+
+    def test_an_exception_type_entry_expands_like_a_record(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("exception Boom\n  msg: text").ok
+
+        assert session.type_of('Boom(message = "m", msg = "x")') == (
+            "exception Boom extends Exception\n  msg: text"
+        )
+
     def test_info_reports_a_type_definition(self) -> None:
         session = _open_session()
         assert session.eval_entry("record Point\n  x: int\n  y: int").ok
@@ -1079,6 +1408,502 @@ class TestInfo:
         rendered = _format_repl_signature(signature)
 
         assert rendered == "[T](first: int, second: text, third: bool) -> int"
+
+
+class TestInfoDocs:
+    """``:info`` shows ``@doc`` prose of declarations and ``@!doc`` prose of modules and regions."""
+
+    @staticmethod
+    def _info(session: ReplSession, name: str) -> str:
+        outcome = meta_mod.dispatch_meta(f":info {name}", _session_ctx(session))
+        assert outcome.text is not None
+        return outcome.text
+
+    def test_documented_declarations_show_their_doc_above_the_code(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("Adds.")\ndef add(x: int) -> int = x').ok
+        assert session.eval_entry('@doc("Counter.")\nvar count = 1').ok
+        assert session.eval_entry('@doc("A point.")\nrecord Point\n  x: int').ok
+        assert session.eval_entry('@doc("Whole.")\ntype Whole = int').ok
+        assert session.eval_entry('@doc("Ready state.")\nenum State = | Ready').ok
+
+        assert '  @doc("Adds.")\n  def add(x: int) -> int' in self._info(session, "add")
+        assert '  @doc("Counter.")\n  var count' in self._info(session, "count")
+        assert '  @doc("A point.")\n  record Point' in self._info(session, "Point")
+        assert '  @doc("Whole.")\n  type Whole = int' in self._info(session, "Whole")
+        assert '  @doc("Ready state.")\n  enum State' in self._info(session, "State")
+
+    def test_multiline_doc_is_triple_quoted(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("""\n  First "line".\n\n  Second.\n""")\nlet x = 1').ok
+
+        text = self._info(session, "x")
+
+        assert '  @doc("""\n    First \\"line\\".\n\n    Second.\n  """)\n  let x' in text
+
+    def test_documented_library_declaration_shows_its_doc(self) -> None:
+        assert '@doc("Build an agent request' in self._info(_open_session(), "ask-request")
+
+    def test_undocumented_declaration_shows_no_doc(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("def plain() -> int = 1").ok
+
+        assert "@doc" not in self._info(session, "plain")
+
+    def test_module_shows_its_doc_by_alias_and_route(self, tmp_path: Path) -> None:
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "lib.agl").write_text(
+            '@!doc("Library helpers.")\n\ndef f() -> int = 1\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import pkg/lib").ok
+        aliased = repl_session_with_root(tmp_path)
+        aliased.open()
+        assert aliased.eval_entry("import pkg/lib as renamed").ok
+
+        for spelling, opened in (("lib", session), ("pkg/lib", session), ("renamed", aliased)):
+            text = self._info(opened, spelling)
+            assert text.startswith(f"{spelling} is a module.")
+            assert '  @!doc("Library helpers.")\n  module pkg/lib' in text
+
+    def test_standard_library_module_resolves(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/fs").ok
+
+        assert "module std/fs" in self._info(session, "fs")
+
+    def test_undocumented_module_shows_only_its_header(self, tmp_path: Path) -> None:
+        (tmp_path / "bare.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import bare").ok
+
+        text = self._info(session, "bare")
+
+        assert "module bare" in text
+        assert "@!doc" not in text
+
+    def test_several_modules_are_each_described(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / name).mkdir()
+            (tmp_path / name / "lib.agl").write_text(f'@!doc("Doc {name}.")\ndef f() -> int = 1\n')
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import a/lib").ok
+        assert session.eval_entry("import b/lib").ok
+
+        text = self._info(session, "lib")
+
+        assert "ambiguous" not in text
+        assert "module a/lib" in text
+        assert "module b/lib" in text
+        assert "Doc a." in text
+        assert "Doc b." in text
+
+    def test_multi_source_sections_are_highlighted_as_agl(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry("scope lib\n  def g() -> int = 1\nend lib").ok
+
+        outcome = meta_mod.dispatch_meta(":info lib", _session_ctx(session))
+
+        assert outcome.text is not None
+        code = [outcome.text[start:end] for start, end in outcome.agl_ranges[1:]]
+        assert len(code) == 2
+        assert any("module lib" in part for part in code)
+        assert any("scope lib" in part for part in code)
+
+    def test_every_emitted_section_label_is_highlightable(self) -> None:
+        from typing import get_args
+
+        from agnette.agl.repl.info_sections import SECTION_LABELS, SectionLabel
+
+        assert set(SECTION_LABELS) == set(get_args(SectionLabel.__value__))
+
+    def test_non_reference_spelling_is_no_scope(self) -> None:
+        session = _open_session()
+
+        outcome = meta_mod.dispatch_meta(":info lib()", _session_ctx(session))
+
+        assert "is a" not in (outcome.text or "")
+
+    def test_module_not_imported_is_not_found(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+
+        assert "is a module" not in self._info(session, "lib")
+
+    def test_region_shows_its_doc(self) -> None:
+        session = _open_session()
+        entry = 'scope a::b\n  @!doc("Inner.")\n  def g() -> int = 1\nend a::b'
+        assert session.eval_entry(entry).ok
+
+        text = self._info(session, "a::b")
+        assert text.startswith("a::b is a scope.")
+        assert '  @!doc("Inner.")\n  scope a::b' in text
+        outer = self._info(session, "a")
+        assert "scope a" in outer
+        assert "@!doc" not in outer
+
+    def test_region_in_imported_module_resolves_module_qualified_only(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Debug helpers.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+
+        assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, "lib::Debug")
+        assert "is a scope" not in self._info(session, "Debug")
+
+    def test_session_region_answers_alone_when_a_module_declares_it_too(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Library.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry('scope Debug\n  @!doc("Mine.")\n  let x = 1\nend Debug').ok
+
+        text = self._info(session, "Debug")
+
+        assert text.count("@!doc") == 1
+        assert "Mine." in text
+
+    @pytest.mark.parametrize("entry", ["import lib::*", "import lib::{Debug}", "use lib::Debug"])
+    def test_region_an_import_exposes_bare_is_described_bare(
+        self, tmp_path: Path, entry: str
+    ) -> None:
+        """Regression: ``:info`` ignored the regions an import or use brings in unqualified."""
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Debug helpers.")\n  def helper() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib" if entry.startswith("use") else entry).ok
+        if entry.startswith("use"):
+            assert session.eval_entry(entry).ok
+        assert session.eval_entry("Debug::helper()").ok
+
+        assert '  @!doc("Debug helpers.")\n  scope Debug' in self._info(session, "Debug")
+
+    def test_nested_region_an_import_exposes_is_described(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope a::b\n  @!doc("Inner.")\n  def y() -> int = 1\nend a::b\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib::*").ok
+        assert session.eval_entry("a::b::y()").ok
+
+        assert '  @!doc("Inner.")\n  scope a::b' in self._info(session, "a::b")
+
+    def test_every_source_reaching_a_qualifier_is_described(self, tmp_path: Path) -> None:
+        """A module alias and a session region of one spelling are both reachable."""
+        (tmp_path / "lib.agl").write_text('@!doc("The library.")\n\ndef f() -> int = 1\n')
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib as L").ok
+        assert session.eval_entry('scope L\n  @!doc("Mine.")\n  def g() -> int = 1\nend L').ok
+
+        text = self._info(session, "L")
+
+        assert "The library." in text
+        assert "Mine." in text
+
+    def test_session_and_module_regions_of_one_path_are_both_described(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lib.agl").write_text(
+            'scope Debug\n  @!doc("Library.")\n  def f() -> int = 1\nend Debug\n'
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry(
+            'scope lib::Debug\n  @!doc("Mine.")\n  def g() -> int = 1\nend lib::Debug'
+        ).ok
+
+        text = self._info(session, "lib::Debug")
+
+        assert "Library." in text
+        assert "Mine." in text
+
+    def test_module_spelling_follows_the_latest_import_of_a_module(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import lib").ok
+        assert session.eval_entry("import lib as L").ok
+
+        assert "is a module" in self._info(session, "L")
+        assert "is a module" not in self._info(session, "lib")
+
+    def test_wildcard_import_spells_every_module_beneath_its_prefix(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub.agl").write_text("def top() -> int = 1\n")
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/*").ok
+
+        assert "module sub/lib2" in self._info(session, "lib2")
+        assert "module sub\n" in self._info(session, "sub") + "\n"
+
+    def test_aliased_wildcard_import_is_spelled_by_its_alias(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/* as S").ok
+
+        assert "module sub/lib2" in self._info(session, "S")
+        assert "is a module" not in self._info(session, "lib2")
+
+    def test_module_imported_inside_a_scope_is_spelled(self, tmp_path: Path) -> None:
+        (tmp_path / "lib.agl").write_text("def f() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("scope w\n  import lib\nend w").ok
+
+        assert "module lib" in self._info(session, "lib")
+
+    def test_anchored_module_route_is_spelled(self, tmp_path: Path) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text("def g() -> int = 1\n")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/lib2").ok
+
+        assert "module sub/lib2" in self._info(session, "/sub/lib2")
+
+    def test_declaration_takes_precedence_over_scope_in_a_slash_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "lib2.agl").write_text(
+            "record R\n  x: int\n\nscope R\n  def k() -> int = 1\nend R\n"
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import sub/lib2").ok
+
+        for spelling in ("lib2::R", "sub/lib2::R"):
+            assert "is a constructor" in self._info(session, spelling)
+
+    def test_inner_attributes_of_a_retained_region_do_not_reach_later_entries(self) -> None:
+        """Regression: a retained scoped import kept its region's ``@!doc`` and ``@!allow``."""
+        session = _open_session()
+        entry = 'scope s\n  @!doc("v %{n}")\n  import std/text\n  let n = "1"\nend s'
+        assert session.eval_entry(entry).ok
+
+        assert session.eval_entry("1 + 1").ok
+        assert session.eval_entry("2 + 2").ok
+        assert '@!doc("v 1")' in self._info(session, "s")
+
+    def test_entry_of_only_inner_attributes_is_a_no_op(self) -> None:
+        """Regression: an entry with no items crashed echo classification."""
+        session = _open_session()
+
+        result = session.eval_entry('@!allow("tab-indentation")\n')
+
+        assert result.ok
+        assert render_mod.render_entry_result(result, echo=True) is None
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '@!bogus("x")\n',
+            "@!doc(1)\n",
+            '@!doc("a")\n@!doc("b")\n',
+            '@!allow("no-such")\n',
+            "@!doc(nope)\n",
+        ],
+    )
+    def test_invalid_inner_attributes_only_entry_fails(self, source: str) -> None:
+        assert not _open_session().eval_entry(source).ok
+
+    @pytest.mark.parametrize("check_only", [False, True])
+    @pytest.mark.parametrize("default_stdlib", [False, True])
+    @pytest.mark.parametrize("source", ["", "# c\n", '@!doc("x")\n'])
+    def test_item_less_entry_is_a_no_op(
+        self, source: str, default_stdlib: bool, check_only: bool
+    ) -> None:
+        """Regression: without the prelude an item-less entry crashed classification."""
+        session = _open_session(default_stdlib=default_stdlib)
+
+        result = session.eval_entry(source, check_only=check_only)
+
+        assert result.ok
+        assert result.kind == "statement"
+
+    @pytest.mark.parametrize("check_only", [False, True])
+    @pytest.mark.parametrize("default_stdlib", [False, True])
+    def test_invalid_item_less_entry_fails_in_every_mode(
+        self, default_stdlib: bool, check_only: bool
+    ) -> None:
+        session = _open_session(default_stdlib=default_stdlib)
+
+        assert not session.eval_entry('@!bogus("x")\n', check_only=check_only).ok
+
+    @pytest.mark.parametrize("spelling", ["no/such", "/no/such"])
+    def test_unknown_slash_route_is_rejected(self, spelling: str) -> None:
+        with pytest.raises(AglSyntaxError):
+            _open_session().info_of(spelling)
+
+    def test_exception_doc(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("Boom.")\nexception Boom extends Exception').ok
+
+        assert '@doc("Boom.")' in self._info(session, "Boom")
+
+    def test_unknown_scope_path_is_not_found(self) -> None:
+        assert "is a scope" not in self._info(_open_session(), "nope::deeper")
+
+    def test_reset_forgets_session_regions_and_docs(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('scope r\n  @!doc("R.")\n  def g() -> int = 1\nend r').ok
+        assert session.eval_entry('@doc("Adds.")\ndef add(x: int) -> int = x').ok
+        session.reset()
+        assert session.eval_entry("def add(x: int) -> int = x").ok
+
+        assert "is a scope" not in self._info(session, "r")
+        assert "@doc" not in self._info(session, "add")
+
+
+class TestInfoAsEntry:
+    """``:info`` reports exactly what an entry spelling the same name would see."""
+
+    @pytest.mark.parametrize("name", ["print", "Some", "Option"])
+    def test_info_answers_before_the_first_entry(self, name: str) -> None:
+        text = ReplSession().info_of(name)
+
+        assert text is not None
+        assert text.startswith(f"{name} is ")
+
+    @pytest.mark.parametrize(
+        ("setup", "name", "kind"),
+        [
+            ("def f() -> int = 1", "::f", "function"),
+            ('scope D\n  @!doc("S")\n  def z() -> int = 1\nend D', "::D", "scope"),
+            ("scope D\n  def z() -> int = 1\nend D", "::D::z", "function"),
+        ],
+    )
+    def test_info_resolves_anchored_spellings_as_an_entry_does(
+        self, setup: str, name: str, kind: str
+    ) -> None:
+        session = _open_session()
+        assert session.eval_entry(setup).ok
+
+        text = session.info_of(name)
+
+        assert text is not None
+        assert f"is a {kind}." in text
+
+    @pytest.mark.parametrize(
+        ("import_", "name", "entry"),
+        [
+            ("import l::* hiding D", "D::c", "D::c()"),
+            ("import l hiding D", "l::D::c", "l::D::c()"),
+            ("import l hiding D", "l::D", "l::D::c()"),
+        ],
+    )
+    def test_info_reports_the_verdict_an_entry_gets_for_a_hidden_name(
+        self, tmp_path: Path, import_: str, name: str, entry: str
+    ) -> None:
+        (tmp_path / "l.agl").write_text(
+            "scope D\n  def c() -> int = 1\nend D\n\ndef c() -> int = 2\n", encoding="utf-8"
+        )
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(import_).ok
+        result = session.eval_entry(entry)
+        assert not result.ok
+
+        with pytest.raises(AglError) as raised:
+            session.info_of(name)
+
+        assert result.failure is not None
+        assert type(raised.value) is type(result.failure)
+
+    def test_info_of_a_hidden_scope_name_reports_it_hidden(self, tmp_path: Path) -> None:
+        (tmp_path / "l.agl").write_text("scope D\n  def c() -> int = 1\nend D\n", encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry("import l::* hiding D").ok
+
+        with pytest.raises(HiddenMemberError) as raised:
+            session.info_of("D")
+        assert str(raised.value).startswith("'D'")
+        span = raised.value.span
+        assert span is not None
+        assert "D"[span.start_offset : span.end_offset] == "D"
+
+    @pytest.mark.parametrize(
+        ("source", "import_", "name"),
+        [
+            ("scope D\n  def c() -> int = 1\nend D\n", "import l::* hiding D", "D"),
+            ("record T\n  a: int\n", "import l::* hiding T", "T"),
+            ("type TA = int\n", "import l::* hiding TA", "TA"),
+        ],
+    )
+    def test_info_of_a_bare_hidden_name_reports_the_written_name(
+        self, tmp_path: Path, source: str, import_: str, name: str
+    ) -> None:
+        (tmp_path / "l.agl").write_text(source, encoding="utf-8")
+        session = repl_session_with_root(tmp_path)
+        session.open()
+        assert session.eval_entry(import_).ok
+
+        with pytest.raises(HiddenMemberError) as raised:
+            session.info_of(name)
+
+        assert str(raised.value).startswith(f"'{name}'")
+
+    def test_info_of_a_hidden_prelude_type_reports_the_written_name(self) -> None:
+        session = _open_session()
+        assert session.eval_entry("import std/prelude::* hiding Option").ok
+
+        with pytest.raises(HiddenMemberError) as raised:
+            session.info_of("Option")
+
+        assert str(raised.value).startswith("'Option'")
+
+
+class TestInfoDocsRetention:
+    """The session keeps docs only of declarations it still reaches."""
+
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            ('@doc("A")\ndef f() -> int = 1', "def f() -> int = 2"),
+            ('@doc("A")\nlet f = 1', "let f = 2"),
+            ('@doc("A")\ntype f = int', "type f = bool"),
+            ('@doc("A")\ndef f() -> int = 1', '@doc("B")\ndef f() -> int = 2'),
+        ],
+    )
+    def test_redeclaring_drops_the_superseded_docs(self, first: str, second: str) -> None:
+        session = _open_session()
+        assert session.eval_entry(first).ok
+        assert session.eval_entry(second).ok
+
+        retained = list(session._session_docs.values())
+
+        assert "A" not in retained
+        assert len(retained) == (1 if '@doc("B")' in second else 0)
+
+    def test_failed_entry_keeps_the_live_docs(self) -> None:
+        session = _open_session()
+        assert session.eval_entry('@doc("A")\ndef f() -> int = 1').ok
+        assert not session.eval_entry('@doc("B")\ndef g() -> int = "x"').ok
+
+        assert list(session._session_docs.values()) == ["A"]
 
 
 class TestBindings:
@@ -1181,6 +2006,14 @@ class TestLoad:
         assert outcome.text is not None
         assert outcome.text.startswith("Error:")
         assert str(missing) in outcome.text
+        assert outcome.quit is False
+
+    def test_load_undecodable_file_clean_error(self, tmp_path: Path) -> None:
+        binary = tmp_path / "bin.agl"
+        binary.write_bytes(b"\xff\xfe")
+        outcome = meta_mod.dispatch_meta(f":load {binary}", _session_ctx())
+        assert outcome.text is not None
+        assert outcome.text.startswith("Error:")
         assert outcome.quit is False
 
     def test_load_empty_arg_usage(self) -> None:

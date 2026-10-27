@@ -43,6 +43,7 @@ because its argument must be a source literal.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
@@ -88,6 +89,7 @@ from agnette.agl.scope.lookup import (
     Misfit,
     QualifiedTarget,
     lookup_bare,
+    lookup_bare_hidden,
     lookup_declared,
     lookup_qualified,
     shadowed_by_type_parameter,
@@ -471,11 +473,16 @@ def _first_declared_beneath(
     segment completing its path.
     """
     completed: tuple[int, ScopePath, SourceSpan] | None = None
+    rank: dict[ScopePath, int] = {}
+    for alias_path in (*aliases, *retained):
+        rank.setdefault(alias_path, len(rank))
     for item, path in _declaring_items(_root_items_as_written(items)[0]):
-        for alias_path in (*aliases, *retained):
+        counts = [len(path)] if isinstance(item, ScopeRegion) else range(len(path) + 1)
+        beneath = sorted(
+            (path[:count] for count in counts if path[:count] in rank), key=rank.__getitem__
+        )
+        for alias_path in beneath:
             count = len(alias_path)
-            if path[:count] != alias_path or (isinstance(item, ScopeRegion) and len(path) != count):
-                continue
             alias = aliases.get(alias_path)
             if alias is not None and alias.start_offset > item.span.start_offset:
                 pair = (alias.start_offset, alias_path, alias)
@@ -905,9 +912,7 @@ class _Resolver(ModuleSources):
         self._define_static_builtin_var_bindings()
         # Define constructor bindings in root scope.
         self._define_constructor_bindings()
-        # A static root binds every declaration up front: its walk changes no path read.
-        if self._is_static_root_module:
-            self._keep_readings()
+        self._keep_readings()
 
     def resolve(self) -> ModuleResolution:
         """Resolve the collected program's bodies; the third phase."""
@@ -1533,13 +1538,16 @@ class _Resolver(ModuleSources):
             nodes[path] = node
         # A replacement type declaration owns fresh constructors: stale enum
         # variants must not survive, while unrelated retained members remain.
+        nested_scope_names: defaultdict[ScopePath, set[str]] = defaultdict(set)
+        for nested_path in nodes:
+            if nested_path:
+                nested_scope_names[nested_path[:-1]].add(nested_path[-1])
         for item, path in self._type_declarations:
             type_path = path + (item.name,)
-            nested_scope_names = frozenset(
-                nested_path[-1] for nested_path in nodes if nested_path[:-1] == type_path
-            )
             if type_path in nodes:
-                nodes[type_path].clear_owned_constructor_members(nested_scope_names)
+                nodes[type_path].clear_owned_constructor_members(
+                    frozenset(nested_scope_names[type_path])
+                )
         for (_module_id, path, name), declaration in self._declarations.items():
             nodes[path].register_member(name, declaration)
         return nodes
@@ -2093,6 +2101,7 @@ class _Resolver(ModuleSources):
             # The pre-pass already claimed this key for this exact binder
             # (see the docstring); install the member it pre-claimed.
             scope.register_member(name, replace(ref, scope_path=scope.scope_path))
+            self._installed(scope, name)
             return
         existing = scope.bindings.get(name)
         if existing is not None and existing.decl_node_id == ref.decl_node_id:
@@ -2100,6 +2109,7 @@ class _Resolver(ModuleSources):
             # a static-root module already defined via
             # ``_define_static_binding_bindings``.
             scope.define(name, ref)
+            self._installed(scope, name)
             return
         if existing is not None and (
             existing.kind is not BinderKind.constructor_binding
@@ -2107,6 +2117,15 @@ class _Resolver(ModuleSources):
         ):
             raise DuplicateDeclarationError(name, span=ref.decl_span)
         scope.define(name, ref)
+        self._installed(scope, name)
+
+    def _installed(self, scope: ScopeNode, name: str) -> None:
+        """Note that the walk bound value *name* in *scope*; only a root or named scope is read.
+
+        A static-root module bound it up front.
+        """
+        if not self._is_static_root_module and (scope.scope_path or scope is self._root_scope):
+            self._bound_own_value((*scope.scope_path, name))
 
     def _check_not_reserved(self, name: str, span: SourceSpan) -> None:
         """Raise if lexical binder name *name* is a built-in contextual name; else record it."""
@@ -2744,6 +2763,7 @@ class _Resolver(ModuleSources):
         return (
             self._bare_type_misfit(name, span)
             or self._spaced_qualifier_repair(self._spaced_qualifier_around(span), span)
+            or self._bare_hidden(name, LookupKind.VALUE, span)
             or AglScopeError(undefined_name_message(name), span=span)
         )
 
@@ -2960,7 +2980,7 @@ class _Resolver(ModuleSources):
         """
         found = self._type_target(None, name, span)
         if found is None and not is_builtin_type_name(name):
-            raise unknown_type(name, span)
+            raise self._bare_hidden(name, LookupKind.TYPE, span) or unknown_type(name, span)
         self._record_type_selection(node_id, found)
 
     def _record_type_selection(
@@ -3060,6 +3080,17 @@ class _Resolver(ModuleSources):
             chain.node_id, found.target if isinstance(found, Misfit) else found
         )
         return found
+
+    def _bare_hidden(
+        self, name: str, kind: LookupKind, span: SourceSpan, *, constructors: bool = False
+    ) -> HiddenMemberError | None:
+        """Return bare *name* of *kind*, selecting nothing, as hidden if ``hiding`` removed it.
+
+        With *constructors*, only a removed constructor counts.
+        """
+        return lookup_bare_hidden(
+            self, name, self._named_scope_path(), kind, span=span, constructors=constructors
+        )
 
     def _bare_type_misfit(self, name: str, span: SourceSpan) -> AglError | None:
         """Return why bare *name*, naming no value, spells a visible type -- or several."""
@@ -3443,8 +3474,19 @@ class _Resolver(ModuleSources):
         """Return a bare pattern or ``is`` spelling's candidates, rejecting a spelling with none."""
         candidates = self.pattern_constructors(name, self._named_scope_path())
         if not candidates:
-            raise NoVisibleConstructorError(f"'{name}' is not a visible constructor.", span=span)
+            raise self._no_visible_constructor(
+                name, f"'{name}' is not a visible constructor.", span
+            )
         return candidates
+
+    def _no_visible_constructor(self, name: str, message: str, span: SourceSpan) -> AglError:
+        """Why bare pattern name *name*, at *span*, names no constructor: hidden, else *message*.
+
+        Hidden only when ``hiding`` removed a constructor of that name.
+        """
+        return self._bare_hidden(
+            name, LookupKind.VALUE, span, constructors=True
+        ) or NoVisibleConstructorError(message, span=span)
 
     def _bind_pattern_vars(
         self, pattern: Pattern, scope: ScopeNode, match_site_node_id: int
@@ -3487,10 +3529,11 @@ class _Resolver(ModuleSources):
             binds = candidate.is_as_pattern or candidate.nested
             if not binds:
                 if not constructor_candidates:
-                    raise NoVisibleConstructorError(
+                    raise self._no_visible_constructor(
+                        candidate.name,
                         f"Bare case pattern '{candidate.name}' is not a visible constructor. "
                         "Use '_' or '_ as name' for a catch-all binder.",
-                        span=candidate.span,
+                        candidate.span,
                     )
                 continue
             self._add_pattern_slot_candidate(

@@ -9,7 +9,8 @@ which in turn read the uses: :class:`UseSources` is what it reads of them.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+import heapq
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Protocol, cast
@@ -31,9 +32,9 @@ from agnette.agl.scope.lookup import (
     QualifiedTarget,
     lookup_hidden,
     lookup_reached,
-    lookup_reached_origins,
-    lookup_steps,
+    spelled_origins,
 )
+from agnette.agl.scope.read_memo import KeptRead, ReadMemo, ValueReads
 from agnette.agl.scope.symbols import (
     BinderKind,
     ContributionLayer,
@@ -48,6 +49,7 @@ from agnette.agl.scope.symbols import (
     contribution_origin,
     import_item_spellings,
     reject_unreadable_binding_name,
+    to_bare_path,
 )
 from agnette.agl.scope.symbols import declaration_qname as _key_qname
 from agnette.agl.scope.symbols import import_item_path as _item_path
@@ -56,13 +58,138 @@ from agnette.agl.scope.symbols import to_bare_atom as _bare_atom
 from agnette.agl.scope.type_owners import TypeOwnerIndex
 from agnette.agl.syntax.nodes import QualifierAnchor, QualifierChain, QualifierSegment, UseDecl
 
-# What one outermost read has learned each ``use`` reaches, by declaration, path and kind.
-type _UseReads = dict[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]]
+
+class _UseReads:
+    """What reads have learned each ``use`` reaches, by declaration and path.
+
+    A use's reach depends only on the uses written before it and on the
+    module's own values, so once the module's tables are complete
+    (:meth:`UseReader.share_reads`) every read shares what it learns, until
+    a walk binds a value that it read.
+    """
+
+    def __init__(self, reads: ValueReads) -> None:
+        self.reached = ReadMemo[tuple[int, ScopePath, LookupKind], tuple[Candidate, ...]](reads)
+        self.origins = ReadMemo[tuple[int, ScopePath], frozenset[Origin]](reads)
+        self.beneath = ReadMemo[tuple[int, str], bool](reads)
+        # How far each glob list was scanned for the globs a name lies beneath, and those it found.
+        self.scans: dict[Hashable, _GlobScan] = {}
+
+    def forget(self, key: Hashable) -> None:
+        """Forget the glob scan kept under *key*."""
+        self.scans.pop(key, None)
+
+
+class _GlobScan(KeptRead):
+    """The globs of one layer a first name lies beneath, among the candidates already asked.
+
+    The candidates are the globs that can expose the name (:meth:`_UseIndex.candidates`):
+    the first *named* of those listed under it and the first *loose* of the unlisted.
+    """
+
+    __slots__ = ("found", "loose", "named")
+
+    def __init__(self, table: _UseReads, key: tuple[int, str]) -> None:
+        super().__init__(table, key)
+        self.named = 0
+        self.loose = 0
+        self.found: list[tuple[int, UseDecl]] = []
 
 
 def _use_target(decl: UseDecl) -> ScopePath:
     """The path *decl* names as its target, beneath its anchor."""
     return tuple(segment.name for segment in decl.target)
+
+
+def _first_names(decl: UseDecl) -> frozenset[str] | None:
+    """The first names of the paths *decl* can expose; ``None`` when any (a glob).
+
+    A path it exposes starts with its alias, its target's last name (a
+    single-item rename), a tail item's first name, or a tail item's rename.
+    """
+    if decl.tail is None:
+        target = _use_target(decl)
+        names = {decl.alias} if decl.alias is not None else set()
+        if len(target) > 1:
+            names.add(target[-1])
+        return frozenset(names)
+    if not decl.tail:
+        return None
+    names = set()
+    for item in decl.tail:
+        names.add(_item_path(item)[0])
+        if item.rename is not None:
+            names.add(item.rename)
+    return frozenset(names)
+
+
+class _UseIndex:
+    """One layer's uses, indexed by the first names of the paths each can expose.
+
+    A path is exposed by a use only through its first name, so a read of a path
+    visits the uses indexed under that name and the globs, not every use.
+    Follows the layer's list as the resolver appends to it.
+    """
+
+    def __init__(self, layer: ScopeNode) -> None:
+        self._layer = layer
+        self._count = 0
+        self._named: dict[str, list[tuple[int, UseDecl]]] = {}
+        self._any: list[tuple[int, UseDecl]] = []
+        # The globs sorted by the first names they can expose: listed under each, or
+        # unlisted ("loose") when any. All are in writing order.
+        self._classified = 0
+        self._listed: dict[str, list[tuple[int, UseDecl]]] = {}
+        self._loose: list[tuple[int, UseDecl]] = []
+
+    def classify(
+        self, horizon: int | None, names_of: Callable[[UseDecl], frozenset[str] | None]
+    ) -> None:
+        """Sort the globs written before *horizon* by the first names *names_of* gives them.
+
+        ``None`` names leave a glob loose. Asking *names_of* for a glob reads only the
+        uses before it, so it never classifies the glob it is asked about.
+        """
+        self._catch_up()
+        while self._classified < len(self._any):
+            entry = self._any[self._classified]
+            if horizon is not None and entry[1].node_id >= horizon:
+                break
+            names = names_of(entry[1])
+            if names is None:
+                self._loose.append(entry)
+            else:
+                for name in names:
+                    self._listed.setdefault(name, []).append(entry)
+            self._classified += 1
+
+    def candidates(self, first: str) -> tuple[list[tuple[int, UseDecl]], list[tuple[int, UseDecl]]]:
+        """The classified globs that can expose a path starting with *first*: listed, loose."""
+        return self._listed.get(first, []), self._loose
+
+    def matching(
+        self, first: str, globs: Iterable[tuple[int, UseDecl]] | None = None
+    ) -> list[UseDecl]:
+        """The layer's uses that can expose a path starting with *first*, in writing order.
+
+        Among the globs, only *globs* when given.
+        """
+        self._catch_up()
+        named = self._named.get(first, [])
+        return [decl for _, decl in heapq.merge(named, self._any if globs is None else globs)]
+
+    def _catch_up(self) -> None:
+        """Index the uses the resolver appended since."""
+        uses = self._layer.uses
+        for position in range(self._count, len(uses)):
+            decl = uses[position]
+            names = _first_names(decl)
+            if names is None:
+                self._any.append((position, decl))
+            else:
+                for name in names:
+                    self._named.setdefault(name, []).append((position, decl))
+        self._count = len(uses)
 
 
 def spelled_through(decl: UseDecl, earlier: UseDecl) -> bool:
@@ -114,6 +241,8 @@ def _use_target_spelling(decl: UseDecl, member_path: ScopePath = ()) -> str:
 class UseSources(PathSources, Protocol):
     """What reading a module's uses needs of the module, besides its path reads."""
 
+    value_reads: ValueReads
+
     def fits(self, target: QualifiedTarget, kind: LookupKind) -> bool:
         """Whether *target* is a declaration of the kind a position takes."""
         ...
@@ -122,6 +251,10 @@ class UseSources(PathSources, Protocol):
         self, route: tuple[str, ...], path: ScopePath, *, anchored: bool
     ) -> frozenset[Origin]:
         """The scopes and types module *route* reaches as *path* beneath it; itself for none."""
+        ...
+
+    def module_first_names(self, origin: QName) -> frozenset[str] | None:
+        """The first names a path beneath *origin* can start with; ``None`` when not enumerated."""
         ...
 
     def removed_with(self, qname: QName) -> frozenset[DeclarationKey]:
@@ -151,6 +284,7 @@ class UseReader:
     ) -> None:
         # The owning source reader keeps this helper alive, not the reverse.
         self._sources = cast(UseSources, proxy(sources))
+        self._value_reads = sources.value_reads
         self._module_id = module_id
         self._scope_nodes = scope_nodes
         self._scope_entity_kinds = scope_entity_kinds
@@ -162,18 +296,29 @@ class UseReader:
         self._horizon: int | None = None
         # What the outermost read in progress has learned about each use.
         self._reads: _UseReads | None = None
+        # What every read learned, once the tables are complete.
+        self._shared: _UseReads | None = None
         # How many outermost reads began: what each learned is its own.
         self._outermost_reads = 0
         # Whether each use is a single-item rename, the target it names, and
         # the declarations its ``hiding`` removes.
+        self._indexes: dict[int, _UseIndex] = {}
         self._renamed: dict[int, bool] = {}
         self._identities: dict[int, frozenset[QName]] = {}
-        self._hidden_by: dict[int, frozenset[DeclarationKey]] = {}
+        self._hidden_by = ReadMemo[int, frozenset[DeclarationKey]](self._value_reads)
 
     @property
-    def reads_every_use(self) -> bool:
-        """Whether a read now sees every use, as no use's own read is in progress."""
-        return self._horizon is None
+    def horizon(self) -> int | None:
+        """The use bounding what a read now sees; ``None`` when every use is visible."""
+        return self._horizon
+
+    @property
+    def settled_view(self) -> bool:
+        """Whether what a read now makes holds for later reads seeing the same uses.
+
+        Every use visible, or the read in progress sharing what it learns.
+        """
+        return self._horizon is None or (self._shared is not None and self._reads is self._shared)
 
     @property
     def reading(self) -> tuple[int | None, int | None]:
@@ -189,6 +334,11 @@ class UseReader:
         layer.uses.append(decl)
         self._entry_ids.add(decl.node_id)
 
+    @property
+    def write_count(self) -> int:
+        """How many uses this entry has written."""
+        return len(self._entry_ids)
+
     def writes(self, decl: UseDecl) -> bool:
         """Whether this entry writes *decl*, rather than a REPL session retaining it."""
         return decl.node_id in self._entry_ids
@@ -200,9 +350,11 @@ class UseReader:
         What one outermost read learns about every use is kept until it ends.
         """
         horizon, reads = self._horizon, self._reads
-        current: _UseReads = {} if reads is None else reads
         if reads is None:
             self._outermost_reads += 1
+            current = self._shared or _UseReads(self._value_reads)
+        else:
+            current = reads
         self._horizon, self._reads = decl.node_id, current
         try:
             yield current
@@ -232,8 +384,88 @@ class UseReader:
         REPL entry retained yields to one this entry writes in the same
         region replacing it (:meth:`_replacing`).
         """
+        yield from self._seen(layer, layer.uses)
+
+    def visible_exposing(self, layer: ScopeNode, relative: ScopePath) -> Iterator[UseDecl]:
+        """Yield :meth:`visible` uses of *layer* that can expose a path starting as *relative*.
+
+        Every visible use when *relative* is empty.
+        """
+        if not relative:
+            yield from self.visible(layer)
+            return
+        index = self._indexes.get(id(layer))
+        if index is None:
+            index = self._indexes[id(layer)] = _UseIndex(layer)
+        yield from self._seen(
+            layer, index.matching(relative[0], self._globs_beneath(layer, relative))
+        )
+
+    def _globs_beneath(
+        self, layer: ScopeNode, relative: ScopePath
+    ) -> Iterable[tuple[int, UseDecl]] | None:
+        """The visible globs of *layer* that can expose *relative*; ``None`` for every glob.
+
+        A glob exposes a path only where its target can expose the first name
+        (:meth:`_glob_names`), and one of several names only where its target reaches it
+        (:meth:`_reaches_beneath_target`), which only those globs are asked, once per
+        first name rather than on every path read. This keeps the reads of paths through
+        many globs from multiplying.
+        """
+        reads = self._shared
+        if reads is None:
+            return None
+        first = relative[0]
+        index = self._indexes[id(layer)]
         horizon = self._horizon
-        for decl in layer.uses:
+        index.classify(horizon, lambda decl: self._glob_names(layer.scope_path, decl))
+        named, loose = index.candidates(first)
+        if len(relative) < 2:
+            return heapq.merge(named, loose)
+        key = id(layer), first
+        scan = reads.scans.get(key)
+        if scan is None:
+            scan = reads.scans[key] = _GlobScan(reads, key)
+        with self._value_reads.computing(scan):
+            while True:
+                from_named = scan.named < len(named)
+                from_loose = scan.loose < len(loose)
+                if from_named and from_loose:
+                    from_named = named[scan.named][0] < loose[scan.loose][0]
+                elif not (from_named or from_loose):
+                    break
+                position, decl = named[scan.named] if from_named else loose[scan.loose]
+                if horizon is not None and decl.node_id >= horizon:
+                    break
+                if self._reaches_beneath_target(layer.scope_path, decl, first):
+                    scan.found.append((position, decl))
+                if from_named:
+                    scan.named += 1
+                else:
+                    scan.loose += 1
+        return scan.found
+
+    def _glob_names(self, site: ScopePath, decl: UseDecl) -> frozenset[str] | None:
+        """The first names the paths beneath glob *decl*'s target can start with; ``None`` for any.
+
+        Known when the target names imported modules' roots alone, whose surfaces are
+        enumerated: no value binds a name there. Otherwise the target may name an own
+        scope or a type, whose members change as the walk binds them.
+        """
+        with self._reading_use(decl):
+            origins = self._use_path_origins(site, decl, _use_target(decl))
+        names: set[str] = set()
+        for origin in origins:
+            exposed = self._sources.module_first_names(origin.qname)
+            if exposed is None:
+                return None
+            names |= exposed
+        return frozenset(names) if origins else None
+
+    def _seen(self, layer: ScopeNode, uses: Iterable[UseDecl]) -> Iterator[UseDecl]:
+        """Yield those of *uses*, written in *layer*, a read now sees."""
+        horizon = self._horizon
+        for decl in uses:
             if horizon is not None and decl.node_id >= horizon:
                 continue
             if decl.node_id in self._entry_ids or not self._use_replaced(layer.scope_path, decl):
@@ -287,6 +519,10 @@ class UseReader:
             self._identities[decl.node_id] = found
         return found
 
+    def share_reads(self) -> None:
+        """Share what reads learn among all later reads: the module's tables are complete."""
+        self._shared = _UseReads(self._value_reads)
+
     def _use_renames(self, site: ScopePath, decl: UseDecl) -> bool:
         """Whether *decl*, written in region *site*, is a single-item rename.
 
@@ -313,7 +549,7 @@ class UseReader:
         kinds = (LookupKind.VALUE, LookupKind.TYPE) if len(names) > 1 else (LookupKind.TYPE,)
         return any(
             self._use_path_reached(site, decl, names, kind, owners_within) for kind in kinds
-        ) or (len(names) > 1 and self._pending_at(site, decl, names))
+        ) or self._pending_at(site, decl, names)
 
     def _binds_unreadable_value(
         self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None
@@ -359,19 +595,40 @@ class UseReader:
         """Whether *names*, as *decl* in region *site* spells them, is an own member not yet bound.
 
         A non-static module installs a scoped let/var only where the walk
-        reaches it.
+        reaches it. The scopes holding it are those *names* but the last
+        spell, seen through renames, so this never depends on what is bound.
         """
-        if decl.current_module:
-            bases: Iterable[ScopePath] = ((),)
-        elif decl.anchored:
+        if len(names) < 2:
             return False
-        else:
-            bases = lookup_steps(site)
         return any(
-            self._scope_entity_kinds.get((self._module_id, (*base, *names[:-1]), names[-1]))
+            origin.qname[0] == self._module_id
+            and self._scope_entity_kinds.get(
+                (self._module_id, to_bare_path(origin.qname[1]), names[-1])
+            )
             == "ordinary"
-            for base in bases
+            for origin in self._use_path_origins(site, decl, names[:-1])
         )
+
+    def _reaches_beneath_target(self, site: ScopePath, decl: UseDecl, name: str) -> bool:
+        """Whether anything, removed or not, is reached as *name* beneath *decl*'s target.
+
+        A longer path beneath the target reaches something only if its first
+        name does, so a glob need not read the rest of a path it cannot start.
+        Without this, each glob would read every longer path through every
+        earlier glob, and the paths read would compose their subsets.
+        """
+        with self._reading_use(decl) as reads:
+            names = (*_use_target(decl), name)
+            return reads.beneath.get(
+                (decl.node_id, name),
+                lambda: (
+                    any(
+                        self._use_path_reached(site, decl, names, kind, keep_removed=True)
+                        for kind in LookupKind
+                    )
+                    or bool(self._use_path_origins(site, decl, names))
+                ),
+            )
 
     def _use_rests(
         self, site: ScopePath, decl: UseDecl, relative: ScopePath
@@ -391,7 +648,8 @@ class UseReader:
             if len(target) > 1 and relative[0] == target[-1] and self._use_renames(site, decl):
                 rests[relative[1:]] = None
         elif not decl.tail:
-            rests[relative] = None
+            if len(relative) <= 1 or self._reaches_beneath_target(site, decl, relative[0]):
+                rests[relative] = None
         else:
             for item in decl.tail:
                 path = _item_path(item)
@@ -412,20 +670,19 @@ class UseReader:
         projects where the exposed path is read, a renamed one included.
         """
         with self._reading_use(decl) as reads:
-            key = (decl.node_id, relative, kind)
-            found = reads.get(key)
-            if found is None:
-                target = _use_target(decl)
+            target = _use_target(decl)
+
+            def read() -> tuple[Candidate, ...]:
                 owners_within = len(target) - (1 if self._use_renames(site, decl) else 0)
-                found = tuple(
+                return tuple(
                     candidate
                     for rest in self._use_rests(site, decl, relative)
                     for candidate in self._use_path_reached(
                         site, decl, (*target, *rest), kind, owners_within, keep_removed=True
                     )
                 )
-                reads[key] = found
-            return found
+
+            return reads.reached.get((decl.node_id, relative, kind), read)
 
     def exposure(
         self, site: ScopePath, decl: UseDecl, relative: ScopePath, kind: LookupKind
@@ -470,17 +727,17 @@ class UseReader:
 
         Each declaration an item names, and what a path beneath it reaches.
         """
-        found = self._hidden_by.get(decl.node_id)
-        if found is None:
-            target = _use_target(decl)
+        target = _use_target(decl)
+
+        def read() -> frozenset[DeclarationKey]:
             with self._reading_use(decl):
-                found = hidden_keys(
+                return hidden_keys(
                     decl.hidden,
                     lambda item: self._named_declarations(site, decl, (*target, *_item_path(item))),
                     self._sources.removed_with,
                 )
-            self._hidden_by[decl.node_id] = found
-        return found
+
+        return self._hidden_by.get(decl.node_id, read)
 
     def _named_declarations(self, site: ScopePath, decl: UseDecl, names: ScopePath) -> set[QName]:
         """The declarations and scopes *names*, spelled beneath *decl*'s anchor, names unremoved."""
@@ -503,20 +760,25 @@ class UseReader:
         A path holding a tail item names what the target's path there names;
         each also removed by what the use's ``hiding`` removes.
         """
-        with self._reading_use(decl):
+        with self._reading_use(decl) as reads:
             target = _use_target(decl)
-            paths = [(*target, *rest) for rest in self._use_rests(site, decl, relative)]
-            if any(
-                len(path := _item_path(item)) > len(relative) and path[: len(relative)] == relative
-                for item in decl.tail or ()
-            ):
-                paths.append((*target, *relative))
-            removed = self._use_hidden(site, decl)
-            return frozenset(
-                replace(origin, hiding=frozenset(way | removed for way in origin.hiding))
-                for path in paths
-                for origin in self._use_path_origins(site, decl, path)
-            )
+
+            def read() -> frozenset[Origin]:
+                paths = [(*target, *rest) for rest in self._use_rests(site, decl, relative)]
+                if any(
+                    len(path := _item_path(item)) > len(relative)
+                    and path[: len(relative)] == relative
+                    for item in decl.tail or ()
+                ):
+                    paths.append((*target, *relative))
+                removed = self._use_hidden(site, decl)
+                return frozenset(
+                    replace(origin, hiding=frozenset(way | removed for way in origin.hiding))
+                    for path in paths
+                    for origin in self._use_path_origins(site, decl, path)
+                )
+
+            return reads.origins.get((decl.node_id, relative), read)
 
     def name_references(
         self, site: ScopePath, decl: UseDecl
@@ -571,9 +833,12 @@ class UseReader:
     ) -> frozenset[Origin]:
         """The scopes and types *names*, spelled beneath *decl*'s anchor in region *site*, name."""
         route = _use_route(decl, names)
-        if route is not None:
-            return self._sources.module_route_origins(route, (), anchored=decl.anchored)
-        return lookup_reached_origins(self._sources, _use_chain(decl, names), site)
+        return spelled_origins(
+            self._sources,
+            _use_chain(decl, names) if route is None else route,
+            site,
+            anchored=decl.anchored,
+        )
 
     def _names_qualifier(
         self, site: ScopePath, decl: UseDecl, names: ScopePath, owners_within: int | None = None

@@ -1,0 +1,27 @@
+# A module-level @!allow hides the named warnings throughout the module, nested
+# declarations included; a region-level one covers that region only.
+@!doc("Allow demo.")
+@!allow("tab-indentation")
+
+def anywhere() -> int =
+  # A TAB in a nested let:	hidden module-wide.
+  let value =
+    # Another TAB:	hidden too.
+    1
+  value
+
+scope quiet
+  @!allow("noop-parse-retries")
+  def ask-quiet() -> text = ask("Q", parse-error-retries = 0)
+end quiet
+
+scope loud
+  @!doc("No allow here.")
+  def ask-loud() -> text = ask("Q", parse-error-retries = 0)
+end loud
+
+@allow("noop-parse-retries")
+def prefix-and-inner() -> text = ask("Q", parse-error-retries = 0)
+
+program def main() -> unit =
+  print(anywhere())

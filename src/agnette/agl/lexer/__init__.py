@@ -17,6 +17,8 @@ Public API
   legacy raw-quote completion policy; not AgL string semantics.
 - :func:`spaced_qualifier_collector` — collects lexical advisories for
   qualifier runs broken by whitespace before ``::``.
+- :func:`lex_source` / :func:`lex_replay` — lex a text once (:class:`LexedSource`) and let
+  every reading of exactly that text, under any grammar start rule, reuse the pass.
 - :func:`token_collector` — the lexer's single materialized token pass, for a
   diagnostic that must read tokens beyond the offending one without re-lexing.
 """
@@ -35,7 +37,13 @@ from agnette.agl.lexer.errors import (
 )
 from agnette.agl.lexer.layout import layout
 from agnette.agl.lexer.lexer import (
+    LexedSource,
     apply_module_passes,
+    lex_replay,
+    lex_source,
+    lexed_slices,
+    lexed_source,
+    replayed_parse,
     spaced_qualifier_collector,
     tab_warning_collector,
     tab_warning_labels,
@@ -54,9 +62,15 @@ __all__ = [
     "RESERVED_OPERATOR_SPELLINGS",
     "IncompleteInputError",
     "LexError",
+    "LexedSource",
     "UnterminatedTripleQuotedStringError",
+    "lex_source",
+    "lexed_slices",
+    "lexed_source",
+    "replayed_parse",
     "lex_comment_spans",
     "lex_open_quote_start",
+    "lex_replay",
     "spaced_qualifier_collector",
     "tab_warning_collector",
     "tab_warning_labels",

@@ -2,17 +2,18 @@
 
 [← Index](index.md)
 
-An attribute is a `@name` or `@name(args)` prefix on a defining declaration.
-It annotates the declaration for the compiler or the host; nothing in the
-program can read it.
+An attribute is a `@name` or `@name(args)` prefix on a defining declaration,
+or an [inner attribute](#inner-attributes) `@!name` or `@!name(args)` heading a
+module or scope region. It annotates that declaration, module, or region for
+the compiler or the host; nothing in the program can read it.
 
 ## Placement
 
 An attribute may prefix a `record`, `enum`, enum member, `exception`, `type`
 alias, any `def` form (`program`, `builtin`, and `extern` included), a
 `builtin var`, a field, a parameter, and a `let`/`var` binding. `import`,
-`use`, `export`, `infix`, and scope regions take none. Several attributes may
-be written in a row; their layout is given in
+`use`, `export`, `infix`, and scope regions take no prefix attribute. Several
+attributes may be written in a row; their layout is given in
 [Lexical structure](lexical-structure.md#attributes), their syntax in
 [Grammar](grammar.md#attributes).
 
@@ -23,6 +24,40 @@ such expressions, `@allow("a", "b")`. `@config` instead takes one or more
 `key = value` entries; see [`@config`](#config). An unknown name, a misplaced,
 repeated, or conflicting attribute, and an argument list the attribute does not
 admit are static errors.
+
+## Inner attributes
+
+An inner attribute `@!name` or `@!name(args)` attaches to the module or named
+scope region that encloses it, not to a following declaration. It takes the same
+argument list as a prefix attribute. Only `@doc` and `@allow` may be written
+this way; any other inner attribute is a static error.
+
+Inner attributes stand in the header position: before every other item of the
+module, or immediately after a `scope` header before any item of the region.
+Comments and blank lines may precede or separate them. An inner attribute
+anywhere else, including inside a function body or block, is a static error.
+Each attribute's own rules apply, so `@!doc` appears at most once per module,
+and at most once per scope path across all the regions spelling it: a re-opened
+`scope s`, or `scope a::b` together with a `scope b` nested in `scope a`, share
+one `@!doc`. Their arguments are [constant arguments](#constant-arguments) resolved
+from the module root, or from the region's scope. In `scope a::b` they attach to `b`.
+
+```agl
+# A comment may come first.
+@!doc("""
+  Text helpers.
+
+  Version %{version}.
+""")
+@!allow("tab-indentation")
+
+let version = "1"
+
+scope internal
+  @!doc("Helpers not meant for direct use.")
+  def helper() -> unit = ()
+end internal
+```
 
 ## Constant arguments
 
@@ -69,7 +104,7 @@ that same binding in an expression reads whatever value the host bound.
 
 | Attribute | Argument | Allowed on | Effect |
 | --------- | -------- | ---------- | ------ |
-| `@doc("…")` | prose | every defining declaration | Describes the declaration; hosts show it in help, and enum-member prose annotates derived JSON Schema. |
+| `@doc("…")` | prose | every defining declaration; `@!doc` on a module or scope region | Describes the declaration, module, or region; hosts show it in help, and enum-member prose annotates derived JSON Schema. |
 | `@arg-pos` | none | `def` parameter, field, or their declaring `def`, `record`, `exception`, or enum member | Positional-only zone. |
 | `@arg-std` | none | same | Standard zone (positional or named). |
 | `@arg-named` | none | same | Named-only zone. |
@@ -83,7 +118,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
-| `@allow("name", ...)` | one or more warning names | every defining declaration | Hides the named static warnings within the declaration. |
+| `@allow("name", ...)` | one or more warning names | every defining declaration; `@!allow` on a module or scope region | Hides the named static warnings within the declaration, module, or region. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
 | `@shell-quoted` | none | any `def` form | Declares the function's call results complete, quoted shell words. |
 | `@opaque` | none | `record` | Declares a host-created handle type that source cannot construct or update and that is not data. |
@@ -103,8 +138,9 @@ attribute. Zones, their default per declaration form, and their ordering rule:
 ## `@doc`
 
 One [constant text expression](#constant-arguments) of prose. It never changes
-a declaration's meaning. A host shows a `program def`'s `@doc` as the
-program's description — wherever the program runs, including as the prose of
+a declaration's meaning. On a module or scope region it is written `@!doc` and is that module's or
+region's documentation. A host shows a `program def`'s `@doc` as the
+program's description (never its module's `@!doc`) — wherever the program runs, including as the prose of
 the command it registers — and each host-facing parameter's `@doc` as that
 parameter's help ([Host environment](host-environment.md#help)). Where a host
 has room for one line only, such as a listing of commands, it shows the
@@ -203,7 +239,8 @@ under [Suppression with `@allow`](warnings.md#suppression-with-allow) and
 [Exemption with `@exempts`](warnings.md#exemption-with-exempts).
 
 `@allow` may prefix every declaration that takes attributes; its region is the
-whole declaration, attributes included. `@exempts` may prefix any `def` form:
+whole declaration, attributes included. As `@!allow` on a module or scope region
+its region is the whole module or region, nested declarations included. `@exempts` may prefix any `def` form:
 `def`, `program def`, `extern def`, `builtin def`, and a method; on any other
 declaration it is a static error.
 

@@ -4,7 +4,9 @@
 
 A named scope is a namespace inside a module. It groups static declarations
 under a `::` path without creating a module or a runtime value. Scopes may be
-nested and extended by later declarations.
+nested and extended by later declarations. A region may begin with
+[inner attributes](attributes.md#inner-attributes) documenting it or allowing
+warnings within it.
 
 ## Regions and declaration paths
 

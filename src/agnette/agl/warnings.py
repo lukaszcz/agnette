@@ -24,6 +24,7 @@ __all__ = [
     "NOOP_PARSE_RETRIES",
     "SHELL_QUOTED_HOLE",
     "TAB_INDENTATION",
+    "UNUSED_MODULE_DOC",
     "UNQUOTED_EXEC_HOLE",
     "WARNING_CATALOG",
     "WARNING_LEVELS",
@@ -51,11 +52,18 @@ TAB_INDENTATION = StaticWarning("tab-indentation")
 NOOP_PARSE_RETRIES = StaticWarning("noop-parse-retries")
 UNQUOTED_EXEC_HOLE = StaticWarning("unquoted-exec-hole", exemptable=True)
 SHELL_QUOTED_HOLE = StaticWarning("shell-quoted-hole")
+UNUSED_MODULE_DOC = StaticWarning("unused-module-doc")
 
 WARNING_CATALOG = MappingProxyType(
     {
         entry.name: entry
-        for entry in (TAB_INDENTATION, NOOP_PARSE_RETRIES, UNQUOTED_EXEC_HOLE, SHELL_QUOTED_HOLE)
+        for entry in (
+            TAB_INDENTATION,
+            NOOP_PARSE_RETRIES,
+            UNQUOTED_EXEC_HOLE,
+            SHELL_QUOTED_HOLE,
+            UNUSED_MODULE_DOC,
+        )
     }
 )
 

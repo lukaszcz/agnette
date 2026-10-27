@@ -244,6 +244,30 @@ class TestCheckCommand:
         assert "bad.agl" in captured.err
         assert "error:" in captured.err
 
+    @pytest.mark.parametrize(
+        ("source", "accepted"),
+        [
+            ("    def f() -> int =\n        1\n    let b = 1\n", True),
+            ("    def f() -> int =\n  1\n", False),
+            ("    let a = 1\n  let b = 2\n", False),
+            ("    def f() -> int =\n        1\n  let b = 2\n", False),
+            ("    let a = 1\nlet b = 2\n    let c = 3\n", False),
+        ],
+    )
+    def test_a_line_less_indented_than_the_base_of_the_source_is_an_error(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str, accepted: bool
+    ) -> None:
+        agl_file = tmp_path / "base.agl"
+        agl_file.write_text(source)
+
+        if accepted:
+            check_command.run(CheckArgs(files=[str(agl_file)]))
+        else:
+            with pytest.raises(SystemExit) as exc_info:
+                check_command.run(CheckArgs(files=[str(agl_file)]))
+            assert exc_info.value.code == 1
+            assert "error:" in capsys.readouterr().err
+
     def test_type_error_reports_diagnostic_and_exits_1(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -289,6 +313,53 @@ class TestCheckCommand:
 
         captured = capsys.readouterr()
         assert "broken.agl" in captured.err
+
+    @pytest.mark.parametrize(
+        ("hidden", "pattern", "import_", "changes_verdict"),
+        [
+            ("g", "g", "import hid::*", False),
+            ("g", "hid::g", "import hid", False),
+            ("Rec", "Rec", "import hid::*", True),
+            ("Rec", "hid::Rec", "import hid", True),
+        ],
+    )
+    def test_hiding_a_name_changes_a_pattern_verdict_only_for_a_constructor(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        hidden: str,
+        pattern: str,
+        import_: str,
+        changes_verdict: bool,
+    ) -> None:
+        """Hiding a constructor rejects its pattern differently; hiding any other name does not."""
+        (tmp_path / "hid.agl").write_text("record Rec\n  a: int\n\ndef g() -> int = 2\n")
+        entry = tmp_path / "entry.agl"
+
+        def verdict(hiding: str) -> str:
+            entry.write_text(
+                f"{import_}{hiding}\n"
+                "def h(c: int) -> int =\n"
+                f"  case c of\n    | {pattern} => 1\n    | _ => 2\n"
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                check_command.run(CheckArgs(files=[str(entry)]))
+            assert exc_info.value.code == 1
+            return capsys.readouterr().err
+
+        assert (verdict(f" hiding {hidden}") != verdict("")) is changes_verdict
+
+    def test_an_entry_type_error_is_reported_before_an_imported_modules(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "lib.agl").write_text("record L\n  x: Option\n")
+        main = tmp_path / "main.agl"
+        main.write_text("import lib::*\nrecord M\n  y: Option\n")
+
+        with pytest.raises(SystemExit):
+            check_command.run(CheckArgs(files=[str(main)]))
+
+        assert capsys.readouterr().err.startswith(str(main))
 
     def test_mixed_results_across_several_files_all_reported_exit_1(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

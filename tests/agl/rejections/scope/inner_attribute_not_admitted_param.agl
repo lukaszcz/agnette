@@ -1,0 +1,3 @@
+@!param
+
+program def main() -> unit = ()

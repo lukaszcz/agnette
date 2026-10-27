@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    {
+      "name": "documented_module_and_regions_run_normally",
+      "expect": {
+        "stdout": "8\n10\n",
+        "warnings": []
+      }
+    }
+  ]
+}

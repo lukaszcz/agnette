@@ -1,4 +1,4 @@
-# Common utility functions
+@!doc("Common utility functions.")
 
 import std/time
 import std/os

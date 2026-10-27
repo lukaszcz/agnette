@@ -7,7 +7,7 @@ from typing import TypeVar
 
 import pytest
 
-from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.modules.loader import LoadedModule, ModuleGraph
 from agnette.agl.parser.parser import parse_program
@@ -687,7 +687,7 @@ def test_use_target_combines_a_local_scope_with_a_same_named_route(
     ("use lib as L", "use lib::* hiding Flag::Ready"),
 )
 def test_use_aliases_and_hiding_do_not_leak_enum_variants(tmp_path: Path, use_decl: str) -> None:
-    with pytest.raises(AglScopeError):
+    with pytest.raises(AglScopeError if use_decl.endswith("as L") else HiddenMemberError):
         _entry_resolution(
             tmp_path,
             {
@@ -710,7 +710,7 @@ def test_wildcard_use_of_a_facade_reaches_a_referenced_enum_member(tmp_path: Pat
 
 
 def test_import_hiding_does_not_reintroduce_bare_enum_variant(tmp_path: Path) -> None:
-    with pytest.raises(AglScopeError):
+    with pytest.raises(HiddenMemberError):
         _entry_resolution(
             tmp_path,
             {

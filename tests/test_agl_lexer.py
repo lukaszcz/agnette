@@ -6,12 +6,15 @@ public ``tokenize`` helper.  No scanner/layout internals are tested.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
+import traceback
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
-from lark.lexer import LexerState, TextSlice
+from lark.lexer import LexerState, TextSlice, Token
 
-from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.diagnostics import AglError, Diagnostic
 from agnette.agl.lexer import (
     IncompleteInputError,
     LexError,
@@ -21,6 +24,7 @@ from agnette.agl.lexer import (
     tab_warning_collector,
     tokenize,
 )
+from agnette.agl.lexer.errors import ModuleRouteError
 from agnette.agl.lexer.lexer import AglLexer
 from agnette.agl.syntax.advisories import SpacedQualifier
 
@@ -1010,6 +1014,18 @@ class TestSingleQuotedStrings:
 
 
 class TestVerbatimLiteral:
+    def test_a_tab_indented_block_has_the_columns_of_a_space_indented_one(self) -> None:
+        def columns(source: str) -> list[tuple[str, int, int, int | None, int | None]]:
+            return [
+                (str(t.type), int(t.line or 0), int(t.column or 0), t.end_line, t.end_column)
+                for t in tokenize(source)
+            ]
+
+        tabbed = "let v = $\n\t  a %{x}\n\t\tb\n"
+        spaced = "let v = $\n      a %{x}\n        b\n"
+
+        assert columns(tabbed) == columns(spaced)
+
     def test_spaced_payload(self) -> None:
         assert tok("ask $ x") == [
             ("NAME", "ask"),
@@ -3356,7 +3372,7 @@ class TestDivisionRequiresSurroundingSpace:
     """`/` is division only with whitespace on both sides.
 
     Unspaced, `/` is a path separator or anchor, so a slash that clings to an
-    operand on exactly one side has no reading and is rejected outright rather
+    operand on either side has no reading and is rejected outright rather
     than silently becoming arithmetic or a stray qualifier.
     """
 
@@ -3372,6 +3388,134 @@ class TestDivisionRequiresSurroundingSpace:
     def test_slash_clinging_to_an_operand_is_rejected(self, source: str) -> None:
         with pytest.raises(LexError):
             lark_tok(source)
+
+    @pytest.mark.parametrize(
+        ("source", "route"),
+        [
+            ("std/fs", "std/fs"),
+            ("let u = a/b/c", "a/b/c"),
+            ("let u = /a/b", "/a/b"),
+            ("let u = /a/b/c", "/a/b/c"),
+            ("let t: a/b/c = 1", "a/b/c"),
+            ("a/b/2", "a/b"),
+            ("2/a/b", "a/b"),
+            ("f(x)/a/b", "a/b"),
+        ],
+    )
+    def test_a_name_route_is_named_whole_and_only_by_its_names(
+        self, source: str, route: str
+    ) -> None:
+        with pytest.raises(ModuleRouteError) as raised:
+            lark_tok(source)
+
+        assert raised.value.route == route
+
+    def test_a_clinging_slash_not_in_a_route_names_none(self) -> None:
+        with pytest.raises(LexError) as raised:
+            lark_tok("10/2")
+
+        assert not isinstance(raised.value, ModuleRouteError)
+
+    @pytest.mark.parametrize(
+        ("source", "divides"),
+        [
+            ("let u = a/b", True),
+            ("xs[a/b]", True),
+            ("Box[a/b]", True),
+            ("{1: a/b}", True),
+            ("f({1: a/b})", True),
+            ("let t: a/b = 1", False),
+            ("def f(x: a/b) -> int = 1", False),
+            ("def f(x: int) -> a/b = 1", False),
+            ("def f(x: int, y: a/b) -> int = 1", False),
+            ("let t: array[a/b] = []", False),
+            ("let t: dict[text, a/b] = {}", False),
+            ("let t: array[dict[text, a/b]] = []", False),
+            ("let t: (int, a/b) -> int = f", False),
+            ("type T = a/b", False),
+            ("type X[T] = a/b", False),
+            ("type X[T: Eq] = a/b", False),
+            ("exception E extends a/b", False),
+            ("Option[a/b]::None", False),
+            ("f::[a/b](1)", False),
+            ("xs[a/b]::[int]", True),
+            ("def f(x: int = a/b) -> int = 1", True),
+            ("let t: int = a/b", True),
+        ],
+    )
+    def test_division_is_a_reading_of_a_route_only_where_a_value_may_stand(
+        self, source: str, divides: bool
+    ) -> None:
+        with pytest.raises(ModuleRouteError) as raised:
+            lark_tok(source)
+
+        assert raised.value.divides is divides
+
+    def test_recovery_work_on_clinging_slashes_is_linear(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deciding each slash's reading must not rescan the tokens before it."""
+        from agnette.agl.lexer import lexer as lexer_module
+        from agnette.agl.lexer import tokenize_recover
+
+        real = lexer_module.scanner_token_type
+        calls = 0
+
+        def counting(token_type: str) -> str:
+            nonlocal calls
+            calls += 1
+            return real(token_type)
+
+        monkeypatch.setattr(lexer_module, "scanner_token_type", counting)
+
+        def work(lines: int) -> int:
+            nonlocal calls
+            calls = 0
+            _, errors = tokenize_recover("".join(f"let x{i} = a/b\n" for i in range(lines)))
+            assert len(errors) == lines
+            return calls
+
+        assert work(400) < 2.5 * work(200)
+
+    @pytest.mark.parametrize(
+        "unit", ("a[1 ", "a[", "(a[1 ", "a[a[1 "), ids=("loose", "tight", "paren", "nested")
+    )
+    def test_bracket_scanning_is_linear_in_the_clinging_brackets(
+        self, unit: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deciding each clinging bracket's reading must not scan ahead to its close."""
+        from agnette.agl.lexer import lexer as lexer_module
+        from agnette.agl.parser.parser import parse_program
+
+        class Counting(list[Token]):
+            """Tokens counting every read."""
+
+            reads = 0
+
+            def __getitem__(self, index: Any) -> Any:
+                type(self).reads += 1
+                return super().__getitem__(index)
+
+            def __iter__(self) -> Iterator[Token]:
+                for token in super().__iter__():
+                    type(self).reads += 1
+                    yield token
+
+        def counted(function: Callable[[list[Token]], Any]) -> Callable[[list[Token]], Any]:
+            return lambda tokens: function(Counting(tokens))
+
+        monkeypatch.setattr(lexer_module, "_type_positions", counted(lexer_module._type_positions))
+        monkeypatch.setattr(
+            lexer_module, "_mark_typearg_lsqb", counted(lexer_module._mark_typearg_lsqb)
+        )
+
+        def work(count: int) -> int:
+            Counting.reads = 0
+            with pytest.raises(AglError):
+                parse_program("x = " + unit * count + "c/d")
+            return Counting.reads
+
+        assert work(400) < 2.5 * work(200)
 
     @pytest.mark.parametrize("lexer", (tok, lark_tok), ids=("public", "lark"))
     @pytest.mark.parametrize(
@@ -3457,6 +3601,12 @@ class TestAtToken:
 
     def test_at_alone_is_at_token(self) -> None:
         assert tok("@") == [("AT", "@")]
+
+    def test_at_bang_opens_an_inner_attribute(self) -> None:
+        assert tok("@!doc") == [("INNER_AT", "@!"), ("NAME", "doc")]
+
+    def test_at_then_spaced_bang_is_a_prefix_at_and_an_operator(self) -> None:
+        assert tok("@ !x") == [("AT", "@"), ("OP_NAME", "!"), ("NAME", "x")]
 
     @pytest.mark.parametrize("name", ("arg-pos", "arg-std", "arg-named", "doc", "extern-name"))
     def test_an_attribute_name_is_one_name_token(self, name: str) -> None:
@@ -3626,3 +3776,102 @@ class TestRawSurrogateInSource:
     def test_raw_surrogate_character_inside_a_string_literal_is_lex_error(self) -> None:
         with pytest.raises(LexError):
             tok('"a' + chr(0xD800) + 'b"')
+
+
+class TestLexReplay:
+    """A recorded lex pass is reused by a parse of the same text under another start rule."""
+
+    def test_a_replayed_parse_reads_the_recorded_tokens_instead_of_scanning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import parse_type_entry_seeded
+
+        lexed = lex_source("int")
+
+        def forbidden(source: str) -> object:
+            raise AssertionError("the text was scanned again")
+
+        monkeypatch.setattr("agnette.agl.lexer.lexer._Scanner", forbidden)
+        with lex_replay(lexed):
+            attributes, type_expr, _ = parse_type_entry_seeded("int", start_id=0)
+
+        assert attributes == ()
+        assert type_expr.span.end_offset == 3
+
+    def test_a_recording_of_another_text_is_never_replayed(self) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import parse_program_seeded, parse_type_entry_seeded
+
+        with lex_replay(lex_source("int -> int")):
+            program, _ = parse_program_seeded("let a = 1", start_id=0)
+            _, type_expr, _ = parse_type_entry_seeded("text", start_id=0)
+
+        assert len(program.body.items) == 1
+        assert type_expr.span.end_offset == 4
+
+    @pytest.mark.parametrize("text", ['let a = "open', "let a = b/c/d"])
+    def test_a_failed_pass_raises_a_fresh_error_at_every_use(self, text: str) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        lexed = lex_source(text)
+        raised: list[AglSyntaxError] = []
+        for _ in range(4):
+            with lex_replay(lexed), pytest.raises(AglSyntaxError) as caught:
+                parse_program_seeded(text, start_id=0)
+            raised.append(caught.value)
+
+        assert len({id(error) for error in raised}) == len(raised)
+        depths = {len(traceback.extract_tb(error.__traceback__)) for error in raised}
+        assert len(depths) == 1
+        assert lexed.failure is not None
+        assert lexed.failure.__traceback__ is None
+
+    def test_replaying_a_pass_recorded_with_no_sink_feeds_the_sinks_like_a_direct_lex(
+        self,
+    ) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        text = "let\ta = std/fs ::read"
+        with (
+            spaced_qualifier_collector() as direct_spaced,
+            tab_warning_collector() as direct_tabs,
+            contextlib.suppress(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
+
+        lexed = lex_source(text)  # recorded while no sink was active
+        with (
+            lex_replay(lexed),
+            spaced_qualifier_collector() as replayed_spaced,
+            tab_warning_collector() as replayed_tabs,
+            contextlib.suppress(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
+
+        assert direct_spaced and direct_tabs
+        assert replayed_spaced == direct_spaced
+        assert replayed_tabs == direct_tabs
+
+    def test_replaying_a_failed_pass_raises_its_failure_and_feeds_the_sinks(self) -> None:
+        from agnette.agl.lexer import lex_replay, lex_source
+        from agnette.agl.parser import AglSyntaxError, parse_program_seeded
+
+        text = 'let\ta = "open'
+        with tab_warning_collector() as direct_tabs, pytest.raises(AglSyntaxError):
+            parse_program_seeded(text, start_id=0)
+
+        lexed = lex_source(text)
+        with (
+            lex_replay(lexed),
+            tab_warning_collector() as replayed_tabs,
+            pytest.raises(AglSyntaxError),
+        ):
+            parse_program_seeded(text, start_id=0)
+
+        assert isinstance(lexed.failure, LexError)
+        assert not lexed.tokens
+        assert direct_tabs
+        assert replayed_tabs == direct_tabs

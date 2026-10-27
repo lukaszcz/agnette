@@ -102,6 +102,11 @@ appear before any other declaration or expression, at the module root or
 inside a named scope region. See [Modules](modules.md) and
 [Grammar](grammar.md#import-and-export-declarations) for their syntax.
 
+### Module and region attributes
+
+A module, and each named scope region, may begin with
+[inner attributes](attributes.md#inner-attributes) (`@!doc`, `@!allow`).
+
 ### Named scope regions
 
 A named scope region is a module item containing nested regions, header

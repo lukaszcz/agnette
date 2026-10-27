@@ -1,4 +1,4 @@
-# Plan delivery workflows
+@!doc("Plan delivery workflows.")
 
 import std/config
 import std/session::Session

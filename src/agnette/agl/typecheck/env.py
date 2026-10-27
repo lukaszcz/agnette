@@ -18,8 +18,9 @@ environment.
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from operator import attrgetter
 from types import MappingProxyType
@@ -284,11 +285,17 @@ class UnappliedGenericTypeError(AglTypeError):
     already holds the unambiguously selected :class:`GenericTypeDef`, so a
     caller wanting to display it (the REPL's bare-type-entry echo) reads
     ``generic_def``/``display_name`` off the exception instead of resolving
-    the name a second time.
+    the name a second time. ``type_table`` is the checking environment's, which
+    resolves the definition's members.
     """
 
     def __init__(
-        self, display_name: str, generic_def: GenericTypeDef, *, span: SourceSpan | None
+        self,
+        display_name: str,
+        generic_def: GenericTypeDef,
+        *,
+        span: SourceSpan | None,
+        type_table: TypeTable,
     ) -> None:
         super().__init__(
             f"Generic type '{display_name}' requires {len(generic_def.type_params)} "
@@ -297,6 +304,7 @@ class UnappliedGenericTypeError(AglTypeError):
         )
         self.display_name = display_name
         self.generic_def = generic_def
+        self.type_table = type_table
 
 
 @_pickles_by_name
@@ -1184,6 +1192,10 @@ class TypeEnvironment:
         # once the body-check window opens.
         self._journal: list[EnvironmentFact] = []
         self._journaling = False
+        # Declarations whose bare, unapplied reference resolves to an
+        # argument-less handle instead of failing (see
+        # :meth:`accepting_bare_generics`); empty outside that scope.
+        self._bare_generics_accepted: frozenset[int] = frozenset()
         # Built-in exception types are always available.
         for exc_name, exc_type in BUILTIN_EXCEPTIONS.items():
             self._types[exc_name] = exc_type
@@ -1655,6 +1667,31 @@ class TypeEnvironment:
         derived._owner_declarations = {**self._owner_declarations, **entries}
         return derived
 
+    @contextmanager
+    def accepting_bare_generics(self, decl_ids: frozenset[int]) -> Iterator[None]:
+        """Resolve a bare reference to a generic among *decl_ids* to an argument-less handle.
+
+        For the pass that finds which owner parameters an inline enum member
+        keeps free: a field naming another member without arguments
+        contributes none of them, whatever arity that member has yet to
+        settle on.
+        """
+        previous = self._bare_generics_accepted
+        self._bare_generics_accepted = decl_ids
+        try:
+            yield
+        finally:
+            self._bare_generics_accepted = previous
+
+    def _bare_generic(
+        self, spelling: str, generic: GenericTypeDef, *, span: SourceSpan | None
+    ) -> RecordType | EnumType:
+        """Resolve an unapplied reference to *generic*: its argument-less handle or an error."""
+        template = generic.template
+        if template.decl_id in self._bare_generics_accepted:
+            return replace(template, type_args=())
+        raise UnappliedGenericTypeError(spelling, generic, span=span, type_table=self.type_table)
+
     def _is_program_alias_key(self, key: DeclKey) -> bool:
         """Whether *key* is a declared alias this program can lazily resolve."""
         return self._program_aliases is not None and key in self._program_aliases.keys
@@ -1671,7 +1708,7 @@ class TypeEnvironment:
         """Resolve another module's declaration *key* used as an unapplied type expression."""
         generic = self._program_generic_table.get(key)
         if generic is not None:
-            raise UnappliedGenericTypeError(exposed_name, generic, span=span)
+            return self._bare_generic(exposed_name, generic, span=span)
         typ = self._program_type_table.get(key)
         if typ is not None:
             return typ
@@ -2160,7 +2197,7 @@ class TypeEnvironment:
         # Reject a bare reference to a generic type that requires type arguments.
         gdef = self._generic_types.get(name)
         if gdef is not None and len(gdef.type_params) > 0:
-            raise UnappliedGenericTypeError(spelling, gdef, span=span)
+            return self._bare_generic(spelling, gdef, span=span)
         # Reject a bare reference to a parameterized alias.
         alias_params = self._alias_type_params.get(name, ())
         if name in self._alias_targets and len(alias_params) > 0:

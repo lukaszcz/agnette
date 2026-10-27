@@ -9,6 +9,7 @@ A hand-written lexer handles layout (INDENT/DEDENT), string templates (`%{}`, `%
 - **Literal scanning** — escape, number, identifier, and hole-opener rules live in `agl/value_syntax/lexical.py`, shared by the lexer and the host value-syntax reader; it also spells values back as literals so runtime rendering and constant folding cannot diverge. Every hole opener starts at `%` (`%!` quotes), and one recognizer (`hole_opener`) classifies it. All template forms share one hole scanner and one `template` grammar rule.
 - **Keywords** — `keywords.py` is the single inventory of reserved and soft keywords (soft keywords are ordinary names outside their promotion window). The lexer, shared highlighter, portable grammar and generated Emacs inventory import it; the parser grammar's literals and micro mode mirror it by hand.
 - **Operator position** — `lexer/operators.py` is the one inventory of operand-closing/opening tokens; layout line-continuation and operator-word promotion both query it, so they cannot disagree.
+- **Spans** — a construct's span ends at its last real token: closing layout tokens (`_DEDENT`, a loop's synthetic `done`) are zero-width there, so whitespace and comments after it are outside that construct's span.
 
 ## Constant Folding
 
@@ -23,6 +24,7 @@ The AST records source structure faithfully so later passes never reconstruct sp
 - Declarations carry canonical scope paths, method receivers (including applied builtin receivers), constraint blocks (`agl/constraints.py`), and `let`/`var` and assignment-target shapes.
 - A partial-application placeholder is a call argument, never an expression; a leading-dot chain becomes a marked unary lambda over a hygienic receiver.
 - Environment and quoted holes are desugared at parse into qualified `std/prelude` calls whose every node spans the written hole: `%${NAME}` is `getenv("NAME")`, and `%!{e}` is `shell-quote` over a one-hole template of `e`, so rendering precedes quoting. One parser helper builds the qualified call; being calls, these holes are never constant.
+- Inner attributes `@!name(...)` open with an `INNER_AT` (`@!`) token followed by the name. The grammar admits them anywhere in a module or region item sequence; the tree builder requires them to lead it and stores them verbatim in `Program.attributes` / `ScopeRegion.attributes` (a multi-segment header's innermost region). Anywhere else they fail to parse.
 - Attributes are held verbatim; the AST never imports the attribute catalog (`agl/attributes.py`), and meaning is assigned by scope ([scope.md](scope.md#attribute-recognition)).
 
 Inline `agm exec -c` sources parse through `PipelineDriver.parse_entry(inline_code=True)`: unless the source declares a `program def`, a purely syntactic wrapper (`parser/wrap.py`) keeps declarations, path-bearing and `@param` bindings, and the plain bindings they read at the module root, moving everything else into a synthetic entry. REPL entries are not wrapped; their root keeps executable items.

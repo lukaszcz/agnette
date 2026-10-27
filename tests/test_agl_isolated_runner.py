@@ -160,10 +160,10 @@ def _is_gone(pid: int) -> bool:
     """Whether *pid* no longer runs (a zombie awaiting its reaper counts as gone)."""
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
+        stat = Path(f"/proc/{pid}/stat")
+        return stat.exists() and stat.read_text().rpartition(")")[2].split()[0] == "Z"
+    except (FileNotFoundError, ProcessLookupError):
         return True
-    stat = Path(f"/proc/{pid}/stat")
-    return stat.exists() and stat.read_text().rpartition(")")[2].split()[0] == "Z"
 
 
 def _wait_until_gone(pid: int) -> bool:
@@ -730,7 +730,7 @@ def _fail_the_client(
     """Make the client fail after the zygote forked a child; return the pid it reported.
 
     By default the failure comes while the client waits for the child to end. With
-    *lose_pid* it comes instead of the pid frame, once that file exists (the child is running).
+    *lose_pid* it comes instead of the pid frame, once that file has data (the child ran).
     """
     pids: list[int] = []
     receive = _zygote.Launcher._receive
@@ -742,7 +742,9 @@ def _fail_the_client(
         pids.append(reply)
         if lose_pid is not None:
             deadline = time.monotonic() + 30
-            while not lose_pid.exists() and time.monotonic() < deadline:
+            while (
+                not lose_pid.exists() or lose_pid.stat().st_size == 0
+            ) and time.monotonic() < deadline:
                 time.sleep(0.01)
             raise error
         return reply

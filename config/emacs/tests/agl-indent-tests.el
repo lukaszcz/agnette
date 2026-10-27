@@ -686,6 +686,13 @@ level under a deeper body."
               7)
              0)))
 
+(ert-deftest agl-ind-inner-attribute-stands-as-a-header-item ()
+  ;; `@!name' belongs to the enclosing module or region, so it stands where a
+  ;; declaration there does, whatever line precedes it.
+  (should (= (agl-ind--indent-of "# Header\n  @!doc(\"x\")\n\ndef f() -> int = 1\n" 2) 0))
+  (should (= (agl-ind--indent-of "scope s\n@!doc(\"x\")\ndef f() -> int = 1\nend s\n" 2) 2))
+  (should (= (agl-ind--indent-of "record R\n  x: int\n  @!doc(\"x\")\n" 3) 0)))
+
 (ert-deftest agl-ind-typing-a-closing-bracket-returns-to-its-opener ()
   ;; A bracket closer belongs to the line that opened it, and the bracket
   ;; itself is what says so, so the line is placed on that keystroke.

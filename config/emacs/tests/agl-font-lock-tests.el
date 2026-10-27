@@ -574,6 +574,13 @@
   (agl-flt--with-buffer "@123\ndef k() -> int = 1\n"
     (should-not (eq (agl-flt--face-of "@") 'font-lock-preprocessor-face))))
 
+;; --- Inner attributes `@!name' ---
+
+(ert-deftest agl-flt-inner-attribute-is-attribute-face ()
+  (agl-flt--with-buffer "@!doc(\"Text.\")\n\ndef f() -> int = 1\n"
+    (should (agl-flt--wholly-faced-p "@!doc" 'font-lock-preprocessor-face))
+    (should (eq (agl-flt--face-of "\"Text.\"") 'font-lock-string-face))))
+
 ;; --- A keyword immediately after a delimiter or operator is still faced ---
 
 (ert-deftest agl-flt-keyword-immediately-after-open-paren-is-faced ()

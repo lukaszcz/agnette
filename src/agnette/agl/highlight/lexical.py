@@ -30,6 +30,7 @@ from agnette.agl.lexer import (
 from agnette.agl.lexer.tokens import (
     ENV_HOLE_TOKENS,
     HOLE_START_TOKENS,
+    LAYOUT_TOKENS,
     SOFT_KEYWORD_TOKENS,
     STRING_TAIL,
     VERBATIM_TAIL,
@@ -40,7 +41,6 @@ from agnette.agl.value_syntax.errors import ValueSyntaxError
 from agnette.agl.value_syntax.lexical import decode_escape
 from agnette.util.text import normalize_newlines
 
-_LAYOUT_TOKENS = frozenset({"_NEWLINE", "_INDENT", "_DEDENT"})
 _KEYWORD_TOKENS = KEYWORDS | SOFT_KEYWORD_TOKENS
 _DECL_CONSTRUCTOR_KEYWORDS = frozenset({KW_RECORD, KW_EXCEPTION})
 _CALL_LOOKAHEAD = frozenset({"LPAR", "DCOLON"})
@@ -51,6 +51,7 @@ _OPERATOR_TOKENS = frozenset(
         "ASSIGN",
         "DCOLON",
         "AT",
+        "INNER_AT",
         "EQ",
         "NEQ",
         "LE",
@@ -66,6 +67,7 @@ _OPERATOR_TOKENS = frozenset(
         "WILDCARD",
     }
 )
+_ATTRIBUTE_OPENERS = frozenset({"AT", "INNER_AT"})
 _PUNCTUATION_TOKENS = frozenset(
     {
         "LPAR",
@@ -134,16 +136,16 @@ def _next_significant_types(tokens: list[Token]) -> list[str | None]:
     nxt: str | None = None
     for index in range(len(tokens) - 1, -1, -1):
         result[index] = nxt
-        if tokens[index].type not in _LAYOUT_TOKENS:
+        if tokens[index].type not in LAYOUT_TOKENS:
             nxt = tokens[index].type
     return result
 
 
 def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int]]:
-    """Classify @name prefixes; balanced arguments are transparent to declarations."""
+    """Classify @name and @!name attributes; balanced arguments are transparent to declarations."""
     forced: dict[int, Category] = {}
     covered: set[int] = set()
-    significant = [i for i, token in enumerate(tokens) if token.type not in _LAYOUT_TOKENS]
+    significant = [i for i, token in enumerate(tokens) if token.type not in LAYOUT_TOKENS]
     opens: list[int] = []
     matching_parens: dict[int, int] = {}
     for position, token_index in enumerate(significant):
@@ -154,7 +156,7 @@ def _attribute_styles(tokens: list[Token]) -> tuple[dict[int, Category], set[int
     position = 0
     while position < len(significant):
         at_index = significant[position]
-        if tokens[at_index].type != "AT" or position + 1 >= len(significant):
+        if tokens[at_index].type not in _ATTRIBUTE_OPENERS or position + 1 >= len(significant):
             position += 1
             continue
         name_index = significant[position + 1]
@@ -185,7 +187,7 @@ def _decl_site_styles(
     prev_sig: str | None = None
     for index, token in enumerate(tokens):
         ttype = token.type
-        if ttype in _LAYOUT_TOKENS or index in attribute_tokens:
+        if ttype in LAYOUT_TOKENS or index in attribute_tokens:
             continue
         is_name = ttype in {"NAME", "OP_NAME"}
         if infix_state == "expect_op":
@@ -360,7 +362,7 @@ def _token_spans(
             start is not None
             and end is not None
             and end > start
-            and token.type not in _LAYOUT_TOKENS | {"STRING_FRAGMENT"}
+            and token.type not in LAYOUT_TOKENS | {"STRING_FRAGMENT"}
             and not (token.type == "done" and text[start:end] != "done")
         ):
             candidates.append((start, end, category))

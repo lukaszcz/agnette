@@ -418,6 +418,8 @@ func TestAttributesAreFaced(t *testing.T) {
 	// The warning-control attributes are ordinary attributes.
 	assertFace(t, `@allow("unquoted-exec-hole") def f() = x`, "@allow", "preproc")
 	assertFace(t, `@exempts("unquoted-exec-hole") def f() = x`, "@exempts", "preproc")
+	// An inner attribute `@!name' is faced as a whole.
+	assertFace(t, "@!doc(\"greets\")\ndef f() = x", "@!doc", "preproc")
 	// An `@' with no name after it is not an attribute.
 	assertFace(t, "let x = a @ b", "@", "symbol.operator")
 }

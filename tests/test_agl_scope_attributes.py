@@ -514,6 +514,145 @@ class TestDocumentationTexts:
         assert resolution.attributes.docs == {}
 
 
+class TestInnerAttributes:
+    """``@!doc`` and ``@!allow`` on the module root and on scope regions."""
+
+    def test_the_module_doc_is_recorded(self) -> None:
+        resolution = resolve_entry('@!doc("Filesystem access.")\n\ndef f() -> int = 1\n')
+
+        assert resolution.attributes.module_doc == "Filesystem access."
+        assert resolution.attributes.region_docs == {}
+
+    def test_a_module_without_inner_attributes_has_no_doc(self) -> None:
+        assert resolve_entry("def f() -> int = 1\n").attributes.module_doc is None
+
+    def test_module_doc_folds_constants_and_triple_quoted_text(self) -> None:
+        resolution = resolve_entry('@!doc("""\n  About %{name}.\n""")\n\nlet name = "fs"\n')
+
+        assert resolution.attributes.module_doc == "About fs."
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '# lead\n\n@!doc("d")\n@!allow("tab-indentation")\n\nlet x = 1\n',
+            '@!allow("tab-indentation")\n@!doc("d")\nlet x = 1\n',
+            '@!doc("d")',
+            '@!doc("d"); let x = 1\n',
+        ],
+    )
+    def test_header_placements_are_accepted(self, source: str) -> None:
+        assert resolve_entry(source).attributes.module_doc == "d"
+
+    def test_region_docs_are_keyed_by_the_full_region_path(self) -> None:
+        resolution = resolve_entry(
+            "scope a::b\n"
+            '  @!doc("inner")\n'
+            "  def f() -> int = 1\n"
+            "\n"
+            "  scope c\n"
+            '    @!doc("deepest")\n'
+            "  end c\n"
+            "end a::b\n"
+            "\n"
+            "scope plain\n"
+            "  def g() -> int = 1\n"
+            "end plain\n"
+        )
+
+        assert resolution.attributes.region_docs == {
+            ("a", "b"): "inner",
+            ("a", "b", "c"): "deepest",
+        }
+        assert resolution.attributes.module_doc is None
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'scope s\n  @!doc("d")\nend s\n',
+            'scope s\n  @!doc("d")\n  def f() -> int = 1\nend s\n',
+        ],
+    )
+    def test_empty_and_indented_regions_accept_inner_attributes(self, source: str) -> None:
+        assert resolve_entry(source).attributes.region_docs == {("s",): "d"}
+
+    def test_a_same_level_region_accepts_inner_attributes(self) -> None:
+        # Joined at run time: the layout style tool indents same-level region items.
+        source = "\n".join(["scope s", '@!doc("d")', "def f() -> int = 1", "end s", ""])
+
+        assert resolve_entry(source).attributes.region_docs == {("s",): "d"}
+
+    def test_region_doc_resolves_holes_from_the_region(self) -> None:
+        resolution = resolve_entry(
+            'let n = 1\n\nscope s\n  @!doc("n is %{n}")\n  let n = 2\nend s\n'
+        )
+
+        assert resolution.attributes.region_docs == {("s",): "n is 2"}
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'scope s\n  @!doc("a")\nend s\n\nscope s\n  @!doc("b")\nend s\n',
+            'scope a::b\n  @!doc("a")\nend a::b\n\nscope a\n\n  scope b\n    @!doc("b")\n'
+            "  end b\nend a\n",
+        ],
+    )
+    def test_a_region_path_takes_one_doc_across_all_regions(self, source: str) -> None:
+        with pytest.raises(AglScopeError, match="repeated"):
+            resolve_entry(source)
+
+    def test_a_reopened_region_keeps_the_doc_of_the_region_spelling_it(self) -> None:
+        source = 'scope s\n  @!doc("a")\nend s\n\nscope s\n  @!allow("tab-indentation")\nend s\n'
+
+        assert resolve_entry(source).attributes.region_docs == {("s",): "a"}
+
+    def test_inner_docs_stay_out_of_declaration_docs(self) -> None:
+        resolution = resolve_entry('@!doc("m")\n\nscope s\n  @!doc("r")\nend s\n')
+
+        assert resolution.attributes.docs == {}
+
+    def test_module_allow_covers_the_whole_source(self) -> None:
+        source = '# lead\n@!allow("tab-indentation")\n\ndef f() -> int = 1\n'
+        resolution = resolve_entry(source)
+
+        (region,) = resolution.attributes.warning_allows
+        assert region.names == {"tab-indentation"}
+        assert (region.span.start_line, region.span.start_col) == (1, 1)
+        assert (region.span.end_line, region.span.end_col) >= (4, 21)
+
+    def test_region_allow_covers_that_region_only(self) -> None:
+        resolution = resolve_entry(
+            "def f() -> int = 1\n\nscope s\n"
+            '  @!allow("tab-indentation")\n  def g() -> int = 1\nend s\n'
+        )
+
+        (region,) = resolution.attributes.warning_allows
+        assert (region.span.start_line, region.span.end_line) == (3, 6)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "@!param\n",
+            '@!extern-name("x")\n',
+            "scope s\n  @!arg-pos\nend s\n",
+            '@!doc("a")\n@!doc("b")\n',
+            '@!allow("no-such-warning")\n',
+            '@!allow("tab-indentation", "tab-indentation")\n',
+            "@!doc(missing)\n",
+        ],
+    )
+    def test_invalid_inner_attributes_are_rejected(self, source: str) -> None:
+        with pytest.raises(AglScopeError):
+            resolve_entry(source)
+
+    @pytest.mark.parametrize("source", ["@!doc(1)\n", '@!allow("no-such-warning")\n'])
+    def test_argument_diagnostics_spell_the_inner_attribute(self, source: str) -> None:
+        name = source[2 : source.index("(")]
+        with pytest.raises(AglScopeError) as raised:
+            resolve_entry(source)
+        assert f"@!{name}" in str(raised.value)
+        assert f"'@{name}'" not in str(raised.value)
+
+
 class TestWarningAttributes:
     """``@allow`` and ``@exempts``: validated names, filed per declaration."""
 

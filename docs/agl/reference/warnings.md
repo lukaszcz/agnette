@@ -16,6 +16,7 @@ an error, silence it, or leave it as a warning.
 | `noop-parse-retries` | An `ask` or `exec` call passes `parse-error-retries` with a `text` target, which never fails parsing ([`parse-error-retries`](agent-calls.md#parse-error-retries)). | no |
 | `unquoted-exec-hole` | A plain hole inserts runtime text into an `exec` command verbatim ([Hole warnings](shell-execution.md#hole-warnings)). | yes |
 | `shell-quoted-hole` | A shell-quoted hole sits inside quotes the `exec` command text itself opens ([Hole warnings](shell-execution.md#hole-warnings)). | no |
+| `unused-module-doc` | A [REPL](../../commands/agl.md#agm-repl) entry or loaded source starts with a module-level `@!doc`, which documents nothing there. | no |
 
 A warning is reported as `path:line:col: warning: message [name]`, ending in its
 name in brackets.
@@ -41,7 +42,9 @@ with the flag winning over the table.
 
 [`@allow("name", …)`](attributes.md#allow-and-exempts) hides the named warnings
 reported anywhere inside the declaration it prefixes, from its first attribute to
-its end; declarations nested in it inherit it. A warning outside the declaration,
+its last token; declarations nested in it inherit it. `@!allow("name", …)` written as an
+[inner attribute](attributes.md#inner-attributes) of a module or scope region hides
+them throughout that whole module or region in the same way. A warning outside the declaration,
 in another module, or not named stays reported. A hidden warning is never reported
 at any level, so a `deny` cannot turn it into an error:
 

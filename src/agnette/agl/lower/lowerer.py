@@ -366,6 +366,7 @@ def _add_builtin_nominals(
             type_table,
             bears_name_path=True,
             field_defaults=field_defaults,
+            built=nominals,
         )
 
     for exc_name, exc_type in BUILTIN_EXCEPTIONS.items():
@@ -377,6 +378,7 @@ def _add_builtin_nominals(
             type_table,
             bears_name_path=True,
             field_defaults=field_defaults,
+            built=nominals,
         )
         nominals[descriptor.nominal] = descriptor
 

@@ -428,6 +428,7 @@ def _drive_repl(
     """Evaluate the entries among *steps*, recording each one's success.
 
     Directives act on the session directly: ``!close``, ``!reset``, ``!mark X`` (announce X),
+    ``!load PATH`` (record each loaded entry's success),
     ``!interrupted-reset`` (a reset during which ending the processes is interrupted; records
     whether the interrupt escaped), ``!fork-handle`` (fork and settle a child through the
     session's process host) and ``!handle-known`` (records whether that handle is still known).
@@ -455,6 +456,8 @@ def _drive_repl(
                     except KeyboardInterrupt:
                         outcomes.append(True)
                 session._roots = roots
+            elif step.startswith("!load "):
+                outcomes.extend(result.ok for result in session.load_file(Path(step[6:])))
             elif step.startswith("!mark "):
                 os.write(1, f"--{step.removeprefix('!mark ')}--\n".encode())
             elif step == "!fork-handle":
@@ -534,6 +537,35 @@ def _entry_scope_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
     return results
 
 
+def _loaded_entry_scope_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
+    entries = [
+        'let kept = spawn("loaded")',
+        'def fail() -> unit =\n  let failed = spawn("failed")\n  raise Abort(message = "boom")',
+        "fail()",
+        'spawn("unreached")',
+    ]
+    plans: _Plans = {}
+    for name in cases:
+        path = workdir / f"{name}.agl"
+        text = "\n".join(entries) + "\n"
+        if name == "transcript":
+            text = "# agm:repl-transcript:v1\n" + "".join(
+                f"# agm:entry:{len(entry)}\n{entry}\n" for entry in entries
+            )
+        path.write_text(text)
+        plans[name] = (
+            [
+                _IMPORT,
+                'spawn("earlier")',
+                f"!load {path}",
+                "!mark after load",
+                "!close",
+            ],
+            {},
+        )
+    return _run_plans(workdir, plans, cases)
+
+
 def _reset_family(workdir: Path, cases: list[str]) -> dict[str, Any]:
     pids = workdir / "pids"
     trace = workdir / "trace.jsonl"
@@ -592,6 +624,18 @@ def test_a_failed_entry_terminates_only_its_own_children(
     assert failed.output[name] == (
         "failed terminated\n--after the failed entry--\nearlier terminated\n"
     )
+
+
+@pytest.mark.parametrize("name", ["plain", "transcript"])
+def test_a_failed_load_terminates_only_the_failing_entrys_children(
+    tmp_path_factory: pytest.TempPathFactory, name: str
+) -> None:
+    loaded = _run_scenarios(_loaded_entry_scope_family, tmp_path_factory, name, [name])
+    assert loaded.results[name] == [True, True, True, True, False]
+    failed, after, *survivors = loaded.output[name].splitlines()
+    assert failed == "failed terminated"
+    assert after == "--after load--"
+    assert sorted(survivors) == ["earlier terminated", "loaded terminated"]
 
 
 def test_close_terminates_the_children_of_every_entry_then_closes_sessions_and_state(

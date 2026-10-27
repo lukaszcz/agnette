@@ -1,0 +1,4 @@
+@!doc("one")
+@!doc("two")
+
+program def main() -> unit = ()

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.diagnostics import AglTypeError
+from agnette.agl.diagnostics import AglTypeError, HiddenMemberError
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.scope import BuiltinKind, ModuleResolution
 from agnette.agl.scope.symbols import (
@@ -694,7 +694,7 @@ class TestScopedBindingUsePrecedence:
         """The hidden member stays unreachable bare even though it is
         registered after the ``use``, live, exactly as the exposed sibling
         member is reached live."""
-        with pytest.raises(AglScopeError):
+        with pytest.raises(HiddenMemberError):
             parse_and_resolve("use A::* hiding y\n\nscope A\n  var x = 1\n  var y = 2\nend A\n\ny")
 
     def test_hiding_rejects_a_member_missing_after_the_scope_is_complete(self) -> None:
@@ -780,7 +780,7 @@ class TestScopedBindingUsePrecedence:
             "use A::* hiding x, y\n\nscope A\n  var x = 1\n  var y = 2\n  var z = 3\nend A\n\nz"
         )
         assert _ref(resolved_hiding, "z").scope_path == ("A",)
-        with pytest.raises(AglScopeError):
+        with pytest.raises(HiddenMemberError):
             parse_and_resolve(
                 "use A::* hiding x, y\n\nscope A\n  var x = 1\n  var y = 2\n  var z = 3\nend A\n\nx"
             )

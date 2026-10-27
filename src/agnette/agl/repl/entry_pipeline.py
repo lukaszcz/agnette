@@ -10,11 +10,11 @@ time (no cycle) -- the session type is available under ``TYPE_CHECKING`` only.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, diagnostic_from_span
-from agnette.agl.modules.ids import ModuleId
+from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.repl.entry import EntryResult
 from agnette.core.cleanup import notes_of
 
@@ -54,6 +54,27 @@ class LoadedCheckedProgram:
     entry_uses: "tuple[ImportDecl | ScopeRegion, ...]"
     raw_param_values: "dict[StaticBindingKey, object]"
     retired_member_scopes: "frozenset[ScopePath]"
+
+
+def unused_module_doc_warnings(program: Program) -> list[Diagnostic]:
+    """Warn of the module-level ``@!doc`` of a REPL entry or loaded source *program*.
+
+    A session has no module to document; a region's own ``@!doc`` is unaffected.
+    """
+    from agnette.agl.attributes import DOC_ATTRIBUTE
+    from agnette.agl.diagnostics import warning_diagnostic
+    from agnette.agl.warnings import UNUSED_MODULE_DOC
+
+    return [
+        warning_diagnostic(
+            UNUSED_MODULE_DOC,
+            f"The module-level '{attribute.spelling}' documents nothing: a REPL session is "
+            "no module. Document a 'scope' region with its own '@!doc' instead.",
+            attribute.span,
+        )
+        for attribute in program.attributes
+        if attribute.name == DOC_ATTRIBUTE
+    ]
 
 
 def _hashability_downgrade(previous: TypeTable, current: TypeTable) -> TypeDef | None:
@@ -210,7 +231,10 @@ class EntryPipeline:
                 )
             except AglError as exc:
                 return self._ctx._fail_static_governed(
-                    exc, [*tab_warnings, *load_tab_sink], resolutions.values()
+                    exc,
+                    [*tab_warnings, *load_tab_sink],
+                    resolutions.values(),
+                    scope_failed=ENTRY_ID not in resolutions,
                 )
 
         resolved_program = loaded.resolved_program
@@ -234,7 +258,12 @@ class EntryPipeline:
             for warning in module.warnings
         ]
         outcome = self._ctx._govern_warnings(
-            [*tab_warnings, *load_tab_sink, *checker_warnings],
+            [
+                *tab_warnings,
+                *load_tab_sink,
+                *unused_module_doc_warnings(orig_program),
+                *checker_warnings,
+            ],
             resolved_program.modules.values(),
             scope_complete=True,
         )
@@ -317,18 +346,21 @@ class EntryPipeline:
         ``AglSyntaxError``/module-loading errors/``AglScopeError``/``AglTypeError``
         on failure.
         """
-        from agnette.agl.typecheck.program import check_program
-
         resolved_program = self.resolve_program(
             program, next_start_id, source_text=source_text, spaced_qualifiers=spaced_qualifiers
         )
-        checked_program = check_program(
+        return resolved_program, self.check_resolved_program(resolved_program)
+
+    def check_resolved_program(self, resolved_program: ResolvedProgram) -> CheckedProgram:
+        """Typecheck a *resolved_program* against the session's retained state."""
+        from agnette.agl.typecheck.program import check_program
+
+        return check_program(
             resolved_program,
             entry_seed_env=self._ctx._type_env,
             cached_checked_modules=self._ctx._retained_checked_modules,
             session_builtin_declarations=self._ctx._session_builtin_declarations,
         )
-        return resolved_program, checked_program
 
     def resolve_program(
         self,
@@ -512,7 +544,7 @@ class EntryPipeline:
         roots: RootSet,
     ) -> tuple[Program, int, tuple[ImportDecl, ...]]:
         """Expand wildcard imports into distinct exact-module declarations."""
-        from agnette.agl.syntax.nodes import Block, ImportDecl, Program
+        from agnette.agl.syntax.nodes import ImportDecl
 
         items: list[Item] = []
         imports: list[ImportDecl] = []
@@ -529,15 +561,7 @@ class EntryPipeline:
         if not expanded_wildcard:
             return program, next_start_id, tuple(imports)
         return (
-            Program(
-                body=Block(
-                    items=tuple(items),
-                    span=program.body.span,
-                    node_id=program.body.node_id,
-                ),
-                span=program.span,
-                node_id=program.node_id,
-            ),
+            EntryPipeline._replace_body_items(program, items),
             next_start_id,
             tuple(imports),
         )
@@ -557,17 +581,7 @@ class EntryPipeline:
         callers that reorder or filter a program's root items -- rather than
         merely prepending, which is ``_prepend_items`` -- share this rebuild.
         """
-        from agnette.agl.syntax.nodes import Block, Program
-
-        return Program(
-            body=Block(
-                items=tuple(items),
-                span=program.body.span,
-                node_id=program.body.node_id,
-            ),
-            span=program.span,
-            node_id=program.node_id,
-        )
+        return replace(program, body=replace(program.body, items=tuple(items)))
 
     def _evaluate_ir_program(
         self,
@@ -688,7 +702,11 @@ class EntryPipeline:
             self._ctx._link_image.restore_state(link_snapshot)
             self._ctx._advance_node_ids(new_next_id)
             return self._ctx._fail(extern_diagnostics, warnings)
-        trace = TraceStore(path=self._ctx._trace_path, sources=lowered.program.sources)
+        trace = TraceStore(
+            path=self._ctx._trace_path,
+            sources=lowered.program.sources,
+            place=self._ctx.user_place,
+        )
         trace.run_start(command="repl", span=orig_program.span)
         if self._ctx._host_settings_policy is not None:
             from agnette.agl.runtime.host_settings import HostSettingsReconfigurer
@@ -1116,7 +1134,8 @@ class EntryPipeline:
         nested exactly where it was written -- unlike a root ``import``,
         already retained by the flat, module-wide accumulation channel -- so
         only a scoped one (``item.scope_path`` non-empty, which holds
-        precisely when it is a region's own item) is captured here.
+        precisely when it is a region's own item) is captured here. A retained
+        region drops its inner attributes: they apply to the entry that wrote them.
         """
         from dataclasses import replace
 
@@ -1129,7 +1148,7 @@ class EntryPipeline:
             elif isinstance(item, ScopeRegion):
                 nested = EntryPipeline._retained_scoped_import_items(item.items)
                 if nested:
-                    retained.append(replace(item, items=nested))
+                    retained.append(replace(item, items=nested, attributes=()))
         return tuple(retained)
 
     @staticmethod
@@ -1166,7 +1185,7 @@ class EntryPipeline:
                     rewrite_import=rewrite_import,
                 )
                 if nested:
-                    rewritten.append(replace(item, items=nested))
+                    rewritten.append(replace(item, items=nested, attributes=()))
         return tuple(rewritten)
 
     @staticmethod

@@ -73,6 +73,7 @@ from agnette.agl.keywords import (
 NEWLINE = "_NEWLINE"
 INDENT = "_INDENT"
 DEDENT = "_DEDENT"
+LAYOUT_TOKENS = frozenset({NEWLINE, INDENT, DEDENT})
 
 # Recovery-only token; never passed to the parser.
 ERROR = "ERROR"
@@ -126,6 +127,7 @@ MINUS = "MINUS"  # -
 STAR = "STAR"  # *
 SLASH = "SLASH"  # /
 AT = "AT"  # @
+INNER_AT = "INNER_AT"  # @! (opens an inner attribute)
 LPAR = "LPAR"  # (
 RPAR = "RPAR"  # )
 LSQB = "LSQB"  # [
@@ -141,6 +143,9 @@ COMMA = "COMMA"  # ,
 DOT = "DOT"  # .
 PIPE = "PIPE"  # |
 SEMICOLON = "SEMICOLON"  # ;
+
+# Tokens after which an item may start: layout and the item separator.
+ITEM_BOUNDARY_TOKENS = LAYOUT_TOKENS | {SEMICOLON}
 
 # Equality operator token for "==".
 EQ_EQ = "EQ_EQ"  # ==

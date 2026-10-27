@@ -1,9 +1,8 @@
 """Meta-command (``:`` prefix) dispatch for the AgL REPL.
 
-A meta-command is any console line whose first non-blank character is ``:`` —
-``:help``, ``:quit``, etc.  The leading colon never collides with AgL syntax
-(no AgL statement begins with ``:``), so the loop can route on that single
-character.
+A meta-command is any console line whose first non-blank characters are a single ``:`` —
+``:help``, ``:quit``, etc.  A line starting ``::`` is an AgL entry (an anchored name), so
+the loop can route on :func:`is_meta_line`.
 
 The meta-command set is implemented here: ``:help``, ``:quit`` /
 ``:exit``, ``:reset``, ``:type``, ``:bindings`` / ``:env``,
@@ -15,15 +14,16 @@ completer.  Each handler takes ``(arg, ctx)`` and returns a :class:`MetaOutcome`
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agnette.agl.repl.info_sections import SECTION_BOUNDARY_RE, SECTION_RE
 from agnette.agl.repl.theme_selection import THEME_NAMES
 
 if TYPE_CHECKING:
+    from agnette.agl.diagnostics import Diagnostic
     from agnette.agl.repl.session import ReplSession
 
 
@@ -125,7 +125,8 @@ def _static_query(query: Callable[[], MetaOutcome]) -> MetaOutcome:
     try:
         return query()
     except AglError as exc:
-        return MetaOutcome(text=format_diagnostic(exc.to_diagnostic(), source_name=None))
+        text = "\n".join(format_diagnostic(d, source_name=None) for d in exc.diagnostics())
+        return MetaOutcome(text=text)
 
 
 def _handle_type(arg: str, ctx: MetaContext) -> MetaOutcome:
@@ -135,11 +136,19 @@ def _handle_type(arg: str, ctx: MetaContext) -> MetaOutcome:
     """
     if not arg:
         return MetaOutcome(text="usage: :type EXPR")
-    return _static_query(lambda: MetaOutcome(text=ctx.session.type_of(arg)))
+    from agnette.agl.diagnostics import format_diagnostic
+
+    def query() -> MetaOutcome:
+        warnings: list[Diagnostic] = []
+        shown = ctx.session.type_of(arg, warnings=warnings)
+        lines = [format_diagnostic(w, source_name=None) for w in warnings]
+        return MetaOutcome(text="\n".join([*lines, shown]))
+
+    return _static_query(query)
 
 
 def _handle_info(arg: str, ctx: MetaContext) -> MetaOutcome:
-    """``:info NAME`` — display the current binding, function, or type as AgL.
+    """``:info NAME`` — display a binding, function, type, imported module, or scope as AgL.
 
     A name scope rejects shows scope's diagnostic, exactly as an entry spelling it would.
     """
@@ -155,15 +164,11 @@ def _info_outcome(name: str, info: str | None) -> MetaOutcome:
     return MetaOutcome(text=info, highlight_as_agl=True, agl_ranges=_info_agl_ranges(info, name))
 
 
-_INFO_SECTION_RE = re.compile(r"^(?:Binding|Signature|Type|Value):\n", re.MULTILINE)
-_INFO_SECTION_BOUNDARY_RE = re.compile(r"^(?:Binding|Signature|Type|Value|Location):", re.MULTILINE)
-
-
 def _info_agl_ranges(text: str, name: str) -> tuple[tuple[int, int], ...]:
     """Return the identifier and AgL code ranges in one ``:info`` result."""
     ranges = [(0, len(name))]
-    for section in _INFO_SECTION_RE.finditer(text):
-        end_match = _INFO_SECTION_BOUNDARY_RE.search(text, section.end())
+    for section in SECTION_RE.finditer(text):
+        end_match = SECTION_BOUNDARY_RE.search(text, section.end())
         end = len(text) if end_match is None else end_match.start()
         ranges.append((section.end(), end))
     return tuple(ranges)
@@ -228,7 +233,7 @@ def _handle_load(arg: str, ctx: MetaContext) -> MetaOutcome:
     typed at the prompt), so each statement's echo / errors / warnings surface via
     ``render_entry_result`` exactly as an interactive entry would; the rendered
     texts are joined with newlines.  The load halts at the first failing statement.
-    A file-not-found or read error is caught and returned as a clean error; an
+    A file-not-found, undecodable, or read error is caught and returned as a clean error; an
     empty / comment-only file (no statements) produces a terse note.
     """
     from agnette.agl.repl.render import render_entry_result
@@ -237,6 +242,8 @@ def _handle_load(arg: str, ctx: MetaContext) -> MetaOutcome:
         return MetaOutcome(text="usage: :load FILE")
     try:
         results = ctx.session.load_file(Path(arg))
+    except UnicodeDecodeError:
+        return MetaOutcome(text=f"Error: cannot read {arg}: not UTF-8 text")
     except OSError as exc:
         return MetaOutcome(text=f"Error: cannot read {arg}: {exc.strerror or exc}")
     if not results:
@@ -316,7 +323,7 @@ _COMMANDS: list[MetaCommand] = [
     MetaCommand(
         names=("info",),
         usage=":info NAME",
-        summary="Show a binding, function, or type as AgL.",
+        summary="Show a binding, function, type, module, or scope as AgL.",
         handler=_handle_info,
     ),
     MetaCommand(
@@ -370,8 +377,17 @@ def meta_command_names() -> tuple[str, ...]:
     return _COMMAND_NAMES
 
 
+def is_meta_line(line: str) -> bool:
+    """Return whether *line* is a meta-command: its first non-blank character is a lone ``:``.
+
+    A leading ``::`` is AgL's anchored-name syntax, so such a line is an entry.
+    """
+    body = line.lstrip()
+    return body.startswith(":") and not body.startswith("::")
+
+
 def dispatch_meta(line: str, ctx: MetaContext) -> MetaOutcome:
-    """Parse a leading-``:`` *line* and route it to its handler.
+    """Parse a meta-command *line* (see :func:`is_meta_line`) and route it to its handler.
 
     *line* is the raw console entry including the leading ``:``.  The first
     whitespace-delimited word (minus the colon) selects the command; the rest is

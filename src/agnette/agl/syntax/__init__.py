@@ -103,6 +103,7 @@ from agnette.agl.syntax.nodes import (
 )
 from agnette.agl.syntax.types import (
     BUILTIN_TYPE_NAMES,
+    NULLARY_BUILTIN_TYPE_NAMES,
     TypeExpr,
     UnitT,
 )
@@ -111,6 +112,7 @@ from agnette.agl.syntax.visitor import walk
 __all__ = [
     # type exprs
     "BUILTIN_TYPE_NAMES",
+    "NULLARY_BUILTIN_TYPE_NAMES",
     "UnitT",
     "TypeExpr",
     # module system

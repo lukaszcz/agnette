@@ -20,7 +20,7 @@ field_name ::= NAME
 
 program      ::= module_block EOF
 module_block ::= [ module_item ((NEWLINE | ";") module_item)* (NEWLINE | ";")? ]
-module_item  ::= scope_region | item
+module_item  ::= inner_attribute | scope_region | item
 block        ::= item ((NEWLINE | ";") item)* (NEWLINE | ";")?
 
 item ::= header_decl                 (* module root or scope region, header position *)
@@ -51,7 +51,7 @@ scope_region ::= "scope" scope_path (NEWLINE | ";")
                  scope_item ((NEWLINE | ";") scope_item)* (NEWLINE | ";")?
                  DEDENT NEWLINE "end" scope_path
 scope_path   ::= NAME ("::" NAME)*
-scope_item   ::= scope_region | header_decl | static_decl | let_decl | var_decl
+scope_item   ::= inner_attribute | scope_region | header_decl | static_decl | let_decl | var_decl
 ```
 
 The closer repeats the header's path: `scope A::B` closes with `end A::B`. The
@@ -183,7 +183,13 @@ attr_arg_list ::= attr_arg ("," attr_arg)* ","?
 attr_arg      ::= element_expr                    (* positional: every attribute but @config *)
                 | attr_key "=" element_expr       (* keyed: @config only *)
 attr_key      ::= qualifier_chain? name
+
+inner_attribute ::= "@!" NAME ["(" attr_arg_list? ")"]
 ```
+
+Inner attributes are items of a module or scope region and must precede every
+other item of it; only `@doc` and `@allow` are admitted
+([Inner attributes](attributes.md#inner-attributes)).
 
 Layout: [Lexical structure](lexical-structure.md#attributes); placement and
 catalog: [Attributes](attributes.md).

@@ -31,12 +31,13 @@ def test_catalog_entries_carry_name_default_level_and_exemptability(
     assert (entry.name, entry.default_level, entry.exemptable) == (name, "warn", exemptable)
 
 
-def test_catalog_lists_exactly_the_four_warnings() -> None:
+def test_catalog_lists_exactly_the_five_warnings() -> None:
     assert set(WARNING_CATALOG) == {
         "tab-indentation",
         "noop-parse-retries",
         "unquoted-exec-hole",
         "shell-quoted-hole",
+        "unused-module-doc",
     }
     assert all(name == entry.name for name, entry in WARNING_CATALOG.items())
 

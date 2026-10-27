@@ -32,6 +32,7 @@ from agnette.agl.parser import AglSyntaxError
 from agnette.agl.recursion import NestingTooDeepError
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.entry import EntryResult
+from agnette.agl.repl.session import SessionOpenError
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.runtime.types import ParamBindingInfo
@@ -11527,3 +11528,177 @@ class TestChdirAcrossEntries:
         session.close()
 
         assert Path(os.getcwd()) == start
+
+
+class TestInfoOpensTheLibraryImage:
+    """``info_of`` answers from the library image however the session got there."""
+
+    @staticmethod
+    def _stdlib_with(tmp_path: Path, filename: str, extra: str) -> Path:
+        stdlib = tmp_path / "stdlib"
+        copytree(REPO_STDLIB_ROOT, stdlib)
+        module = stdlib / MODULE_TREE_DIRNAME / filename
+        module.write_text(module.read_text(encoding="utf-8") + extra, encoding="utf-8")
+        return stdlib
+
+    @pytest.mark.parametrize("name", ["Some", "Option", "print"])
+    def test_info_after_reset_answers_as_before(self, name: str) -> None:
+        session = ReplSession()
+        session.open()
+        before = session.info_of(name)
+        assert before is not None
+
+        session.reset()
+
+        assert session.info_of(name) == before
+
+    @pytest.mark.parametrize("name", ["Some", "print"])
+    def test_info_after_a_check_only_entry_answers(self, name: str) -> None:
+        session = ReplSession()
+        assert session.eval_entry("let x = 1", check_only=True).ok
+
+        assert session.info_of(name) is not None
+
+    @pytest.mark.parametrize("recovery", ["type", "check-only"])
+    def test_info_answers_once_a_fixed_image_serves_another_command(
+        self, tmp_path: Path, recovery: str
+    ) -> None:
+        stdlib = self._stdlib_with(tmp_path, "prelude.agl", '\nlet broken: int = "x"\n')
+        session = ReplSession(stdlib_root=stdlib)
+        with pytest.raises(SessionOpenError):
+            session.info_of("print")
+        module = stdlib / MODULE_TREE_DIRNAME / "prelude.agl"
+        module.write_text(
+            (REPO_STDLIB_ROOT / MODULE_TREE_DIRNAME / "prelude.agl").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        if recovery == "type":
+            session.type_of("1")
+        else:
+            assert session.eval_entry("1", check_only=True).ok
+
+        assert session.info_of("print") is not None
+
+    def test_info_does_not_answer_from_an_image_the_warning_policy_denies(
+        self, tmp_path: Path
+    ) -> None:
+        from agnette.agl.warning_policy import WarningPolicy
+
+        stdlib = self._stdlib_with(tmp_path, "prelude.agl", "\ndef tabbed() -> int =\n\t1\n")
+        policy = WarningPolicy({"tab-indentation": "deny"})
+        assert ReplSession(stdlib_root=stdlib, warning_policy=policy).open()
+
+        with pytest.raises(AglError) as raised:
+            ReplSession(stdlib_root=stdlib, warning_policy=policy).info_of("print")
+
+        assert raised.value.to_diagnostic().severity == "error"
+
+    def test_info_remembers_a_failed_load_until_reset(self, tmp_path: Path) -> None:
+        stdlib = self._stdlib_with(tmp_path, "config.agl", '\nlet broken: int = "text"\n')
+        session = ReplSession(stdlib_root=stdlib)
+        with pytest.raises(AglError) as first:
+            session.info_of("print")
+        # Repairing the source does not reload the graph: the failure is remembered.
+        copytree(REPO_STDLIB_ROOT, stdlib, dirs_exist_ok=True)
+
+        with pytest.raises(AglError) as second:
+            session.info_of("print")
+
+        assert type(second.value) is type(first.value)
+        session.reset()
+        assert session.info_of("print") is not None
+
+
+def test_a_tab_indented_first_line_reports_the_columns_a_later_line_does() -> None:
+    session = ReplSession()
+    session.open()
+
+    first = session.eval_entry("\tmissing")
+    later = session.eval_entry("def f() -> int =\n\tmissing")
+
+    (first_error,), (later_error,) = first.diagnostics, later.diagnostics
+    assert (first_error.line, first_error.column) == (1, 5)
+    assert (later_error.line, later_error.column) == (2, 5)
+
+
+@pytest.mark.parametrize("indent", ["  ", "\t"], ids=("spaces", "tab"))
+def test_an_entry_indented_throughout_is_read_at_its_own_base_level(indent: str) -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry(f"# note\n{indent}let q = 1\n{indent}q + 1\n")
+
+    assert result.ok
+    assert result.value == IntValue(2)
+
+
+def test_an_entry_indented_throughout_may_hold_blocks() -> None:
+    session = ReplSession()
+    session.open()
+
+    result = session.eval_entry("  def f() -> int =\n    1\n  f()")
+
+    assert result.ok
+    assert result.value == IntValue(1)
+
+
+BASE_SOURCES = [
+    "def f() -> int =\n  1\nlet b = f()\n",
+    "def f(x: int) -> int =\n  case x of\n  | 1 => 1\n  | _ => 2\nlet c = f(1)\n",
+    "def f(x: int) -> int =\n  if\n| x > 1 => 1\n| else => 2\n",
+    "def f() -> int =\n  let r = [1, 2]\n    .map(fn v => v * 2)\n  r.length()\n",
+    "def f() -> int =\n  var i = 0\n  do[3]\n    i := i + 1\n  until i > 1\n  i\n",
+    "def f() -> int =\n  1 +\n2\nlet b = f()\n",
+    "def f() -> int =\n  1\n bad = 2\n",
+    "def f() -> int =\n1\n",
+]
+
+
+def _indented(source: str, indent: str) -> str:
+    return "".join(indent + line for line in source.splitlines(keepends=True))
+
+
+def _meaning(result: EntryResult) -> tuple[object, ...]:
+    """What an entry's result means: outcome, value, and the lines and kinds of its diagnostics.
+
+    Tab advisories are the indentation's own and not part of the meaning.
+    """
+    notes = sorted(
+        (d.line, d.severity, d.warning_name)
+        for d in [*result.diagnostics, *result.warnings]
+        if d.warning_name != "tab-indentation"
+    )
+    return (result.ok, result.value, notes)
+
+
+@pytest.mark.parametrize("source", BASE_SOURCES)
+@pytest.mark.parametrize("indent", ["  ", "    ", "\t"], ids=("two", "four", "tab"))
+def test_a_source_indented_by_its_base_means_what_the_source_without_it_means(
+    source: str, indent: str
+) -> None:
+    plain, shifted = ReplSession(), ReplSession()
+    plain.open()
+    shifted.open()
+
+    assert _meaning(shifted.eval_entry(_indented(source, indent))) == _meaning(
+        plain.eval_entry(source)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "    def f() -> int =\n  1\n",
+        "    let a = 1\n  let b = 2\n",
+        "    def f() -> int =\n        1\n  let b = 2\n",
+        "    let a = 1\nlet b = 2\n    let c = 3\n",
+        "  let a = 1\ndef f() -> int =\n  a\nf()\n",
+        "    def f(x: int) -> int =\n        case x of\n  | 1 => 1\n",
+    ],
+)
+def test_a_line_less_indented_than_the_base_of_the_source_is_rejected(source: str) -> None:
+    session = ReplSession()
+    session.open()
+
+    assert not session.eval_entry(source).ok

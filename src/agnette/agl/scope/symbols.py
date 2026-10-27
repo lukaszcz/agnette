@@ -938,6 +938,11 @@ class AllowRegion:
     span: SourceSpan
     names: frozenset[str]
 
+    def contains(self, line: int, column: int) -> bool:
+        """Whether the position, from the span's start to its exclusive end, lies in the region."""
+        span = self.span
+        return (span.start_line, span.start_col) <= (line, column) < (span.end_line, span.end_col)
+
 
 @dataclass(frozen=True, slots=True)
 class AttributeFacts:
@@ -990,6 +995,14 @@ class AttributeFacts:
         The ``FuncDef.node_id`` of every ``def`` carrying ``@shell-quoted``.
     ``opaque``
         The ``RecordDef.node_id`` of every record carrying ``@opaque``.
+    ``module_doc``
+        The module's ``@!doc`` text, or ``None``.
+    ``region_docs``
+        The ``@!doc`` text of every scope region carrying one, keyed by the
+        region's full scope path (a ``scope a::b`` header documents ``("a", "b")``).
+
+    ``warning_allows`` also holds the regions of ``@!allow``: the whole source
+    for the module's, the region's span for a scope region's.
     """
 
     param_zones: dict[int, ParamZone] = field(default_factory=dict)
@@ -1003,6 +1016,8 @@ class AttributeFacts:
     warning_exemptions: dict[int, frozenset[str]] = field(default_factory=dict)
     shell_quoted: set[int] = field(default_factory=set)
     opaque: set[int] = field(default_factory=set)
+    module_doc: str | None = None
+    region_docs: dict[tuple[str, ...], str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

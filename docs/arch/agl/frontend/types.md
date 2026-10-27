@@ -9,6 +9,7 @@ Record, enum, and exception types are handles: identity is the declaration (`dec
 - Handles resolve regardless of build order, so recursive declarations (mutual, generic, cross-module) need no acyclicity rule.
 - A later declaration can take a path's name without invalidating earlier handles, which lets the REPL supersede declarations ([repl.md](../repl.md)).
 - Named types and qualified owners are read from scope's `owner_declarations`, never re-resolved ([scope.md](scope.md#declarations-and-aliases)).
+- An inline member's type-parameter arity may depend on other members', across modules and in any order, so all modules' member shells narrow together to a fixpoint before any dependent body resolves (`reconcile_inline_member_arities`, `typecheck/builder.py`).
 - An enum is a closed nominal union of member record declarations; widening (member → enum, enum → superset enum) is directed and does not propagate through containers.
 - Built-in and host-contract shapes (`ExecResult`, `AgentRequest`, `Option`, the exception hierarchy) live in the same table: loaded standard-library declarations are authoritative and validated against contracts in `typecheck/builtin_contracts.py`. Lowering derives its host nominal table from the same queries.
 

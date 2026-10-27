@@ -193,7 +193,8 @@ def _is_comment(line: str) -> bool:
 
 
 def _is_attribute(line: str) -> bool:
-    return line.lstrip().startswith("@")
+    stripped = line.lstrip()
+    return stripped.startswith("@") and not stripped.startswith("@!")
 
 
 def _shift(lines: list[str], span: range, amount: int) -> None:

@@ -1,7 +1,8 @@
 """The catalog of built-in declaration attributes.
 
 An AgL declaration may carry an attribute prefix (``@doc("…")``,
-``@arg-named``). The AST keeps attributes raw; recognition happens later,
+``@arg-named``), and the module root or a scope region inner attributes
+(``@!doc("…")``). The AST keeps attributes raw; recognition happens later,
 against this catalog: it says which attributes exist, which declaration kinds
 each one may sit on, what arguments it takes, whether it may repeat, and which
 other attributes it excludes. Everything here is data — the diagnostics for an
@@ -67,7 +68,7 @@ __all__ = [
 
 
 class AttributeTarget(enum.Enum):
-    """The kind of declaration an attribute is attached to.
+    """The kind of declaration, module root, or scope region an attribute is attached to.
 
     Values are stable strings for debuggability; no code should branch on
     the string values.
@@ -89,6 +90,8 @@ class AttributeTarget(enum.Enum):
     LAMBDA_PARAMETER = "lambda_parameter"
     FIELD = "field"
     PROGRAM_PARAMETER = "program_parameter"
+    MODULE = "module"
+    SCOPE_REGION = "scope_region"
 
 
 class AttributeArguments(enum.Enum):
@@ -136,7 +139,9 @@ class AttributeSpec:
     admitted: frozenset[str] | None = None
 
 
-#: Every declaration kind: ``@doc`` and ``@allow`` may sit on all of them.
+#: Every declaration kind, the module root, and scope regions: ``@doc`` and
+#: ``@allow`` may sit on all of them. The other attributes name their targets
+#: explicitly, so none admits the module root or a region (written ``@!name``).
 _EVERY_TARGET: frozenset[AttributeTarget] = frozenset(AttributeTarget)
 
 #: Every ``def`` form, the declarations a call can resolve to.
