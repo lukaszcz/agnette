@@ -1014,6 +1014,18 @@ class TestSingleQuotedStrings:
 
 
 class TestVerbatimLiteral:
+    def test_a_tab_indented_block_has_the_columns_of_a_space_indented_one(self) -> None:
+        def columns(source: str) -> list[tuple[str, int, int, int | None, int | None]]:
+            return [
+                (str(t.type), int(t.line or 0), int(t.column or 0), t.end_line, t.end_column)
+                for t in tokenize(source)
+            ]
+
+        tabbed = "let v = $\n\t  a %{x}\n\t\tb\n"
+        spaced = "let v = $\n      a %{x}\n        b\n"
+
+        assert columns(tabbed) == columns(spaced)
+
     def test_spaced_payload(self) -> None:
         assert tok("ask $ x") == [
             ("NAME", "ask"),

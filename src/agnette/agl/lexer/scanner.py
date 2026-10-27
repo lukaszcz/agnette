@@ -231,6 +231,8 @@ class _BlockLine:
     end_pos: int
     line: int
     column: int
+    # Offset of the first character of the physical line.
+    line_start_pos: int
     # Spaces standing in for the part of a TAB the dedent margin split in two;
     # empty for every line whose indentation ends on the margin.
     prefix: str = ""
@@ -862,10 +864,11 @@ class _Scanner:
                 self._pos = raw_line.start_pos
                 self._line = raw_line.line
                 self._col = raw_line.column
-                self._line_start_pos = raw_line.start_pos - (raw_line.column - 1)
+                self._line_start_pos = raw_line.line_start_pos
                 if raw_line.prefix:
                     start_fragment()
                     buf.append(raw_line.prefix)
+                    self._col += len(raw_line.prefix)
                 while self._pos < raw_line.end_pos:
                     if self._escapes_hole_opener(raw_line.end_pos):
                         # The escape writes the opener's `%` literally; the rest of the
@@ -921,7 +924,8 @@ class _Scanner:
         """Strip *margin* visual columns from a block line, keeping the remainder.
 
         A TAB whose expansion straddles the margin is consumed whole, so the
-        columns it contributes past the margin come back as leading spaces.
+        columns it contributes past the margin come back as leading spaces. The content's
+        column counts the margin's visual columns, as every column past indentation does.
         """
         consumed_width = 0
         strip_chars = 0
@@ -938,7 +942,8 @@ class _Scanner:
             content_start,
             line_end,
             line_no,
-            line_col + (content_start - line_start),
+            line_col + margin,
+            line_start,
             prefix=" " * (consumed_width - margin),
         )
 
@@ -983,6 +988,7 @@ class _Scanner:
                 line_end = len(self._src)
             indent, indent_chars = self._indent_info(line_start)
             blank = line_start + indent_chars == line_end
+            end_col = line_col + indent + (line_end - line_start - indent_chars)
 
             if not blank and indent <= parent_indent:
                 next_indent = self._measure_indentation()
@@ -992,7 +998,7 @@ class _Scanner:
                 # a blank run before the dedent separates the block from the
                 # next item and is not part of the payload.
                 pending_blank_lines.append(
-                    _BlockLine(line_end, line_end, line_no, line_col + (line_end - line_start))
+                    _BlockLine(line_end, line_end, line_no, end_col, line_start)
                 )
             else:
                 if margin is None:
@@ -1002,7 +1008,7 @@ class _Scanner:
                         "block line is under-indented; align it with the first block line.",
                         line_start + indent_chars,
                         line_no,
-                        line_col + indent_chars,
+                        line_col + indent,
                     )
                     if not self._recover:
                         raise error
@@ -1016,9 +1022,9 @@ class _Scanner:
                 lines.append(
                     self._dedented_block_line(line_start, line_end, line_no, line_col, margin)
                 )
-                payload_end = (line_end, line_no, line_col + (line_end - line_start))
+                payload_end = (line_end, line_no, end_col)
 
-            self._skip_to_line_end(line_end)
+            self._pos, self._col = line_end, end_col
             if self._at_end():
                 last_newline = None
                 break
@@ -1075,7 +1081,9 @@ class _Scanner:
             while payload_end > self._pos and self._src[payload_end - 1] in (" ", "\t"):
                 payload_end -= 1
             payload_end_state = (payload_end, self._line, self._col + (payload_end - self._pos))
-            block_line = _BlockLine(self._pos, payload_end, self._line, self._col)
+            block_line = _BlockLine(
+                self._pos, payload_end, self._line, self._col, self._line_start_pos
+            )
             yield from self._scan_block_lines([block_line])
             self._skip_to_line_end(line_end)
 

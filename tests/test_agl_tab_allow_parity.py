@@ -110,6 +110,7 @@ _END_CASES = {
         f"scope S\n  {_ALLOW}\n  def w() -> int =\n    1\t# c\n  let z = 1\nend S\n",
         [(4, 6)],
     ),
+    "tab-indented-verbatim-block": (f"{_ALLOW} let t: text = $\n\t\ta\n\t\tb\n", []),
     "inside-the-item": (f"{_ALLOW}\ndef w() -> int =\n  let a = 1\t# c\n  a\n", []),
 }
 
