@@ -28,7 +28,7 @@ import agnette.agl.syntax as syntax
 from agnette.agl.lexer import (
     LexedSource,
     lex_replay,
-    lexed_slice,
+    lexed_slices,
     lexed_source,
     replayed_parse,
     tab_warning_labels,
@@ -40,7 +40,7 @@ from agnette.agl.lexer.errors import (
     UnterminatedTripleQuotedStringError,
 )
 from agnette.agl.lexer.lexer import build_parser
-from agnette.agl.lexer.positions import Rebase, token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
 from agnette.agl.lexer.tokens import VERBATIM_END, VERBATIM_START
 from agnette.agl.parser.errors import AglSyntaxError, syntax_error_from_lark
 from agnette.agl.parser.transform import AstBuilder
@@ -414,10 +414,12 @@ def entry_slices(lexed: LexedSource, ranges: Sequence[tuple[int, int]]) -> list[
     items = [c for c in children if c.data != "inner_attribute"]
     if len(items) != len(ranges):
         return [None] * len(ranges)
+    lines = LineIndex(lexed.text)
     slices: list[LexedSource | None] = []
-    for index, ((start, end), item) in enumerate(zip(ranges, items)):
-        sliced = lexed_slice(lexed, start, end)
-        rebase = Rebase(lexed.text, start)
+    for index, (sliced, (start, _), item) in enumerate(
+        zip(lexed_slices(lexed, ranges, lines), ranges, items)
+    ):
+        rebase = Rebase(lines, start)
         entry = [*attributes, item] if index == 0 else [item]
         block = Tree("module_block", [_rebased_tree(c, rebase) for c in entry])
         root = Tree("start", [block])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from bisect import bisect_right
 from dataclasses import replace
 from typing import cast
 
@@ -27,16 +29,31 @@ def token_span(tok: Token, source: SourceId = UNKNOWN_SOURCE) -> SourceSpan:
     )
 
 
+class LineIndex:
+    """Where each line of a text starts, to place offsets on lines in logarithmic time."""
+
+    def __init__(self, text: str) -> None:
+        self._starts = [0, *(match.end() for match in re.finditer("\n", text))]
+
+    def line(self, offset: int) -> int:
+        """The 1-based line holding the 0-based *offset*."""
+        return bisect_right(self._starts, offset)
+
+    def offset(self, line: int, column: int) -> int:
+        """The 0-based offset of 1-based *column* on 1-based *line*."""
+        return self._starts[line - 1] + column - 1
+
+
 class Rebase:
     """Maps positions in a text to the positions they have in its tail starting at *start*.
 
     Positions are 1-based lines and columns and 0-based offsets, as tokens carry them.
     """
 
-    def __init__(self, text: str, start: int) -> None:
+    def __init__(self, lines: LineIndex, start: int) -> None:
         self._start = start
-        self._line = text.count("\n", 0, start) + 1
-        self._first_column = start - (text.rfind("\n", 0, start) + 1)
+        self._line = lines.line(start)
+        self._first_column = start - lines.offset(self._line, 1)
 
     def offset(self, offset: int) -> int:
         return offset - self._start

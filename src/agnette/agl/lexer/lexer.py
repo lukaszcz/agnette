@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import contextvars
 import importlib.resources
-from collections.abc import Callable, Iterable
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import cache
@@ -62,7 +63,7 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import Rebase, token_span
+from agnette.agl.lexer.positions import LineIndex, Rebase, token_span
 from agnette.agl.lexer.scanner import _Scanner, tab_warning
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -275,41 +276,61 @@ def lex_replay(lexed: LexedSource | None) -> Iterator[None]:
         yield
 
 
-def lexed_slice(lexed: LexedSource, start: int, end: int) -> LexedSource:
-    """Return the pass over ``lexed.text[start:end]``, read off *lexed* instead of scanning it.
+def lexed_slices(
+    lexed: LexedSource, ranges: Sequence[tuple[int, int]], lines: LineIndex
+) -> list[LexedSource]:
+    """Return the pass over each of *ranges* of ``lexed.text``, read off *lexed*, not scanned.
 
-    The slice's tokens and advisories are those of *lexed*, a pass that did not fail, within
-    it, rebased to the slice.
+    *ranges* are disjoint and in order, and *lines* indexes the text. A slice's tokens and
+    spaced qualifiers are those of *lexed*, a pass that did not fail, within its range,
+    rebased to it. Each TAB advisory of *lexed* goes to the one slice whose range starts last
+    at or before it, the first slice taking those before it, keeping the whole pass's message
+    with only its positions rebased. One walk over each of *lexed*'s sequences.
     """
-    text = lexed.text
-    first_line, last_line = (
-        text.count("\n", 0, start) + 1,
-        text.count("\n", 0, max(start, end - 1)) + 1,
-    )
-    rebase = Rebase(text, start)
-    tokens = tuple(
-        rebase.token(token)
-        for token in lexed.tokens
-        if token.start_pos is not None
-        and token.end_pos is not None
-        and start <= token.start_pos
-        and token.end_pos <= end
-    )
-    tabs = tuple(
-        tab_warning(rebase.line(w.line), rebase.column(w.line, cast(int, w.column)))
-        for w in lexed.tab_warnings
-        if first_line <= w.line <= last_line
-    )
-    spaced = tuple(
-        replace(
-            q,
-            run_start_offset=rebase.offset(q.run_start_offset),
-            dcolon_span=rebase.span(q.dcolon_span),
-        )
-        for q in lexed.spaced_qualifiers
-        if start <= q.run_start_offset < end
-    )
-    return LexedSource(text[start:end], tokens, spaced, tabs)
+    starts = [start for start, _ in ranges]
+    rebases = [Rebase(lines, start) for start in starts]
+
+    def slice_at(offset: int) -> int:
+        """The slice whose range starts last at or before *offset*; the first before them all."""
+        return max(bisect_right(starts, offset) - 1, 0)
+
+    tokens: list[list[Token]] = [[] for _ in ranges]
+    for token in lexed.tokens:
+        start_pos, end_pos = cast(int, token.start_pos), cast(int, token.end_pos)
+        index = slice_at(start_pos)
+        if starts[index] <= start_pos and end_pos <= ranges[index][1]:
+            tokens[index].append(rebases[index].token(token))
+    spaced: list[list[SpacedQualifier]] = [[] for _ in ranges]
+    for qualifier in lexed.spaced_qualifiers:
+        offset = qualifier.run_start_offset
+        index = slice_at(offset)
+        if starts[index] <= offset < ranges[index][1]:
+            rebase = rebases[index]
+            spaced[index].append(
+                replace(
+                    qualifier,
+                    run_start_offset=rebase.offset(offset),
+                    dcolon_span=rebase.span(qualifier.dcolon_span),
+                )
+            )
+    first_lines = [lines.line(start) for start in starts]
+    last_lines = [lines.line(max(start, end - 1)) for start, end in ranges]
+    tabs: list[list[Diagnostic]] = [[] for _ in ranges]
+    for advisory in lexed.tab_warnings:
+        for index in range(
+            bisect_left(last_lines, advisory.line), bisect_right(first_lines, advisory.line)
+        ):
+            rebase = rebases[index]
+            tabs[index].append(
+                tab_warning(
+                    rebase.line(advisory.line),
+                    rebase.column(advisory.line, cast(int, advisory.column)),
+                )
+            )
+    return [
+        LexedSource(lexed.text[start:end], tuple(entry), tuple(qualifiers), tuple(warnings))
+        for (start, end), entry, qualifiers, warnings in zip(ranges, tokens, spaced, tabs)
+    ]
 
 
 def replayed_parse(start: str, text: str, parse: Callable[[str], Tree]) -> Tree:
