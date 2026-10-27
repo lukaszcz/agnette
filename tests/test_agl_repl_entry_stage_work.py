@@ -17,6 +17,7 @@ from agnette.agl.parser.transform import AstBuilder
 from agnette.agl.repl.loop import has_runnable_statements, is_incomplete
 from agnette.agl.repl.plain_console import run_plain_console
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.semantics.values import IntValue
 from agnette.agl.syntax.nodes import Program
 from tests.test_agl_repl_console import drive
 
@@ -571,3 +572,17 @@ def test_a_transcript_of_block_entries_is_lexed_and_parsed_once(
 
     assert [r.ok for r in results] == [True] * len(_BLOCK_ENTRIES[name])
     assert (scans.count, parses.count) == (1, 1)
+
+
+def test_a_transcript_pairs_each_entry_with_its_own_items(tmp_path: Path) -> None:
+    saved = _session()
+    for entry in ('@!allow("unused-module-doc")', "let a = 1; let b = a + 1", "let c = b * 10"):
+        assert saved.eval_entry(entry).ok
+    path = tmp_path / "t.agl"
+    path.write_text(saved.dump_source())
+    loaded = _session()
+
+    results = loaded.load_file(path)
+
+    assert [r.ok for r in results] == [True] * 3
+    assert loaded.eval_entry("c").value == IntValue(20)
