@@ -25,6 +25,12 @@ _FILES = {
     "record": "  record P\n    x: int\n  let p = P(1)\n",
     "same-line": "    let a = 1; let b = a + 1\n    let c = b\n",
     "same-line-block": "    let a = 1; def f() -> int =\n        a\n    let c = f()\n",
+    "block-after-item": (
+        "    let a = 1; scope S\n      def g() -> int = 1\n    end S\n    let x = S::g()\n"
+    ),
+    "tab-block-after-item": (
+        "\tlet a = 1; scope S\n\t\tdef g() -> int = 1\n\tend S\n\tlet x = S::g()\n"
+    ),
     "after-bracket-line": "    let a = (1 +\n  2); let b = a\n    let c = b\n",
     "tabs": "\t\tlet a = 1; let\tb = 2\n\t\tlet c = 3\n",
     "tab-block": "\tdef f() -> int =\n\t\t1\n\tlet b = f()\n",
