@@ -26,6 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
+from agnette.agl.lexer.tokens import LAYOUT_TOKENS
 from agnette.agl.repl.entry import (
     REPL_LABEL,
     EntryKind,
@@ -107,8 +108,6 @@ if TYPE_CHECKING:
     from agnette.sandbox.prepare import SandboxContext
 
 
-# Layout-only token types that carry no statement to evaluate.
-_TRIVIAL_TOKENS: frozenset[str] = frozenset({"_NEWLINE", "_INDENT", "_DEDENT"})
 _TRANSCRIPT_HEADER = "# agm:repl-transcript:v1\n"
 _TRANSCRIPT_ENTRY_PREFIX = "# agm:entry:"
 
@@ -251,7 +250,7 @@ def has_runnable_statements(source: "str | LexedSource") -> bool:
 
     lexed = lexed_source(source)
     return lexed.failure is not None or any(
-        token.type not in _TRIVIAL_TOKENS for token in lexed.tokens
+        token.type not in LAYOUT_TOKENS for token in lexed.tokens
     )
 
 

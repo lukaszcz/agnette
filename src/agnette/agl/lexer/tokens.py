@@ -144,6 +144,9 @@ DOT = "DOT"  # .
 PIPE = "PIPE"  # |
 SEMICOLON = "SEMICOLON"  # ;
 
+# Tokens after which an item may start: layout and the item separator.
+ITEM_BOUNDARY_TOKENS = LAYOUT_TOKENS | {SEMICOLON}
+
 # Equality operator token for "==".
 EQ_EQ = "EQ_EQ"  # ==
 

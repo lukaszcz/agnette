@@ -81,6 +81,7 @@ from agnette.agl.lexer.tokens import (
     IMPORT,
     INDENT,
     INDEX_LSQB,
+    ITEM_BOUNDARY_TOKENS,
     LAYOUT_TOKENS,
     LBRACE,
     LPAR,
@@ -410,8 +411,6 @@ def _remap(tokens: Iterator[Token]) -> Iterator[Token]:
         yield tok
 
 
-_ITEM_START_TYPES = frozenset({"_NEWLINE", "_INDENT", "_DEDENT", "SEMICOLON"})
-
 # The three header keywords whose clause a hiding promotion can terminate.
 _HEADER_TYPES = frozenset({IMPORT, USE, EXPORT})
 
@@ -473,7 +472,7 @@ def _is_use_declaration(tokens: list[Token], index: int) -> bool:
     """Whether an item-start ``use`` has a declaration-shaped token header."""
 
     end = index + 1
-    while end < len(tokens) and tokens[end].type not in _ITEM_START_TYPES:
+    while end < len(tokens) and tokens[end].type not in ITEM_BOUNDARY_TOKENS:
         end += 1
     header = tokens[index + 1 : end]
     if not header:
@@ -543,7 +542,7 @@ def _promote_soft_keywords(tokens: list[Token]) -> list[Token]:
             layout_depth -= 1
 
         if tt == NAME:
-            at_item_start = prev_type is None or prev_type in _ITEM_START_TYPES
+            at_item_start = prev_type is None or prev_type in ITEM_BOUNDARY_TOKENS
             if tv == KW_IMPORT and at_item_start:
                 tok = _retype(tok, IMPORT)
             elif tv == KW_USE and at_item_start and _is_use_declaration(tokens, index):
@@ -588,7 +587,7 @@ def _promote_hiding(tokens: list[Token]) -> list[Token]:
             brace_depth = 0
             saw_dcolon = False
             saw_alias = False
-        elif tok.type in {"_NEWLINE", "_INDENT", "_DEDENT", "SEMICOLON"}:
+        elif tok.type in ITEM_BOUNDARY_TOKENS:
             header = None
         elif tok.type == LBRACE:
             brace_depth += 1
