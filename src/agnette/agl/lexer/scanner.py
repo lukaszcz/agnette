@@ -179,7 +179,7 @@ RESERVED_OPERATOR_SPELLINGS: frozenset[str] = frozenset(_RESERVED_OPERATOR_NAMES
 
 
 def tab_warning(line: int, col: int) -> Diagnostic:
-    """Return the TAB advisory for the ``\\t`` at *line* and 1-based column *col*."""
+    """Return the TAB advisory for the ``\\t`` at *line* and 1-based lexer column *col*."""
     return warning_diagnostic(
         TAB_INDENTATION,
         f"TAB character at column {col} is not allowed; use spaces for indentation",
@@ -249,10 +249,7 @@ class _Scanner:
         self._pos = 0
         self._line = 1
         self._col = 1  # 1-based column
-        # Offset of the first character of the current line (after newline
-        # normalization).  Used to report TAB warnings with a SIMPLE 1-based
-        # column (``pos - line_start + 1``) — distinct from ``self._col``, which
-        # is tab-EXPANDED after indentation.  Updated only at newline boundaries.
+        # Offset of the first character of the current line (after newline normalization).
         self._line_start_pos = 0
         # TAB-character advisories accumulated during this single scan (one per
         # ``\t`` in code, indentation, a comment, or an interpolation hole —
@@ -293,22 +290,12 @@ class _Scanner:
             self._advance()
         self._comment_spans.append((start, self._pos))
 
-    def _record_tab(self) -> None:
-        """Record a TAB advisory for the ``\\t`` at the current scan position.
+    def _record_tab(self, line: int, col: int) -> None:
+        """Record a TAB advisory for a ``\\t`` on *line* at 1-based lexer column *col*.
 
-        Callers invoke this with ``self._pos`` pointing AT the tab character;
-        the reported column is the simple (non-expanded) 1-based offset within
-        the current line.
+        Indentation is measured, or stripped from a `$`-literal block, ahead of the
+        scanner, so callers pass the column the tab starts at.
         """
-        self._record_tab_at(self._pos, self._line)
-
-    def _record_tab_at(self, pos: int, line: int) -> None:
-        """Record a TAB advisory for the ``\\t`` at *pos* on *line*.
-
-        Used where the tab is not at the scan position, such as the indentation
-        a `$`-literal block strips ahead of the scanner.
-        """
-        col = pos - self._line_start_pos + 1
         self._tab_warnings.append(tab_warning(line, col))
 
     # ------------------------------------------------------------------
@@ -329,7 +316,7 @@ class _Scanner:
         # A TAB inside string-literal content is allowed; everywhere else (code,
         # indentation, comments, interpolation) a literal TAB is advised against.
         if ch == "\t" and not in_string:
-            self._record_tab()
+            self._record_tab(self._line, self._col)
         self._pos += 1
         if ch == "\n":
             self._line += 1
@@ -398,8 +385,8 @@ class _Scanner:
             while self._pos < len(self._src) and self._src[self._pos] in (" ", "\t"):
                 ch = self._src[self._pos]
                 if ch == "\t":
+                    self._record_tab(self._line, col + 1)
                     col += TAB_LEN - (col % TAB_LEN)
-                    self._record_tab()
                 else:
                     col += 1
                 self._pos += 1
@@ -941,8 +928,8 @@ class _Scanner:
         while consumed_width < margin:
             ch = self._src[line_start + strip_chars]
             if ch == "\t":
+                self._record_tab(line_no, consumed_width + 1)
                 consumed_width += TAB_LEN - (consumed_width % TAB_LEN)
-                self._record_tab_at(line_start + strip_chars, line_no)
             else:
                 consumed_width += 1
             strip_chars += 1

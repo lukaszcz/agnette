@@ -46,11 +46,22 @@ def _load(
     return session, session.load_file(path)
 
 
+def _character_at(line: str, column: int) -> str:
+    """The character of *line* at the 1-based *column*, its indentation's tabs expanded."""
+    width = 0
+    for index, char in enumerate(line):
+        if width + 1 >= column:
+            return char
+        indented = not line[:index].strip(" \t")
+        width += 4 - width % 4 if char == "\t" and indented else 1
+    return ""
+
+
 def _tab_points(path: Path, results: list[EntryResult]) -> list[str]:
     """The characters of *path* the TAB advisories of *results* point at."""
     lines = path.read_text().split("\n")
     return [
-        lines[w.line - 1][(w.column or 0) - 1]
+        _character_at(lines[w.line - 1], w.column or 0)
         for r in results
         for w in r.warnings
         if w.warning_name == TAB
@@ -84,5 +95,5 @@ def test_a_tab_before_an_allowing_item_is_governed_by_that_item(tmp_path: Path) 
 
     assert [(w.line, w.column) for r in results for w in r.warnings if w.warning_name == TAB] == [
         (1, 1),
-        (1, 2),
+        (1, 5),
     ]

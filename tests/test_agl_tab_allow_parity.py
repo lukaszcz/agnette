@@ -14,11 +14,11 @@ from agnette.agm.cli_support.args import CheckArgs
 TAB = "tab-indentation"
 _ALLOW = '@allow("tab-indentation")'
 
-# Source text -> the TAB advisories (line, column in characters) the file reports.
+# Source text -> the TAB advisories (line, tab-expanded column) the file reports.
 _CASES = {
-    "after-the-allowed-item": (f"\t\t{_ALLOW} let pre = 1;\tlet\tb = 1\n", [(1, 41), (1, 45)]),
-    "inside-the-allowed-item": (f"\t\t{_ALLOW} let\tpre = 1; let\tb = 1\n", [(1, 45)]),
-    "before-the-allowed-item": (f"\tlet\ta = 1; {_ALLOW} let b = 1\n", [(1, 1), (1, 5)]),
+    "after-the-allowed-item": (f"\t\t{_ALLOW} let pre = 1;\tlet\tb = 1\n", [(1, 47), (1, 51)]),
+    "inside-the-allowed-item": (f"\t\t{_ALLOW} let\tpre = 1; let\tb = 1\n", [(1, 51)]),
+    "before-the-allowed-item": (f"\tlet\ta = 1; {_ALLOW} let b = 1\n", [(1, 1), (1, 8)]),
 }
 
 
@@ -63,5 +63,6 @@ def test_a_halted_load_reports_the_tabs_around_an_allow_as_a_load_does(
     base = source[: len(source) - len(source.lstrip("\t"))]
     halted = _loaded(f'{base}let a: int = "s"\n{source}', tmp_path / "p.agl")
 
-    tabs_of_base = [(1, column) for column in range(1, len(base) + 1)]
+    tabs_of_base = [(1, 4 * tab + 1) for tab in range(len(base))]
     assert halted == tabs_of_base + [(line + 1, column) for line, column in expected]
+

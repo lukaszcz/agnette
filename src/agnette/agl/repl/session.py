@@ -160,10 +160,7 @@ def _origin_at(label: str, lines: LineIndex, offset: int, padding: int = 0) -> F
 
     The entry's text starts *padding* columns before *offset* (:func:`entry_text`).
     """
-    raw_column = offset - lines.line_start(offset) + 1
-    return FileOrigin(
-        label, lines.line(offset), lines.column(offset) - padding, raw_column - padding
-    )
+    return FileOrigin(label, lines.line(offset), lines.column(offset) - padding)
 
 
 @dataclass(frozen=True, slots=True)
@@ -943,15 +940,13 @@ class ReplSession:
         self._entry_label = source.label
         return source
 
-    def _place(self, location: Placement, /, *, raw: bool = False) -> Placement:
+    def _place(self, location: Placement, /) -> Placement:
         """Move a location in an entry's source to where that entry's text lies; others stay."""
         label, line, column = location
         if label not in self._entry_origins:
             return location
         origin = self._entry_origins[label]
-        return (
-            (None, line, column) if origin is None else origin.place((None, line, column), raw=raw)
-        )
+        return (None, line, column) if origin is None else origin.place((None, line, column))
 
     def user_place(
         self, label: str | None, line: int, column: int | None
@@ -2948,9 +2943,9 @@ class ReplSession:
         """
         outcome = self._govern_file_advisories(label, advisories, regions)
 
-        def place(location: Placement, /, *, raw: bool = False) -> Placement:
+        def place(location: Placement, /) -> Placement:
             _, line, column = location
-            return location if origin is None else origin.place((None, line, column), raw=raw)
+            return location if origin is None else origin.place((None, line, column))
 
         result.warnings.extend(relocate_diagnostic(w, place) for w in outcome.reported)
         result.diagnostics.extend(relocate_diagnostic(d, place) for d in outcome.denied)

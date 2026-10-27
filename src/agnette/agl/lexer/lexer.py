@@ -324,7 +324,7 @@ def lexed_slices(
     tabs: list[list[Diagnostic]] = [[] for _ in ranges]
     for advisory in lexed.tab_warnings:
         index = range_at(starts, lines.offset(advisory.line, cast(int, advisory.column)))
-        tabs[index].append(rebases[index].advisory(advisory))
+        tabs[index].append(rebases[index].diagnostic(advisory))
     return [
         LexedSource(
             entry_text(lines, start, end, padding),

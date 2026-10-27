@@ -27,6 +27,6 @@ def test_a_halted_load_reports_a_later_tab_where_the_file_has_it(
     assert not result.ok
     assert [(d.line, d.column) for d in reported if d.warning_name == TAB] == [
         (1, 1),
-        (1, 2),
-        (1, 24),
+        (1, 5),
+        (1, 30),
     ]

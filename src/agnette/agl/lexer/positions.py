@@ -46,8 +46,17 @@ class LineIndex:
         return bisect_right(self._starts, offset)
 
     def offset(self, line: int, column: int) -> int:
-        """The 0-based offset of 1-based *column* on 1-based *line*."""
-        return self._starts[line - 1] + column - 1
+        """The 0-based offset of 1-based lexer *column* on 1-based *line*; see :meth:`column`.
+
+        A column inside a tab's expansion is the tab's.
+        """
+        begin = self._starts[line - 1]
+        width = 0
+        offset = begin
+        while width + 1 < column and self.text[offset : offset + 1] in (" ", "\t"):
+            width += TAB_LEN - width % TAB_LEN if self.text[offset] == "\t" else 1
+            offset += 1
+        return offset + column - width - 1
 
     def line_start(self, offset: int) -> int:
         """The 0-based offset where the line holding *offset* starts."""
@@ -87,12 +96,12 @@ def entry_text(lines: LineIndex, start: int, end: int, padding: int) -> str:
 class Rebase:
     """Maps positions in a text to the positions they have in the entry starting at *start*.
 
-    Positions are 1-based lines and columns and 0-based offsets, as tokens carry them; a TAB
-    advisory's columns count characters (:meth:`advisory`). The entry is the tail of the text
-    from *start* (:func:`entry_text`, indented by *padding*, :func:`entry_padding`). With
-    *bound* ``(end, last)``, the tail stops at *end*: a position past it, such as the newline
-    a closing layout token covers after the tail's last item, is read as the end of *last*,
-    the tail's last token already rebased, where scanning the tail alone puts it.
+    Positions are 1-based lines and columns and 0-based offsets, as tokens carry them. The
+    entry is the tail of the text from *start* (:func:`entry_text`, indented by *padding*,
+    :func:`entry_padding`). With *bound* ``(end, last)``, the tail stops at *end*: a position
+    past it, such as the newline a closing layout token covers after the tail's last item, is
+    read as the end of *last*, the tail's last token already rebased, where scanning the tail
+    alone puts it.
     """
 
     def __init__(
@@ -107,7 +116,6 @@ class Rebase:
         self._line = lines.line(start)
         self._padding = padding
         self._first_column = lines.column(start) - 1 - self._padding
-        self._first_character = start - lines.line_start(start) - self._padding
 
     def offset(self, offset: int) -> int:
         return offset - self._start + self._padding
@@ -115,10 +123,8 @@ class Rebase:
     def line(self, line: int) -> int:
         return line - self._line + 1
 
-    def column(self, line: int, column: int, *, raw: bool = False) -> int:
-        if line != self._line:
-            return column
-        return column - (self._first_character if raw else self._first_column)
+    def column(self, line: int, column: int) -> int:
+        return column if line != self._line else column - self._first_column
 
     def position(self, offset: int, line: int, column: int) -> tuple[int, int, int]:
         """The rebased ``(offset, line, column)`` of a position, bounded by the tail's end."""
@@ -153,13 +159,13 @@ class Rebase:
             end_offset=self.offset(span.end_offset),
         )
 
-    def advisory(self, advisory: Diagnostic) -> Diagnostic:
-        """Return a copy of *advisory* (columns count characters) with its positions rebased."""
-        line, end_line = advisory.line, cast(int, advisory.end_line)
+    def diagnostic(self, diagnostic: Diagnostic) -> Diagnostic:
+        """Return a copy of *diagnostic* with its positions rebased."""
+        line, end_line = diagnostic.line, cast(int, diagnostic.end_line)
         return replace(
-            advisory,
+            diagnostic,
             line=self.line(line),
-            column=self.column(line, cast(int, advisory.column), raw=True),
+            column=self.column(line, cast(int, diagnostic.column)),
             end_line=self.line(end_line),
-            end_column=self.column(end_line, cast(int, advisory.end_column), raw=True),
+            end_column=self.column(end_line, cast(int, diagnostic.end_column)),
         )
