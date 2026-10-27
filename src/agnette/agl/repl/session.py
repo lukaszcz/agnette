@@ -2723,7 +2723,9 @@ class ReplSession:
             self._inherited_allows = frozenset()
         return results
 
-    def _load_advisories_alone(self, label: str, advisories: list[Diagnostic]) -> list[EntryResult]:
+    def _load_advisories_alone(
+        self, label: str, advisories: Sequence[Diagnostic]
+    ) -> list[EntryResult]:
         """Load a file with nothing to run: one entry carrying its *advisories*, none without.
 
         The advisories are governed by the session's warning policy and placed at the file
