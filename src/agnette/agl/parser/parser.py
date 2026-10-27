@@ -359,16 +359,16 @@ class ProgramTree:
 
         def begin(start: int) -> int:
             line_start = lines.line_start(start)
-            return line_start if self.text[line_start:start].strip(" \t") == "" else start
+            return line_start if lines.text[line_start:start].strip(" \t") == "" else start
 
         return [(begin(start), end) for start, end in ranges]
 
-    def items_from(self, offset: int, *, start_id: int) -> syntax.Program:
+    def items_from(self, offset: int, *, start_id: int, lines: LineIndex) -> syntax.Program:
         """Convert to AST the module's items starting at or after *offset*, of which there are some.
 
-        Ids start at *start_id* and spans are the file's own. The inner attributes are not
-        converted: the entry that heads the file converts them. Header ordering is not
-        enforced: the entry that runs an item judges it.
+        Ids start at *start_id* and spans are the file's own. *lines* indexes the module's text.
+        The inner attributes are not converted: the entry that heads the file converts them.
+        Header ordering is not enforced: the entry that runs an item judges it.
         """
         return self._program_of(
             [
@@ -377,11 +377,14 @@ class ProgramTree:
                 if c.data != "inner_attribute" and c.meta.start_pos >= offset
             ],
             start_id,
+            lines,
         )
 
-    def _program_of(self, chosen: Sequence[Tree], start_id: int) -> syntax.Program:
+    def _program_of(
+        self, chosen: Sequence[Tree], start_id: int, lines: LineIndex
+    ) -> syntax.Program:
         """Convert *chosen* top-level children, in file positions, to a program."""
-        root = _module_tree(chosen, Rebase(LineIndex(self.text), 0))
+        root = _module_tree(chosen, Rebase(lines, 0))
         with frontend_recursion_boundary():
             program, _ = _transform_tree(root, start_id=start_id, source=None, allow_late_uses=True)
         return cast(syntax.Program, program)

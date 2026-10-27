@@ -2878,7 +2878,7 @@ class ReplSession:
         assert head is not None  # the first entry of a file that resolved made its header
         resume = unrun[0][0]
         try:
-            rest = tree.items_from(resume, start_id=self._next_node_id)
+            rest = tree.items_from(resume, start_id=self._next_node_id, lines=lines)
             items = rest.body.items
             run = tuple(item for program in programs for item in program.body.items)
             module = replace(head, body=replace(head.body, items=(*run, *items)))
