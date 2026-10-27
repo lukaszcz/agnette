@@ -2880,11 +2880,10 @@ class ReplSession:
             regions = module_allow_regions(module, source_text=lines.text, items=items)
         except AglError:
             return
-        after = _origin_at(label, lines, resume)
         self._add_governed_advisories(
             result,
             label,
-            (w for w in lexed.tab_warnings if (w.line, w.column) >= (after.line, after.column)),
+            (w for w in lexed.tab_warnings if lines.offset(w.line, cast(int, w.column)) >= resume),
             regions,
         )
 
