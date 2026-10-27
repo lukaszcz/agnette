@@ -357,21 +357,15 @@ class ProgramTree:
         ranges[0] = (min([ranges[0][0], *(a.start_pos for a in attributes)]), ranges[0][1])
         return ranges
 
-    def module_from(
-        self, offset: int | None, *, attributes: bool, start_id: int
-    ) -> syntax.Program | None:
-        """Convert to AST the module's inner attributes and the items from *offset*, if any.
+    def items_from(self, offset: int, *, start_id: int) -> syntax.Program | None:
+        """Convert to AST the module's items starting at or after *offset*, if any.
 
-        The attributes are converted only when *attributes* is set, the items only when
-        *offset* is given: those starting at or after it. Ids start at *start_id* and
-        spans are the file's own. ``None`` when nothing is selected. Header ordering is
-        not enforced: the entry that runs an item judges it.
+        Ids start at *start_id* and spans are the file's own. The inner attributes are not
+        converted: the entry that heads the file converts them. Header ordering is not
+        enforced: the entry that runs an item judges it.
         """
         chosen = [
-            c
-            for c in self.children()
-            if (attributes if c.data == "inner_attribute" else offset is not None)
-            and (c.data == "inner_attribute" or c.meta.start_pos >= cast(int, offset))
+            c for c in self.children() if c.data != "inner_attribute" and c.meta.start_pos >= offset
         ]
         if not chosen:
             return None

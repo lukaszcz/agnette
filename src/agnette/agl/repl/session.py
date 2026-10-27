@@ -2750,8 +2750,6 @@ class ReplSession:
                 results.append(result)
                 if index == 0:
                     self._header_open = False
-                    if self._header_allows and result.ok:
-                        self._inherited_allows = self._allowed_names(self._header_of(tree))
                     self._header_allows = False
                 if not result.ok:
                     if index + 1 < len(spans):
@@ -2765,23 +2763,6 @@ class ReplSession:
             self._header_open = False
         return results
 
-    def _header_of(self, tree: "ProgramTree | AglError") -> "Program | None":
-        """The program carrying the loading file's converted inner attributes, if it has any.
-
-        The first entry converted them with itself, as a program or as its type probe; only
-        when it did not (its conversion failed) are they converted from the file *tree*, once.
-        """
-        if self._header is None and not isinstance(tree, AglError):
-            self._header = tree.module_from(None, attributes=True, start_id=self._next_node_id)
-        return self._header
-
-    @staticmethod
-    def _allowed_names(header: "Program | None") -> frozenset[str]:
-        """The ``@!allow`` names of *header*'s inner attributes."""
-        from agnette.agl.scope.attributes import module_allowed_names
-
-        return module_allowed_names(header) if header else frozenset()
-
     def _note_parsed(self, program: "Program") -> None:
         """Record the *program* of an entry a file load has parsed."""
         if self._parsed_programs is None:
@@ -2793,13 +2774,14 @@ class ReplSession:
         """Record *program*, if the file's first entry made it, as carrying the file's header.
 
         The file's first entry heads it, so its ``@!allow`` names, when the load has no
-        saved ones, govern every entry of the file. An entry 0 that made no program takes
-        them from the tree instead (:meth:`_header_of`).
+        saved ones, govern every entry of the file.
         """
+        from agnette.agl.scope.attributes import module_allowed_names
+
         if self._header_open and self._header is None and self._parsed_programs is not None:
             self._header = program
             if self._header_allows:
-                self._inherited_allows = self._allowed_names(program)
+                self._inherited_allows = module_allowed_names(program)
 
     def _parse_file(
         self, normalized: str, lexed: "LexedSource"
@@ -2875,21 +2857,20 @@ class ReplSession:
 
         These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
         from offset *resume* on; a denied one is another error. The ``@allow`` regions
-        come from the file's inner attributes and the items of its parse *tree* from *resume*
-        on, converted here: the earlier items are in the *programs* of the entries run. They are
-        withheld when the file could not resolve, which *result* and an unparsable or invalid
-        *tree* tell; a failure in a later entry is not known without running it.
+        come from the file's inner attributes, converted with its first entry, and the items of
+        its parse *tree* from *resume* on, converted here: the earlier items are in the
+        *programs* of the entries run. They are withheld when the file could not resolve, which
+        *result* and an unparsable or invalid *tree* tell, or its first entry made no header; a
+        failure in a later entry is not known without running it.
         """
         from agnette.agl.scope.attributes import module_allow_regions
 
-        if result.scope_failed or isinstance(tree, AglError):
+        head = self._header
+        if result.scope_failed or isinstance(tree, AglError) or head is None:
             return
         try:
-            rest = tree.module_from(resume, attributes=False, start_id=self._next_node_id)
+            rest = tree.items_from(resume, start_id=self._next_node_id)
             unrun = rest.body.items if rest else ()
-            head = self._header_of(tree) or rest
-            if head is None:
-                return
             run = tuple(item for program in programs for item in program.body.items)
             module = replace(head, body=replace(head.body, items=(*run, *unrun)))
             regions = module_allow_regions(module, source_text=normalized, items=unrun)
