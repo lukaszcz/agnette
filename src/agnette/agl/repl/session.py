@@ -26,6 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
+from agnette.agl.lexer.positions import LineIndex
 from agnette.agl.lexer.tokens import LAYOUT_TOKENS
 from agnette.agl.repl.entry import (
     REPL_LABEL,
@@ -154,9 +155,9 @@ def _decode_transcript(text: str) -> tuple[_SavedEntry, ...] | None:
     return tuple(entries)
 
 
-def _origin_at(label: str, text: str, offset: int) -> FileOrigin:
-    """The origin of the *text* slice starting at *offset*, in the file named *label*."""
-    return FileOrigin(label, text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset))
+def _origin_at(label: str, lines: LineIndex, offset: int) -> FileOrigin:
+    """The origin of the slice of the file named *label* (text *lines*) starting at *offset*."""
+    return FileOrigin(label, lines.line(offset), lines.column(offset))
 
 
 @dataclass(frozen=True, slots=True)
@@ -2670,7 +2671,7 @@ class ReplSession:
         label = str(path)
         saved_entries = _decode_transcript(normalized)
         if saved_entries is not None:
-            return self._load_transcript(label, normalized, saved_entries)
+            return self._load_transcript(label, LineIndex(normalized), saved_entries)
 
         # A blank / comment-only file parses to an empty module with nothing
         # to run; skip the pipeline entirely and load it as a no-op.
@@ -2697,18 +2698,17 @@ class ReplSession:
         # The file's leading inner attributes head its first entry, as if typed with it;
         # their ``@!allow`` names govern every entry (see :meth:`_note_parsed`).
         spans = tree.entry_ranges()
+        lines = LineIndex(normalized)
 
         def halted(result: EntryResult, programs: Sequence[Program], resume: int) -> None:
-            self._report_advisories(
-                result, label, normalized, lexed, tree, programs, spans[resume:]
-            )
+            self._report_advisories(result, label, lines, lexed, tree, programs, spans[resume:])
 
-        return self._run_entries(label, normalized, spans, entry_slices(lexed, spans), None, halted)
+        return self._run_entries(label, lines, spans, entry_slices(lexed, spans), None, halted)
 
     def _load_transcript(
-        self, label: str, normalized: str, saved_entries: tuple[_SavedEntry, ...]
+        self, label: str, lines: LineIndex, saved_entries: tuple[_SavedEntry, ...]
     ) -> list[EntryResult]:
-        """Run the entries of the framed transcript *normalized*, each under its saved allows.
+        """Run the entries of the framed transcript of text *lines*, each under its saved allows.
 
         Each entry is an input of its own, lexed and parsed alone exactly as when typed.
         """
@@ -2716,16 +2716,14 @@ class ReplSession:
         allows = [entry.allows for entry in saved_entries]
 
         def halted(result: EntryResult, _programs: Sequence[Program], resume: int) -> None:
-            self._report_entry_advisories(
-                result, label, normalized, spans[resume:], allows[resume:]
-            )
+            self._report_entry_advisories(result, label, lines, spans[resume:], allows[resume:])
 
-        return self._run_entries(label, normalized, spans, [None] * len(spans), allows, halted)
+        return self._run_entries(label, lines, spans, [None] * len(spans), allows, halted)
 
     def _run_entries(
         self,
         label: str,
-        normalized: str,
+        lines: LineIndex,
         spans: Sequence[tuple[int, int]],
         readings: Sequence["LexedSource | None"],
         allows: Sequence[frozenset[str]] | None,
@@ -2748,8 +2746,8 @@ class ReplSession:
                 if allows is not None:
                     self._inherited_allows = allows[index]
                 result = self.eval_entry(
-                    normalized[start:end],
-                    origin=_origin_at(label, normalized, start),
+                    lines.text[start:end],
+                    origin=_origin_at(label, lines, start),
                     lexed=reading,
                 )
                 results.append(result)
@@ -2850,7 +2848,7 @@ class ReplSession:
         self,
         result: EntryResult,
         label: str,
-        normalized: str,
+        lines: LineIndex,
         lexed: "LexedSource",
         tree: "ProgramTree | AglError",
         programs: Sequence["Program"],
@@ -2858,7 +2856,7 @@ class ReplSession:
     ) -> None:
         """Add the advisories of the *unrun* entries of a plain file to *result*.
 
-        These are the advisories of the file *label* (text *normalized*, lexed as *lexed*)
+        These are the advisories of the file *label* (text *lines*, lexed as *lexed*)
         within the *unrun* entries' spans, governed as running them would; a denied one is
         another error. They are withheld when the file could not resolve, which *result* and
         an unparsable *tree* tell; a failure in a later entry is not known without running it.
@@ -2879,10 +2877,10 @@ class ReplSession:
             items = rest.body.items if rest else ()
             run = tuple(item for program in programs for item in program.body.items)
             module = replace(head, body=replace(head.body, items=(*run, *items)))
-            regions = module_allow_regions(module, source_text=normalized, items=items)
+            regions = module_allow_regions(module, source_text=lines.text, items=items)
         except AglError:
             return
-        after = _origin_at(label, normalized, resume)
+        after = _origin_at(label, lines, resume)
         self._add_governed_advisories(
             result,
             label,
@@ -2894,7 +2892,7 @@ class ReplSession:
         self,
         result: EntryResult,
         label: str,
-        normalized: str,
+        lines: LineIndex,
         unrun: Sequence[tuple[int, int]],
         allows: Sequence[frozenset[str]],
     ) -> None:
@@ -2912,7 +2910,7 @@ class ReplSession:
         if result.scope_failed:
             return
         for (start, end), marks in zip(unrun, allows):
-            text = normalized[start:end]
+            text = lines.text[start:end]
             lexed = lex_source(text)
             pending = [w for w in lexed.tab_warnings if w.warning_name not in marks]
             if not pending:
@@ -2924,7 +2922,7 @@ class ReplSession:
             except AglError:
                 continue
             self._add_governed_advisories(
-                result, label, pending, regions, _origin_at(label, normalized, start)
+                result, label, pending, regions, _origin_at(label, lines, start)
             )
 
     def _add_governed_advisories(

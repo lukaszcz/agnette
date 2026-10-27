@@ -45,7 +45,7 @@ from agnette.agl.lexer.errors import (
     LexError,
     UnterminatedTripleQuotedStringError,
 )
-from agnette.agl.lexer.positions import token_span
+from agnette.agl.lexer.positions import TAB_LEN, token_span
 from agnette.agl.lexer.tokens import (
     ARROW,
     ASSIGN,
@@ -117,8 +117,6 @@ from agnette.util.unicode import SURROGATE, surrogate_index
 # lexes as NAME EQ NAME (required for no-space named arguments) and ``@arg-pos``
 # lexes as AT NAME; the string quotes and ``+``/``*`` are not, so ``foo"bar``
 # and ``a+b`` scan as single identifiers.
-
-_TAB_LEN = 4
 
 # The token each kind of hole opener emits.
 _OPENER_TOKEN_TYPES: dict[lexical.HoleKind, str] = {
@@ -403,7 +401,7 @@ class _Scanner:
             while self._pos < len(self._src) and self._src[self._pos] in (" ", "\t"):
                 ch = self._src[self._pos]
                 if ch == "\t":
-                    col += _TAB_LEN - (col % _TAB_LEN)
+                    col += TAB_LEN - (col % TAB_LEN)
                     self._record_tab()
                 else:
                     col += 1
@@ -810,7 +808,7 @@ class _Scanner:
         offset = 0
         while pos + offset < len(self._src) and self._src[pos + offset] in (" ", "\t"):
             if self._src[pos + offset] == "\t":
-                width += _TAB_LEN - (width % _TAB_LEN)
+                width += TAB_LEN - (width % TAB_LEN)
             else:
                 width += 1
             offset += 1
@@ -946,7 +944,7 @@ class _Scanner:
         while consumed_width < margin:
             ch = self._src[line_start + strip_chars]
             if ch == "\t":
-                consumed_width += _TAB_LEN - (consumed_width % _TAB_LEN)
+                consumed_width += TAB_LEN - (consumed_width % TAB_LEN)
                 self._record_tab_at(line_start + strip_chars, line_no)
             else:
                 consumed_width += 1

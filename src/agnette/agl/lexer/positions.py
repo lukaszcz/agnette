@@ -13,6 +13,9 @@ from lark.lexer import Token
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceId, SourceSpan
 
+#: Columns a tab advances indentation to the next multiple of.
+TAB_LEN = 4
+
 
 def token_span(tok: Token, source: SourceId = UNKNOWN_SOURCE) -> SourceSpan:
     """Return *tok*'s span in *source*.
@@ -35,6 +38,7 @@ class LineIndex:
     """Where each line of a text starts, to place offsets on lines in logarithmic time."""
 
     def __init__(self, text: str) -> None:
+        self.text = text
         self._starts = [0, *(match.end() for match in re.finditer("\n", text))]
 
     def line(self, offset: int) -> int:
@@ -44,6 +48,16 @@ class LineIndex:
     def offset(self, line: int, column: int) -> int:
         """The 0-based offset of 1-based *column* on 1-based *line*."""
         return self._starts[line - 1] + column - 1
+
+    def column(self, offset: int) -> int:
+        """The 1-based column of *offset* as the lexer counts it, indentation tab-expanded."""
+        begin = self._starts[self.line(offset) - 1]
+        indent = self.text[begin:offset]
+        body = indent.lstrip(" \t")
+        width = 0
+        for char in indent[: len(indent) - len(body)]:
+            width += TAB_LEN - width % TAB_LEN if char == "\t" else 1
+        return width + len(body) + 1
 
 
 def range_at(starts: Sequence[int], offset: int) -> int:
@@ -79,7 +93,7 @@ class Rebase:
         self._start = start
         self._bound = bound
         self._line = lines.line(start)
-        self._first_column = start - lines.offset(self._line, 1)
+        self._first_column = lines.column(start) - 1
 
     def offset(self, offset: int) -> int:
         return offset - self._start

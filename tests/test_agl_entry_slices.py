@@ -22,6 +22,7 @@ _SOURCES = {
     "scope": "scope S\n  def q() = 9\n\n  scope T\n    let k = 3\n  end T\nend S\n\nS::q()\n",
     "comments": "let a = 1 # one\n# alone\n\n\nlet b = 2 # two\n",
     "records": "record P\n  x: int\nenum E =\n  | A\n  | B(v: int)\nlet p = P(1)\n",
+    "base-indented": "  let a = 1\n  let b = a\n  def f() -> int =\n    b\n",
     "tab": "let a = 1\ndef f() -> int =\n\t1\nlet b = 2\ndef g() -> int =\n\t\t2\n",
     "spaced-qualifier": "let a = 1\nlet b = app/config ::x\nlet c = 3\nlet d = a::y\n",
     "text": 'let s = "a {1 + 1} b"\nlet t = $"x {s}"\nlet u = $\n  raw\n  more\n',
@@ -283,3 +284,16 @@ def test_an_entry_is_read_as_scanned_and_parsed_or_not_at_all(entry: str) -> Non
     with lex_replay(read):
         from_slice = parse_program_seeded(entry, start_id=0)
     assert repr(from_slice) == repr(parse_program_seeded(entry, start_id=0))
+
+
+def test_an_entry_after_a_tab_indented_lines_start_is_read_at_the_columns_scanning_it_gives() -> (
+    None
+):
+    source = "\tlet a = 1\n\tlet b = a\n\tdef f() -> int =\n\t\tb\n"
+    lexed, spans = _parsed(source)
+
+    for (start, end), read in zip(spans, entry_slices(lexed, spans)):
+        assert read is not None
+        assert [_position(t) for t in read.tokens] == [
+            _position(t) for t in lex_source(source[start:end]).tokens
+        ]
