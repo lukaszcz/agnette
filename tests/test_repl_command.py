@@ -1511,7 +1511,10 @@ class TestReplModuleParameterConfig:
         result = session.eval_entry("import A/logging\nimport B/logging\n()")
 
         assert not result.ok
-        assert any("multiple routes" in diagnostic.message for diagnostic in result.diagnostics)
+        assert any(
+            "A/logging" in diagnostic.message and "B/logging" in diagnostic.message
+            for diagnostic in result.diagnostics
+        )
 
     def test_importing_a_module_twice_resolves_its_config_once(
         self,

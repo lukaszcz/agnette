@@ -1,27 +1,14 @@
-"""Resolve AgL configuration values addressed by qualified module paths."""
+"""Config table routes of AgL declarations: the tables each is addressed through."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, SCHEMA_CONFIG_SECTION_NAMES
+from agnette.config.claims import ConfigSource, ConfiguredValue, Table, resolve_leaf
 from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.core.toml import TomlDict
-
-_MISSING = object()
-
-
-class ConfiguredValue(NamedTuple):
-    """A configured value with the :class:`PathAnchor` of the layer that supplied it."""
-
-    value: object
-    anchor: PathAnchor | None
-
-
-class QualifiedConfigLookupError(ValueError):
-    """Raised when a qualified configuration table cannot be resolved uniquely."""
 
 
 @dataclass(frozen=True)
@@ -45,17 +32,6 @@ class ConfigRoute:
         """Return the route of the top-level *section* table."""
         return cls(section=section)
 
-    def display_leaf(self, leaf: str) -> str:
-        """Return *leaf* as the lookup diagnostics spell it.
-
-        A section's leaf reads as its config key (``exec.timeout``), any other as its
-        source-style address.
-        """
-        if self.section is not None:
-            return f"{self.section}.{leaf}"
-        module_path = "/".join(self.module_segments)
-        return "::".join((module_path, *self.scope_path, leaf))
-
     def exact_table_paths(self) -> tuple[tuple[str, ...], ...]:
         """Return the table paths addressing this exact route, in read order.
 
@@ -65,73 +41,30 @@ class ConfigRoute:
             return ((self.section,),)
         return route_table_paths(self.module_segments, self.scope_path, self.command_paths)
 
-    def inherited_table_tiers(self) -> tuple[tuple[tuple[str, ...], ...], ...]:
-        """Return the group tables this route inherits from, one tier per depth, deepest first."""
-        return _inherited_group_paths(_config_command_paths(self.command_paths))
+    def table_tiers(self) -> tuple[tuple[Table, ...], ...]:
+        """Return the route's tables by specificity, most specific first.
 
-    def table_paths(self) -> tuple[tuple[str, ...], ...]:
-        """Return :meth:`exact_table_paths` plus every inherited group table."""
+        The exact tables, then the group tables the route inherits from, one tier per
+        depth, deepest first.
+        """
         return (
-            *self.exact_table_paths(),
-            *(path for tier in self.inherited_table_tiers() for path in tier),
+            self.exact_table_paths(),
+            *_inherited_group_paths(_config_command_paths(self.command_paths)),
         )
 
+    def table_paths(self) -> tuple[Table, ...]:
+        """Return every table of :meth:`table_tiers`, flattened."""
+        return tuple(path for tier in self.table_tiers() for path in tier)
 
-@dataclass(frozen=True)
-class QualifiedConfigKey:
-    """The address of one AgL configuration value: its *route* and *leaf*.
+    def display_leaf(self, leaf: str) -> str:
+        """Return *leaf* as lookup diagnostics spell it.
 
-    ``leaf_aliases`` holds further leaf spellings that address the same
-    declaration within the route's tables, so one key covers a module parameter's
-    bare and qualified program-table spellings under the ordinary layering
-    rules: several spellings in one layer conflict, a later layer wins.
-    """
-
-    route: ConfigRoute
-    leaf: str
-    leaf_aliases: tuple[str, ...] = ()
-
-    def leaf_spellings(self) -> tuple[str, ...]:
-        return (self.leaf, *self.leaf_aliases)
-
-    def display_name(self) -> str:
-        """Return the spelling used in lookup diagnostics."""
-        return self.route.display_leaf(self.leaf)
-
-
-def resolve_qualified_values(
-    config: GeneralConfig,
-    keys: Iterable[QualifiedConfigKey],
-    nested_routes: frozenset[tuple[str, ...]] = frozenset(),
-) -> dict[QualifiedConfigKey, ConfiguredValue]:
-    """Resolve *keys* from the normalized layers of *config*.
-
-    Each value comes with the anchor of the layer that supplied it.
-
-    Each key resolves in specificity tiers, most specific first: its exact
-    route, then tables inherited from a proper prefix of a command path,
-    deepest first (e.g. ``[devel]`` feeding ``devel review``). Every tier is
-    resolved independently across all layers, even one a higher tier already
-    resolved, so a conflict in a shadowed tier still errors; a value from a
-    higher tier wins regardless of which layer supplied it.
-
-    A table at a leaf position is a nested route, not a value, when its path is
-    in *nested_routes* or is a route table of the *keys*' routes (:func:`known_route_tables`);
-    any other table is a native leaf value.
-    """
-
-    unique_keys = _dedupe_keys(keys)
-    tiers_by_key = {
-        key: (key.route.exact_table_paths(), *key.route.inherited_table_tiers())
-        for key in unique_keys
-    }
-    return _resolve_tiers(
-        config.layers,
-        config.anchors,
-        unique_keys,
-        tiers_by_key,
-        nested_routes | known_route_tables(key.route for key in unique_keys),
-    )
+        A section's leaf reads as its config key (``exec.timeout``), any other as its
+        source-style address.
+        """
+        if self.section is not None:
+            return f"{self.section}.{leaf}"
+        return "::".join(("/".join(self.module_segments), *self.scope_path, leaf))
 
 
 def known_route_tables(
@@ -141,67 +74,12 @@ def known_route_tables(
 
     Covers each route's exact and inherited group tables and every table that
     leads to one, since such a table holds nested routes. A table at one of
-    these paths is never a leaf value (:func:`_is_nested_route`).
+    these paths is never a leaf value (:meth:`agnette.config.claims.ConfigSource.is_route`).
     """
     paths: set[tuple[str, ...]] = set(command_paths)
     for route in routes:
         paths.update(route.table_paths())
     return frozenset(path[:depth] for path in paths for depth in range(1, len(path) + 1))
-
-
-def _is_nested_route(
-    value: object,
-    path: tuple[str, ...],
-    leaf: str,
-    nested_routes: frozenset[tuple[str, ...]],
-) -> bool:
-    """Return whether *leaf* of the table at *path* holds a nested route, not a value.
-
-    The one leaf/route distinction, used by value resolution and by every leaf
-    scan alike: a table is a route when its path is one of *nested_routes*.
-    """
-    return isinstance(value, dict) and (*path, leaf) in nested_routes
-
-
-def _resolve_tiers(
-    layers: tuple[TomlDict, ...],
-    anchors: tuple[PathAnchor | None, ...],
-    keys: tuple[QualifiedConfigKey, ...],
-    tiers_by_key: Mapping[QualifiedConfigKey, tuple[tuple[tuple[str, ...], ...], ...]],
-    nested_routes: frozenset[tuple[str, ...]],
-) -> dict[QualifiedConfigKey, ConfiguredValue]:
-    """Resolve *keys* tier by tier, most specific first, keeping each key's first hit.
-
-    *tiers_by_key* maps every key to its own ordered specificity tiers (each
-    tier itself a tuple of equally specific table paths); a key with fewer
-    tiers than another simply contributes nothing once its own are exhausted.
-    *nested_routes* are the table paths that are routes, never leaf values.
-    Shared by :func:`resolve_qualified_values` (exact route, then inherited
-    groups) and :func:`resolve_manifest_values` (a program's own command
-    table, then inherited groups, then the manifest root). *anchors* run
-    parallel to *layers*.
-    """
-    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
-    tier_count = max((len(tiers) for tiers in tiers_by_key.values()), default=0)
-    for index in range(tier_count):
-        tier_paths = {
-            key: tiers[index] if index < len(tiers) else () for key, tiers in tiers_by_key.items()
-        }
-        for key, value in _resolve_tier(layers, anchors, keys, tier_paths, nested_routes).items():
-            resolved.setdefault(key, value)
-    return resolved
-
-
-def _dedupe_keys(keys: Iterable[QualifiedConfigKey]) -> tuple[QualifiedConfigKey, ...]:
-    # ``dict.fromkeys`` would be shorter but is untyped under the repo's
-    # ``disallow_any_expr`` setting.
-    seen: set[QualifiedConfigKey] = set()
-    ordered: list[QualifiedConfigKey] = []
-    for key in keys:
-        if key not in seen:
-            seen.add(key)
-            ordered.append(key)
-    return tuple(ordered)
 
 
 def _inherited_group_paths(
@@ -225,159 +103,9 @@ def _inherited_group_paths(
     return tuple(tuple(by_depth[depth]) for depth in sorted(by_depth, reverse=True))
 
 
-def _resolve_tier(
-    layers: tuple[TomlDict, ...],
-    anchors: tuple[PathAnchor | None, ...],
-    keys: tuple[QualifiedConfigKey, ...],
-    paths_by_key: Mapping[QualifiedConfigKey, tuple[tuple[str, ...], ...]],
-    nested_routes: frozenset[tuple[str, ...]],
-) -> dict[QualifiedConfigKey, ConfiguredValue]:
-    """Resolve *keys* against *paths_by_key*'s tables across every layer.
-
-    One specificity tier: :func:`resolve_qualified_values` calls this once per
-    tier, most specific first, each time with that tier's own table paths.
-    *paths_by_key* must map every one of *keys*, even to an empty tuple when a
-    key has no table at this tier.
-    """
-    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
-    for layer, anchor in zip(layers, anchors, strict=True):
-        for key in keys:
-            if any(_table_path_replaced(layer, path) for path in paths_by_key[key]):
-                resolved.pop(key, None)
-        resolved.update(_resolve_layer(layer, anchor, keys, paths_by_key, nested_routes))
-    return resolved
-
-
-def _resolve_layer(
-    layer: TomlDict,
-    anchor: PathAnchor | None,
-    keys: tuple[QualifiedConfigKey, ...],
-    paths_by_key: Mapping[QualifiedConfigKey, tuple[tuple[str, ...], ...]],
-    nested_routes: frozenset[tuple[str, ...]],
-) -> dict[QualifiedConfigKey, ConfiguredValue]:
-    matches_by_value: dict[
-        tuple[tuple[str, ...], str],
-        dict[ConfigRoute, list[QualifiedConfigKey]],
-    ] = {}
-    values_by_key: dict[QualifiedConfigKey, list[tuple[tuple[str, ...], str, object]]] = {}
-
-    for key in keys:
-        for path in paths_by_key[key]:
-            table = _table_at(layer, path)
-            if table is None:
-                continue
-            for leaf in key.leaf_spellings():
-                if leaf not in table or _is_nested_route(table[leaf], path, leaf, nested_routes):
-                    continue
-                matches_by_value.setdefault((path, leaf), {}).setdefault(key.route, []).append(key)
-                values_by_key.setdefault(key, []).append((path, leaf, table[leaf]))
-
-    for (path, leaf), candidates_by_route in matches_by_value.items():
-        if len(candidates_by_route) > 1:
-            names = ", ".join(
-                key.display_name()
-                for candidates in candidates_by_route.values()
-                for key in candidates
-            )
-            raise QualifiedConfigLookupError(
-                f"config key {display_table_path(path)}.{leaf} matches multiple routes: {names}"
-            )
-
-    resolved: dict[QualifiedConfigKey, ConfiguredValue] = {}
-    for key, values in values_by_key.items():
-        if len(values) > 1:
-            spellings = ", ".join(f"{display_table_path(path)}.{leaf}" for path, leaf, _ in values)
-            raise QualifiedConfigLookupError(
-                f"config key {key.display_name()} is set by conflicting tables: {spellings}"
-            )
-        resolved[key] = ConfiguredValue(values[0][2], anchor)
-    return resolved
-
-
-def _leaf_entries(
-    layers: Iterable[TomlDict],
-    paths: Iterable[tuple[str, ...]],
-    nested_routes: frozenset[tuple[str, ...]],
-) -> Iterator[tuple[str, tuple[str, ...]]]:
-    """Yield ``(leaf, table path)`` for each key of *paths* in *layers* that is no route.
-
-    A table at a leaf position is a nested route (never yielded) exactly when
-    value resolution would treat it as one (:func:`_is_nested_route`); any other
-    table is a native leaf value.
-    """
-    for layer in layers:
-        for path in paths:
-            table = _table_at(layer, path)
-            if table is None:
-                continue
-            for name, value in table.items():
-                if not _is_nested_route(value, path, name, nested_routes):
-                    yield name, path
-
-
-def configured_leaf_tables(
-    config: GeneralConfig,
-    route: ConfigRoute,
-    *,
-    nested_routes: frozenset[tuple[str, ...]] = frozenset(),
-    excluded_tables: frozenset[tuple[str, ...]] = frozenset(),
-) -> dict[str, tuple[str, ...]]:
-    """Return each leaf key the exact route sets, mapped to one table that sets it.
-
-    A nested table addresses a route of its own — a scope region or a program
-    scope — and is never a leaf here; *nested_routes* (together with the
-    scanned route's own tables) says which tables those are. A leaf is reported
-    with the table it was actually read from, so a diagnostic can name the
-    spelling its reader wrote; when several layers set the same leaf on different tables, only the
-    first one a layer scan meets is kept, since this names one table for a
-    single-route diagnostic (undeclared-key warnings) — inherited group tables
-    never count as a leaf here, since a descendant command may be the one that
-    actually consumes them; :func:`configured_leaf_table_candidates` reports
-    those too, for a check that must not depend on layer order. Excluded tables
-    are skipped before selecting one table per leaf.
-    """
-    paths = tuple(path for path in route.exact_table_paths() if path not in excluded_tables)
-    tables: dict[str, tuple[str, ...]] = {}
-    nested = nested_routes | known_route_tables((route,))
-    for name, path in _leaf_entries(config.layers, paths, nested):
-        tables.setdefault(name, path)
-    return tables
-
-
-def configured_leaf_table_candidates(
-    config: GeneralConfig,
-    route: ConfigRoute,
-    *,
-    nested_routes: frozenset[tuple[str, ...]] = frozenset(),
-) -> dict[str, frozenset[tuple[str, ...]]]:
-    """Return each leaf key set on a route or its inherited tables, mapped to every table.
-
-    Unlike :func:`configured_leaf_tables`, this also reports inherited group
-    tables, and collects every distinct table across every layer instead of
-    naming one: the cross-route ambiguity check this feeds must consider every
-    table either route's leaf was ever read from, not just whichever layer
-    scan happens to meet first.
-    """
-    nested = nested_routes | known_route_tables((route,))
-    tables: dict[str, set[tuple[str, ...]]] = {}
-    for name, path in _leaf_entries(config.layers, route.table_paths(), nested):
-        tables.setdefault(name, set()).add(path)
-    return {name: frozenset(paths_seen) for name, paths_seen in tables.items()}
-
-
-def _manifest_layer(manifest_config: TomlDict) -> tuple[TomlDict, ...]:
-    """Wrap *manifest_config* as the single layer manifest routes resolve against.
-
-    Every manifest table path is prefixed with ``"config"``, since
-    ``package.toml``'s own ``[config]``/``[config.a.b]`` tables are the real
-    TOML spelling a diagnostic should name — not a synthetic anchor.
-    """
-    return ({"config": manifest_config},)
-
-
-def _manifest_tiers(
+def manifest_table_tiers(
     command_paths: tuple[tuple[str, ...], ...],
-) -> tuple[tuple[tuple[str, ...], ...], ...]:
+) -> tuple[tuple[Table, ...], ...]:
     """Return one manifest route's tiers, most specific first, ``"config"``-prefixed.
 
     A program's own command paths (exact), then each inherited group tier
@@ -392,62 +120,52 @@ def _manifest_tiers(
     return (exact, *inherited, (("config",),))
 
 
-def _manifest_routes(
+def manifest_routes(
     command_paths: Iterable[tuple[str, ...]], command_tables: frozenset[tuple[str, ...]]
-) -> frozenset[tuple[str, ...]]:
+) -> frozenset[Table]:
     """Return the ``"config"``-prefixed table paths of a manifest's command tables.
 
     The manifest's route set: *command_tables* and *command_paths* (a program's
-    own), plus every table leading to one.
+    own), plus every table leading to one. A table at one of these paths is a
+    command table, never a leaf value.
     """
     commands = known_route_tables((), (*command_tables, *command_paths))
     return frozenset(("config", *path) for path in commands)
 
 
-def resolve_manifest_values(
+def resolve_route_leaf(
+    config: GeneralConfig,
+    route: ConfigRoute,
+    leaf: str,
+    nested_routes: frozenset[Table] = frozenset(),
+) -> ConfiguredValue | None:
+    """Resolve *leaf* of *route* from the file layers of *config* alone, tier by tier.
+
+    A table at a leaf position is a nested route when it is a table of *route* or
+    in *nested_routes*, else a native value.
+    """
+    source = ConfigSource.from_config(config, nested_routes | known_route_tables((route,)))
+    return resolve_leaf(source, route.table_tiers(), leaf, route.display_leaf(leaf))
+
+
+def resolve_manifest_leaf(
     manifest_config: TomlDict,
-    keys: Iterable[QualifiedConfigKey],
+    route: ConfigRoute,
+    leaf: str,
     anchor: PathAnchor | None = None,
-    command_tables: frozenset[tuple[str, ...]] = frozenset(),
-) -> dict[QualifiedConfigKey, ConfiguredValue]:
-    """Resolve *keys* from a package manifest's ``[config]`` table.
+    command_tables: frozenset[Table] = frozenset(),
+) -> ConfiguredValue | None:
+    """Resolve *leaf* of *route* from a package manifest's ``[config]`` table.
 
-    See :func:`_manifest_tiers` for tier order; reuses :func:`_resolve_tiers`
-    against the manifest as a single ``"config"``-prefixed layer, whose values
-    carry *anchor*: the package root, else the invocation directory. A table
-    is a nested route, not a value, when it is a command table: one of
-    *command_tables* or a command path of *keys*.
+    Values carry *anchor*; a table is a nested route, not a value, when it is one of
+    *command_tables* or a command path of *route*.
     """
-    unique_keys = _dedupe_keys(keys)
-    tiers_by_key = {key: _manifest_tiers(key.route.command_paths) for key in unique_keys}
-    routes = _manifest_routes(
-        (path for key in unique_keys for path in key.route.command_paths), command_tables
+    source = ConfigSource.from_manifest(
+        manifest_config, anchor, manifest_routes(route.command_paths, command_tables)
     )
-    return _resolve_tiers(
-        _manifest_layer(manifest_config), (anchor,), unique_keys, tiers_by_key, routes
+    return resolve_leaf(
+        source, manifest_table_tiers(route.command_paths), leaf, route.display_leaf(leaf)
     )
-
-
-def manifest_leaf_tables(
-    manifest_config: TomlDict,
-    command_paths: tuple[tuple[str, ...], ...],
-    command_tables: frozenset[tuple[str, ...]] = frozenset(),
-) -> dict[str, tuple[str, ...]]:
-    """Return each leaf key one of a manifest route's tables sets, with that table's path.
-
-    Mirrors :func:`configured_leaf_tables` for a package manifest: the most
-    specific table setting a leaf — command table, then inherited group,
-    then root — is the one named, same tiers :func:`resolve_manifest_values`
-    resolves values through. Used to extend the ambiguous-bare-leaf check
-    over manifest tables, not just config-file ones. A table is no leaf when it is
-    a command table (:func:`_manifest_routes`).
-    """
-    paths = [path for tier in _manifest_tiers(command_paths) for path in tier]
-    routes = _manifest_routes(command_paths, command_tables)
-    tables: dict[str, tuple[str, ...]] = {}
-    for name, path in _leaf_entries(_manifest_layer(manifest_config), paths, routes):
-        tables.setdefault(name, path)
-    return tables
 
 
 def param_spellings_for(
@@ -557,40 +275,3 @@ def _config_command_paths(
     inherited, so its tables never collide with AgM's own schema.
     """
     return tuple(path for path in command_paths if path[0] not in SCHEMA_CONFIG_SECTION_NAMES)
-
-
-def _table_at(config: TomlDict, path: tuple[str, ...]) -> dict[str, object] | None:
-    current: object = config
-    for segment in path:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(segment, _MISSING)
-        if current is _MISSING:
-            return None
-    return current if isinstance(current, dict) else None
-
-
-def _table_path_replaced(config: TomlDict, path: tuple[str, ...]) -> bool:
-    """Return whether *config* explicitly makes *path* non-tabular."""
-    current: object = config
-    for segment in path:
-        if not isinstance(current, dict) or segment not in current:
-            return False
-        current = current[segment]
-        if not isinstance(current, dict):
-            return True
-    return False
-
-
-def display_table_path(path: tuple[str, ...]) -> str:
-    """Render *path* as the dot-joined TOML table spelling a user would write.
-
-    A path whose first segment is a slash-joined module route (the anchor
-    spelling from :func:`route_table_paths`) is rendered as a single quoted
-    key (``["a/b"].c``) since a bare ``a/b.c`` is not valid TOML; every other
-    path is plain dot-joined (``a.b``).
-    """
-    first, *rest = path
-    if "/" in first:
-        return ".".join((f'["{first}"]', *rest))
-    return ".".join(path)

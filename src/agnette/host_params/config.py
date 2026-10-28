@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import NamedTuple, NoReturn
+from enum import Enum
+from typing import NamedTuple
 
 from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.static_keys import (
@@ -30,6 +31,14 @@ from agnette.agl.runtime.types import (
     ProgramParamInfo,
 )
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
+from agnette.config.claims import (
+    Claimant,
+    ClaimsIndex,
+    ConfigSource,
+    ConfiguredValue,
+    Table,
+    display_table_path,
+)
 from agnette.config.general import (
     EXEC_CONFIG_SECTION,
     GeneralConfig,
@@ -39,17 +48,10 @@ from agnette.config.general import (
 )
 from agnette.config.qualified_keys import (
     ConfigRoute,
-    ConfiguredValue,
-    QualifiedConfigKey,
-    QualifiedConfigLookupError,
-    configured_leaf_table_candidates,
-    configured_leaf_tables,
-    display_table_path,
     full_spelling_collision,
     known_route_tables,
-    manifest_leaf_tables,
-    resolve_manifest_values,
-    resolve_qualified_values,
+    manifest_routes,
+    manifest_table_tiers,
 )
 from agnette.core.toml import TomlDict
 from agnette.host_params.inherit import (
@@ -105,12 +107,12 @@ class ParamValueTiers:
     inherited: Mapping[HostParamKey, InheritedParamValue] = field(default_factory=dict)
 
 
-class _RouteReport(NamedTuple):
-    """One config table route and the leaves it may supply."""
+class RouteKind(Enum):
+    """How a claim reaches its tables."""
 
-    route: ConfigRoute
-    declared_leaves: frozenset[str]
-    positional_only: frozenset[str]
+    PROGRAM = "program"  # the selected program's tables
+    DECLARATION = "declaration"  # a declaration's own tables (``[exec]`` for engine settings)
+    MANIFEST = "manifest"  # a package manifest's ``[config]`` tables
 
 
 def _tables_with_registered_descendants(
@@ -121,7 +123,7 @@ def _tables_with_registered_descendants(
 
     Such a table's own leaves may be inherited defaults meant for that
     descendant command (see the group-table inheritance in
-    :func:`agnette.config.qualified_keys.resolve_qualified_values`), so a warning
+    :meth:`agnette.config.qualified_keys.ConfigRoute.table_tiers`), so a warning
     on this command must leave them alone — a sibling command may be the one
     that actually consumes them.
     """
@@ -159,82 +161,61 @@ def report_undeclared_exec_keys(config: GeneralConfig) -> None:
 
 
 def _report_undeclared_config_keys(
-    config: GeneralConfig,
-    reports: Sequence[_RouteReport],
-    package_command_paths: frozenset[tuple[str, ...]],
-    nested_routes: frozenset[tuple[str, ...]],
+    source: ConfigSource,
+    index: ClaimsIndex,
+    routes: Mapping[ConfigRoute, frozenset[str]],
+    command_tables: frozenset[Table],
+    package_command_paths: frozenset[Table],
 ) -> None:
-    """Warn for configured route leaves that no host input consumes.
+    """Warn for each leaf *source* sets in the exact tables of *routes* that no claim consumes.
 
-    Routes may read one table (a program route that is also a function route,
-    a group table a program inherits), so a leaf is consumed when any route
-    reading its table declares it. Registered command tables are validated
-    only against their program, never against a colliding declaration route.
+    *routes* map to their positional-only argument names. Another command's own
+    table is validated only against its program, and a table a registered
+    descendant command inherits from may hold defaults for that command. Claims
+    of any route reading a table consume its leaves, so overlapping routes warn
+    once. The ``[exec]`` section route is checked by :func:`report_undeclared_exec_keys`.
     """
-    command_tables = package_command_paths | frozenset(
-        path for report in reports for path in report.route.command_paths
-    )
-    foreign_commands = [
-        command_tables - frozenset(report.route.command_paths) for report in reports
-    ]
-    declared_by_table: dict[tuple[str, ...], set[str]] = {}
-    for report, foreign in zip(reports, foreign_commands, strict=True):
-        read_tables = (
-            *(path for path in report.route.exact_table_paths() if path not in foreign),
-            *(path for tier in report.route.inherited_table_tiers() for path in tier),
+    for route, positional_only in routes.items():
+        if route.section is not None:
+            continue
+        exempt = (command_tables - frozenset(route.command_paths)) | (
+            _tables_with_registered_descendants(route.command_paths, package_command_paths)
         )
-        for table_path in read_tables:
-            declared_by_table.setdefault(table_path, set()).update(report.declared_leaves)
-    for report, foreign in zip(reports, foreign_commands, strict=True):
-        exempt_tables = foreign | _tables_with_registered_descendants(
-            report.route.command_paths, package_command_paths
-        )
-        leaf_tables = configured_leaf_tables(
-            config,
-            report.route,
-            nested_routes=nested_routes,
-            excluded_tables=exempt_tables,
-        )
-        for leaf in sorted(leaf_tables):
-            table_path = leaf_tables[leaf]
-            table_name = display_table_path(table_path)
-            if leaf in declared_by_table.get(table_path, ()):
+        tables = [path for path in route.exact_table_paths() if path not in exempt]
+        for leaf, table in sorted(source.first_tables(tables).items()):
+            if index.consumed(source, table, leaf):
                 continue
-            if leaf in report.positional_only:
-                _warn_ignored_config_key(leaf, table_name, _POSITIONAL_ONLY)
-                continue
-            _warn_ignored_config_key(leaf, table_name, _UNDECLARED)
+            reason = _POSITIONAL_ONLY if leaf in positional_only else _UNDECLARED
+            _warn_ignored_config_key(leaf, display_table_path(table), reason)
 
 
 def _report_unused_manifest_leaves(
-    package_config: TomlDict,
-    command_paths: tuple[tuple[str, ...], ...],
-    consumed: frozenset[str],
+    source: ConfigSource,
+    index: ClaimsIndex,
+    command_paths: tuple[Table, ...],
     positional_only: frozenset[str],
-    package_command_paths: frozenset[tuple[str, ...]],
+    package_command_paths: frozenset[Table],
 ) -> None:
-    """Warn for manifest leaves in the selected command's own tables that nothing consumes.
+    """Warn for manifest leaves in the selected command's own tables that no claim declares.
 
-    *consumed* holds every spelling that addresses a declared parameter, a program
-    argument or engine setting included: the spellings reached parameters won on
-    the surface, and all spellings of the unreached ones. *positional_only* holds
-    the program's positional-only argument names, which get their own reason.
-    Inherited group and root tables are skipped, since a sibling command may be
-    the one that consumes them, as are tables a registered descendant command
-    inherits from.
+    The claims are those on the program route's spellings, a program argument
+    or engine setting included, and on the unreached parameters' spellings.
+    *positional_only* holds the program's positional-only argument names, which
+    get their own reason. Inherited group and root tables are skipped, since a
+    sibling command may be the one that consumes them, as are tables a
+    registered descendant command inherits from.
     """
-    exempt_tables = _tables_with_registered_descendants(command_paths, package_command_paths)
+    exempt = _tables_with_registered_descendants(command_paths, package_command_paths)
     own_tables = {("config", *path) for path in command_paths} - {
-        ("config", *path) for path in exempt_tables
+        ("config", *path) for path in exempt
     }
-    leaf_tables = manifest_leaf_tables(package_config, command_paths, package_command_paths)
-    for leaf in sorted(leaf_tables):
-        table_path = leaf_tables[leaf]
-        if table_path not in own_tables or leaf in consumed:
+    tables = [path for tier in manifest_table_tiers(command_paths) for path in tier]
+    for leaf, table in sorted(source.first_tables(tables).items()):
+        if table not in own_tables or index.consumed(source, table, leaf):
             continue
         reason = _POSITIONAL_ONLY if leaf in positional_only else _NOT_A_PARAMETER
         print(
-            f"warning: manifest config key '{leaf}' in the '{display_table_path(table_path)}' "
+            f"warning: manifest config key '{leaf}' in the '{display_table_path(table)}' "
             f"table {reason} and will be ignored",
             file=sys.stderr,
         )
@@ -311,66 +292,58 @@ def resolve_param_values(
     parameter, covered or not.
     """
     supplied = frozenset(params) | positional
-    entries = surface.entries
-    module_params = tuple(entry.param for entry in entries)
-    reached = frozenset(param.key for param in module_params)
-    unreached_leaves = _declared_leaves(
-        param for param in declared_params if param.key not in reached
-    )
     program_route = (
         ConfigRoute(entry_segments, program.route_path, command_paths) if entry_segments else None
     )
-    targets = _targets(program, entries, program_route)
-    program_keys = tuple(target.route for target in targets if target.route is not None)
-    program_leaves = unreached_leaves | frozenset(
-        spelling for key in program_keys for spelling in key.leaf_spellings()
-    )
+    targets = _targets(program, surface.entries)
     positional_only = _positional_only_leaves(program)
-    reports = _route_reports(
+    command_tables = package_command_paths | frozenset(
+        command_paths if program_route is not None else ()
+    )
+    claims = _build_claims(
         program,
         program_route,
+        command_paths,
+        command_tables,
+        targets,
+        surface,
         declared_params,
         declared_programs,
-        program_leaves,
         positional_only,
+        with_manifest=bool(package_config),
     )
-    nested_routes = known_route_tables(
-        (report.route for report in reports), (*package_command_paths, *command_paths)
-    )
-    if program_route is not None:
-        program_tables = configured_leaf_table_candidates(
-            config, program_route, nested_routes=nested_routes
-        )
-        _reject_configured_cross_route_ambiguities(
-            config, targets, module_params, program_tables, nested_routes
-        )
-        _reject_configured_ambiguous_program_leaves(
-            program_tables, command_paths, surface, package_command_paths, package_config
-        )
-    module_values = resolve_declaration_route_values(config, module_params, nested_routes)
-    program_values = resolve_qualified_values(config, program_keys, nested_routes)
-    upper = dict(params)
-    _merge_route_values(upper, supplied, targets, program_values)
-    lower: dict[HostParamKey, object] = {
-        key: value for key, value in module_values.items() if key not in upper
-    }
-    if package_config:
-        manifest_values = resolve_manifest_values(
+    nested_routes = known_route_tables(claims.routes, (*package_command_paths, *command_paths))
+    files = ConfigSource.from_config(config, nested_routes)
+    claims.index.reject_ambiguities(files)
+    manifest = (
+        ConfigSource.from_manifest(
             package_config,
-            program_keys,
             manifest_anchor,
-            frozenset((*package_command_paths, *command_paths)),
+            manifest_routes(command_paths, frozenset((*package_command_paths, *command_paths))),
         )
-        _merge_route_values(lower, frozenset(upper) | positional, targets, manifest_values)
+        if package_config
+        else None
+    )
+    if manifest is not None:
+        claims.index.reject_ambiguities(manifest)
+
+    resolved = claims.index.resolve(files)
+    upper = dict(params)
+    _merge_values(upper, supplied, claims.values(resolved, RouteKind.PROGRAM))
+    declaration_values = claims.values(resolved, RouteKind.DECLARATION)
+    lower: dict[HostParamKey, object] = {
+        key: value for key, value in declaration_values.items() if key not in upper
+    }
+    if manifest is not None:
+        manifest_values = claims.values(claims.index.resolve(manifest), RouteKind.MANIFEST)
+        _merge_values(lower, frozenset(upper) | positional, manifest_values)
         _report_unused_manifest_leaves(
-            package_config,
-            command_paths,
-            program_leaves,
-            positional_only,
-            package_command_paths,
+            manifest, claims.index, command_paths, positional_only, package_command_paths
         )
 
-    _report_undeclared_config_keys(config, reports, package_command_paths, nested_routes)
+    _report_undeclared_config_keys(
+        files, claims.index, claims.routes, command_tables, package_command_paths
+    )
     inherited = (
         {}
         if inherit_scope is None
@@ -405,21 +378,16 @@ class _Target(NamedTuple):
 
     ``label`` names it in diagnostics: a program argument by its name, any other
     parameter by its qualified spelling. ``param`` is the argument or parameter itself.
-    ``route`` addresses it in the selected program's table by every spelling it won;
-    ``None`` without a program route or without a spelling.
+    ``spellings`` are the leaves addressing it in the selected program's table.
     """
 
     label: str
     key: HostParamKey
     param: ProgramParamInfo | HostParamInfo
-    route: QualifiedConfigKey | None
+    spellings: tuple[str, ...]
 
 
-def _targets(
-    program: ProgramDeclInfo,
-    entries: Sequence[ParamSurfaceEntry],
-    program_route: ConfigRoute | None,
-) -> tuple[_Target, ...]:
+def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> tuple[_Target, ...]:
     """Return the program arguments and surface parameters its own tables address.
 
     Every spelling a parameter wins on the CLI surface addresses it in the
@@ -429,30 +397,176 @@ def _targets(
     parameters. :class:`ParamSurface` is the sole authority on which spellings
     surface parameters won.
     """
-
-    def target(
-        label: str,
-        key: HostParamKey,
-        spellings: tuple[str, ...],
-        param: ProgramParamInfo | HostParamInfo,
-    ) -> _Target:
-        route = (
-            QualifiedConfigKey(program_route, spellings[0], spellings[1:])
-            if program_route is not None and spellings
-            else None
-        )
-        return _Target(label, key, param, route)
-
     return (
         *(
-            target(argument.name, program.param_key(argument.name), (argument.cli.name,), argument)
+            _Target(
+                argument.name,
+                program.param_key(argument.name),
+                argument,
+                (argument.cli.name,),
+            )
             for argument in _addressable_arguments(program)
         ),
         *(
-            target(entry.param.declaration_path, entry.param.key, entry.spellings, entry.param)
+            _Target(entry.param.declaration_path, entry.param.key, entry.param, entry.spellings)
             for entry in entries
         ),
     )
+
+
+class _Claims:
+    """The claims index of one resolution, with the parameters its claimants feed.
+
+    ``routes`` holds every route read, with the positional-only argument names it
+    reports (empty for most). ``params`` are the parameters whose claimants feed.
+    """
+
+    def __init__(self, command_tables: frozenset[Table] = frozenset()) -> None:
+        self.index = ClaimsIndex()
+        self.routes: dict[ConfigRoute, frozenset[str]] = {}
+        self.params: dict[HostParamKey, ProgramParamInfo | HostParamInfo] = {}
+        self._command_tables = command_tables
+
+    def declare(self, params: Iterable[HostParamInfo], reached: frozenset[HostParamKey]) -> None:
+        """Claim each of *params*'s name on its declaration route; only *reached* ones feed."""
+        by_route: dict[ConfigRoute, tuple[list[_Target], list[str]]] = {}
+        for param in params:
+            route = _declaration_route(param)
+            if route is not None:
+                feeding, declared = by_route.setdefault(route, ([], []))
+                if param.key in reached:
+                    feeding.append(
+                        _Target(param.declaration_path, param.key, param, (param.cli.name,))
+                    )
+                else:
+                    declared.append(param.cli.name)
+        for route, (feeding, declared) in by_route.items():
+            self.route(RouteKind.DECLARATION, route, feeding, declared)
+
+    def read(self, route: ConfigRoute, positional_only: frozenset[str] = frozenset()) -> None:
+        """Record *route* as read, with the *positional_only* argument names it reports."""
+        self.routes[route] = self.routes.get(route, frozenset()) | positional_only
+
+    def route(
+        self,
+        kind: RouteKind,
+        route: ConfigRoute,
+        feeding: Iterable[_Target],
+        declared: Iterable[str] = (),
+        positional_only: frozenset[str] = frozenset(),
+    ) -> None:
+        """Claim every table *route* reads, its exact tables first.
+
+        The *feeding* targets claim their spellings and take values; the *declared*
+        leaves are only declared.
+        """
+        self.read(route, positional_only)
+        foreign = self._command_tables - frozenset(route.command_paths)
+        self._claim(kind, route.table_tiers(), foreign, feeding, declared)
+
+    def manifest(
+        self, command_paths: tuple[Table, ...], feeding: Iterable[_Target], declared: Iterable[str]
+    ) -> None:
+        """Claim the manifest tables of *command_paths*, as :meth:`route` does."""
+        self._claim(
+            RouteKind.MANIFEST, manifest_table_tiers(command_paths), frozenset(), feeding, declared
+        )
+
+    def values(
+        self, resolved: Mapping[Claimant, ConfiguredValue], kind: RouteKind
+    ) -> dict[HostParamKey, object]:
+        """Return the native values of the *resolved* claimants of *kind*, by parameter key."""
+        values: dict[HostParamKey, object] = {}
+        for key, param in self.params.items():
+            # A claimant is compared by parameter and route; its label is no part of it.
+            configured = resolved.get(Claimant(key, kind, ""))
+            if configured is not None:
+                values[key] = _native_value(param, configured)
+        return values
+
+    def _claim(
+        self,
+        kind: RouteKind,
+        tiers: Sequence[Iterable[Table]],
+        foreign: frozenset[Table],
+        feeding: Iterable[_Target],
+        declared: Iterable[str],
+    ) -> None:
+        manifest = kind is RouteKind.MANIFEST
+        for target in feeding:
+            self.params[target.key] = target.param
+            self.index.claim(
+                Claimant(target.key, kind, target.label),
+                tiers,
+                target.spellings,
+                foreign=foreign,
+                manifest=manifest,
+            )
+        self.index.claim(None, tiers, tuple(declared), foreign=foreign, manifest=manifest)
+
+
+def _build_claims(
+    program: ProgramDeclInfo,
+    program_route: ConfigRoute | None,
+    command_paths: tuple[Table, ...],
+    command_tables: frozenset[Table],
+    targets: Sequence[_Target],
+    surface: ParamSurface,
+    declared_params: Sequence[HostParamInfo],
+    declared_programs: Sequence[ProgramDeclInfo],
+    positional_only: frozenset[str],
+    *,
+    with_manifest: bool,
+) -> _Claims:
+    """Index every leaf the program, declaration and manifest routes claim.
+
+    Every closure module's root route is read too, so stray keys in its table
+    warn even when no parameter declares there. *positional_only* holds the
+    selected program's positional-only argument names.
+
+    Declaration routes claim each declared parameter's bare name; only the
+    *surface* parameters feed values, the rest only declare. The selected
+    program's routes (its tables, and its manifest tables when *with_manifest*)
+    claim each target's won spellings; a spelling several surface parameters
+    claim is claimed by all of them, so setting it is ambiguous. The
+    declaration route of each of *declared_programs* is also that program's
+    route, so it declares every name-addressable argument. *command_tables* are
+    the registered commands' tables: one a route reads as its exact table
+    without owning it is claimed for values only, not as a declaration.
+    """
+    claims = _Claims(command_tables)
+    for module in _report_modules(program, declared_params):
+        if not module.is_entry:
+            claims.read(ConfigRoute(module.segments))
+    module_params = tuple(entry.param for entry in surface.entries)
+    reached = frozenset(param.key for param in module_params)
+    unreached = tuple(param for param in declared_params if param.key not in reached)
+    claims.declare((*module_params, *unreached), reached)
+    for other in declared_programs:
+        if not other.module.is_entry:
+            claims.route(
+                RouteKind.DECLARATION,
+                ConfigRoute(other.module.segments, other.route_path),
+                (),
+                _program_leaves(other),
+                _positional_only_leaves(other),
+            )
+
+    declared = [spelling for param in unreached for spelling in param.declared_spellings]
+    feeding: list[_Target] = []
+    if program_route is not None:
+        feeding = [
+            *targets,
+            *(
+                _Target(param.declaration_path, param.key, param, (spelling,))
+                for spelling, peers in surface.ambiguous.items()
+                for param in peers
+            ),
+        ]
+        claims.route(RouteKind.PROGRAM, program_route, feeding, declared, positional_only)
+    if with_manifest:
+        claims.manifest(command_paths, feeding, declared)
+    return claims
 
 
 def _inherited_values(
@@ -481,73 +595,9 @@ def _inherited_values(
     }
 
 
-def _reject_configured_cross_route_ambiguities(
-    config: GeneralConfig,
-    targets: Sequence[_Target],
-    module_params: Sequence[HostParamInfo],
-    program_tables: Mapping[str, frozenset[tuple[str, ...]]],
-    nested_routes: frozenset[tuple[str, ...]],
-) -> None:
-    """Reject a configured leaf that feeds a declared parameter and another parameter.
-
-    A module or function parameter's declaration route addresses it by its bare name; the
-    selected program's tables (*program_tables*: its exact route and the group
-    tables it inherits) address every spelling each of *targets* (program
-    arguments and surface parameters) won. One table may be both
-    (``[devel.review]`` is the ``devel review`` program route and the
-    ``devel/review`` declaration route), so a leaf set there that names a different
-    parameter on each side feeds both. An engine setting's declaration
-    route, the ``[exec]`` table, is never a program route, so it never shares a table with one.
-    """
-    if not program_tables:
-        return
-    for param, key in _declaration_routes(module_params):
-        peers = tuple(
-            target
-            for target in targets
-            if target.key != param.key
-            and target.route is not None
-            and key.leaf in target.route.leaf_spellings()
-        )
-        if not peers:
-            continue
-        module_tables = configured_leaf_table_candidates(
-            config, key.route, nested_routes=nested_routes
-        )
-        shared = module_tables.get(key.leaf, frozenset()) & program_tables.get(
-            key.leaf, frozenset()
-        )
-        if shared:
-            _raise_ambiguous_leaf(
-                min(shared),
-                key.leaf,
-                (param.declaration_path, *(peer.label for peer in peers)),
-            )
-
-
-def _raise_ambiguous_leaf(table: tuple[str, ...], leaf: str, names: Iterable[str]) -> NoReturn:
-    raise QualifiedConfigLookupError(
-        f"config key {display_table_path(table)}.{leaf} matches multiple parameters: "
-        f"{', '.join(names)}"
-    )
-
-
-def _reject_configured_ambiguity(
-    leaf_tables: Mapping[str, tuple[str, ...]],
-    candidates: Mapping[str, Sequence[HostParamInfo]],
-) -> None:
-    """Reject the first *candidates* leaf that one of *leaf_tables*' tables sets."""
-    for leaf, claimants in candidates.items():
-        table = leaf_tables.get(leaf)
-        if table is not None:
-            _raise_ambiguous_leaf(
-                table, leaf, (claimant.declaration_path for claimant in claimants)
-            )
-
-
 def declaration_route_tables(params: Iterable[HostParamInfo]) -> frozenset[tuple[str, ...]]:
     """Return the config table paths that are declaration routes of *params*."""
-    return known_route_tables(key.route for _param, key in _declaration_routes(tuple(params)))
+    return known_route_tables(route for param in params if (route := _declaration_route(param)))
 
 
 def resolve_declaration_route_values(
@@ -562,16 +612,11 @@ def resolve_declaration_route_values(
     at a leaf position is a nested route when it is a route of *params* or in
     *nested_routes* (other declarations the host knows), else a native value.
     """
-    routes = _declaration_routes(params)
-    configured = resolve_qualified_values(
-        config, tuple(key for _param, key in routes), nested_routes
-    )
-    values: dict[HostParamKey, object] = {}
-    for param, key in routes:
-        if key not in configured:
-            continue
-        values[param.key] = _native_value(param, configured[key])
-    return values
+    claims = _Claims()
+    claims.declare(params, reached=frozenset(param.key for param in params))
+    source = ConfigSource.from_config(config, nested_routes | known_route_tables(claims.routes))
+    claims.index.reject_ambiguities(source)
+    return claims.values(claims.index.resolve(source), RouteKind.DECLARATION)
 
 
 def resolve_programless_engine_settings(
@@ -606,133 +651,33 @@ def _native_value(param: ProgramParamInfo | HostParamInfo, configured: Configure
     return native_raw_value(projected, raw, option_text=option_text)
 
 
-def _declaration_routes(
-    params: Sequence[HostParamInfo],
-) -> tuple[tuple[HostParamInfo, QualifiedConfigKey], ...]:
-    """Return declaration routes for every non-anonymous parameter.
+def _declaration_route(param: HostParamInfo) -> ConfigRoute | None:
+    """Return the declaration route of *param*; ``None`` for an anonymous-entry parameter.
 
     An engine setting's declaration route is the ``[exec]`` table.
     """
-    return tuple(
-        (
-            param,
-            QualifiedConfigKey(
-                ConfigRoute.in_section(EXEC_CONFIG_SECTION)
-                if param.kind is HostParamKind.ENGINE
-                else ConfigRoute(param.module.segments, param.route_path),
-                param.cli.name,
-            ),
-        )
-        for param in params
-        if not param.module.is_entry
-    )
+    if param.module.is_entry:
+        return None
+    if param.kind is HostParamKind.ENGINE:
+        return ConfigRoute.in_section(EXEC_CONFIG_SECTION)
+    return ConfigRoute(param.module.segments, param.route_path)
 
 
-def _merge_route_values(
+def _merge_values(
     values: dict[HostParamKey, object],
-    supplied: frozenset[HostParamKey],
-    targets: Iterable[_Target],
-    configured: Mapping[QualifiedConfigKey, ConfiguredValue],
+    skip: frozenset[HostParamKey],
+    configured: Mapping[HostParamKey, object],
 ) -> None:
-    """Project configured native values into *values*, skipping keys already in *supplied*.
+    """Add the *configured* values to *values*, skipping keys in *skip*.
 
-    Reads each of *targets*' program routes from *configured*; targets without a
-    route are skipped.
-
-    Shared by the program-route merge into ``upper`` (*supplied* = CLI/
-    environment keys) and the manifest merge into ``lower`` (*supplied* =
-    every key already resolved in ``upper``, so a manifest value never
-    overrides one): both are "does a higher tier already own this key".
+    Shared by the program-route merge into ``upper`` (*skip* = CLI/environment
+    keys) and the manifest merge into ``lower`` (*skip* = every key already
+    resolved in ``upper``, so a manifest value never overrides one): both are
+    "does a higher tier already own this key".
     """
-    for target in targets:
-        key = target.route
-        if target.key in supplied or key is None or key not in configured:
-            continue
-        values[target.key] = _native_value(target.param, configured[key])
-
-
-def _reject_configured_ambiguous_program_leaves(
-    program_tables: Mapping[str, frozenset[tuple[str, ...]]],
-    command_paths: tuple[tuple[str, ...], ...],
-    surface: ParamSurface,
-    package_command_paths: frozenset[tuple[str, ...]],
-    package_config: TomlDict | None = None,
-) -> None:
-    """Reject a configured program-table leaf claimed by peer declared parameters.
-
-    Every spelling a program table may use is checked, bare or qualified: a
-    spelling several parameters claim resolves to none of them, so *using* it
-    names the candidates rather than silently picking one. *program_tables*
-    covers the exact route and the config group tables, since an inherited
-    leaf is just as ambiguous as one set on the exact route. *package_config*
-    extends the same check over the owning package's manifest command, group,
-    and root tables.
-    """
-    configured = {leaf: min(tables) for leaf, tables in program_tables.items()}
-    if package_config:
-        manifest_leaves = manifest_leaf_tables(package_config, command_paths, package_command_paths)
-        configured = {**manifest_leaves, **configured}
-    _reject_configured_ambiguity(configured, surface.ambiguous)
-
-
-def _route_reports(
-    program: ProgramDeclInfo,
-    program_route: ConfigRoute | None,
-    declared_params: Sequence[HostParamInfo],
-    declared_programs: Sequence[ProgramDeclInfo],
-    program_leaves: frozenset[str],
-    positional_only: frozenset[str],
-) -> list[_RouteReport]:
-    """Describe declaration and selected-program config routes for warning reporting.
-
-    The program route declares *program_leaves*: the spellings reached parameters
-    won plus unreached parameters' leaves, never a spelling a reached parameter lost. The
-    declaration route of each *declared_programs* entry is also that program's
-    route, so it declares every name-addressable argument of the program;
-    *positional_only* holds the selected program's positional-only arguments.
-    """
-    by_module_scope: dict[tuple[ModuleId, tuple[str, ...]], list[HostParamInfo]] = {}
-    for param in declared_params:
-        if not param.module.is_entry:
-            by_module_scope.setdefault((param.module, param.route_path), []).append(param)
-
-    reports: list[_RouteReport] = []
-    ordered_modules = _report_modules(program, declared_params)
-    for module in ordered_modules:
-        if module.is_entry:
-            continue
-        root_params = by_module_scope.get((module, ()), [])
-        reports.append(
-            _RouteReport(
-                ConfigRoute(module.segments),
-                frozenset(param.cli.name for param in root_params),
-                frozenset(),
-            )
-        )
-        scope_paths = tuple(
-            scope_path
-            for candidate, scope_path in by_module_scope
-            if candidate == module and scope_path
-        )
-        for scope_path in scope_paths:
-            declared = frozenset(param.cli.name for param in by_module_scope[(module, scope_path)])
-            reports.append(
-                _RouteReport(ConfigRoute(module.segments, scope_path), declared, frozenset())
-            )
-
-    for other in declared_programs:
-        if not other.module.is_entry:
-            reports.append(
-                _RouteReport(
-                    ConfigRoute(other.module.segments, other.route_path),
-                    _program_leaves(other),
-                    _positional_only_leaves(other),
-                )
-            )
-
-    if program_route is not None:
-        reports.append(_RouteReport(program_route, program_leaves, positional_only))
-    return reports
+    for key, value in configured.items():
+        if key not in skip:
+            values[key] = value
 
 
 def _addressable_arguments(program: ProgramDeclInfo) -> Iterator[ProgramParamInfo]:
@@ -754,11 +699,6 @@ def _positional_only_leaves(program: ProgramDeclInfo) -> frozenset[str]:
         for parameter in program.parameters
         if parameter.kind is ParamZone.POSITIONAL_ONLY
     )
-
-
-def _declared_leaves(declared: Iterable[HostParamInfo]) -> frozenset[str]:
-    """Return every spelling that can address one of *declared*, claimed or not."""
-    return frozenset(spelling for param in declared for spelling in param.declared_spellings)
 
 
 def _report_modules(

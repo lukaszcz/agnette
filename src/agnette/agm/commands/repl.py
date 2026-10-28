@@ -55,6 +55,7 @@ from agnette.agm.cli_support.engine_seeds import (
 )
 from agnette.agm.cli_support.program_options import CommandUsageError
 from agnette.agm.parser import exit_with_usage_error
+from agnette.config.claims import QualifiedConfigLookupError
 from agnette.config.context import current_config_context
 from agnette.config.general import (
     GeneralConfig,
@@ -70,7 +71,6 @@ from agnette.config.module_roots import (
     resolve_lib_root,
     select_stdlib_root,
 )
-from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.cleanup import preserve_primary_error
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit

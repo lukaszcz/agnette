@@ -10,7 +10,7 @@ from click.testing import CliRunner, Result
 from typer.main import get_command
 
 import agnette.agm.cli as cli
-from agnette.config.qualified_keys import ConfigRoute, QualifiedConfigKey, resolve_qualified_values
+from agnette.config.qualified_keys import ConfigRoute, resolve_route_leaf
 from agnette.packages.discipline import DisciplineError, validate_package
 from agnette.packages.errors import PackageInstallError
 from agnette.packages.layout import MODULE_TREE_DIRNAME
@@ -64,9 +64,9 @@ def test_agent_tables_never_configure_an_agent_module(
     config = unanchored_config(
         {"agent": {"effort": "low", "claude": {"effort": "medium", "opus": {"effort": "high"}}}}
     )
-    key = QualifiedConfigKey(ConfigRoute(module_segments, scope_path), "effort")
+    route = ConfigRoute(module_segments, scope_path)
 
-    assert resolve_qualified_values(config, (key,)) == {}
+    assert resolve_route_leaf(config, route, "effort") is None
 
 
 def _invoke(argv: list[str]) -> Result:

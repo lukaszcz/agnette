@@ -34,11 +34,8 @@ from agnette.agl.syntax.types import UnitT
 from agnette.agl.syntax.visitor import walk
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES
 from agnette.command_catalog import RESERVED_CONFIG_SECTION_NAMES, invalid_command_path
-from agnette.config.qualified_keys import (
-    display_table_path,
-    full_spelling_collision,
-    param_spellings_for,
-)
+from agnette.config.claims import display_table_path
+from agnette.config.qualified_keys import full_spelling_collision, param_spellings_for
 from agnette.core import fs
 from agnette.core.toml import TomlDict
 from agnette.packages.command_registry import (

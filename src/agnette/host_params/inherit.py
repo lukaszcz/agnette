@@ -9,14 +9,13 @@ from pathlib import Path
 from typing import NamedTuple
 
 from agnette.agl.ir.static_keys import HostParamKey
+from agnette.config.claims import ConfiguredValue
 from agnette.config.general import GeneralConfig, PathAnchor
 from agnette.config.qualified_keys import (
     ConfigRoute,
-    ConfiguredValue,
-    QualifiedConfigKey,
     known_route_tables,
-    resolve_manifest_values,
-    resolve_qualified_values,
+    resolve_manifest_leaf,
+    resolve_route_leaf,
 )
 from agnette.packages.command_registry import (
     CommandRegistry,
@@ -62,13 +61,6 @@ class InheritedConfigValue(NamedTuple):
     address: str
 
 
-def _key(target: ProgramTarget, leaf: str) -> QualifiedConfigKey:
-    """Return the program-route key of *leaf* for *target*."""
-    return QualifiedConfigKey(
-        ConfigRoute(target.module_segments, target.declaration_path, target.command_paths), leaf
-    )
-
-
 def _target_value(
     config: GeneralConfig,
     target: ProgramTarget,
@@ -83,17 +75,16 @@ def _target_value(
     routes never contribute, so inheritance is not transitive. Nor does the
     inheriting program: only registered command tables (*command_routes*) are routes.
     """
-    key = _key(target, leaf)
-    # A leaf matching several routes is an error of the target program alone, so
-    # each address is resolved once, independent of the inheriting program.
-    found = resolve_qualified_values(config, (key,), command_routes).get(key)
+    route = ConfigRoute(target.module_segments, target.declaration_path, target.command_paths)
+    found = resolve_route_leaf(config, route, leaf, command_routes)
     if found is None and target.package.manifest.config:
-        found = resolve_manifest_values(
+        found = resolve_manifest_leaf(
             target.package.manifest.config,
-            (key,),
+            route,
+            leaf,
             PathAnchor(target.package.root, cwd),
             command_tables,
-        ).get(key)
+        )
     return found
 
 

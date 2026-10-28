@@ -475,6 +475,21 @@ class TestDecoding:
         assert "limit" in err
         assert "tools.review.label" in err
 
+    def test_a_conflict_in_the_targets_tables_names_the_qualified_target(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        config_home: Callable[[str], None],
+    ) -> None:
+        config_home("[tools.review]\nlimit = 1\n[commands.review]\nlimit = 2\n")
+        entry = _packages(tmp_path, _main("limit: int = 1"))
+
+        with pytest.raises(SystemExit) as exit_info:
+            _run(entry)
+
+        assert exit_info.value.code == 1
+        assert "commands::review::limit" in capsys.readouterr().err
+
     def test_a_path_value_anchors_to_its_defining_config_file(
         self,
         tmp_path: Path,

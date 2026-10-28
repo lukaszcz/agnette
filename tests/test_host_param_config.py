@@ -22,10 +22,14 @@ from agnette.agl.semantics.types import BoolType, DictType, IntType, TextType, T
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.program_options import EXEC_RESERVED_FLAGS
+from agnette.config.claims import QualifiedConfigLookupError
 from agnette.config.general import GeneralConfig, PathAnchor
-from agnette.config.qualified_keys import QualifiedConfigLookupError
 from agnette.core.toml import TomlDict, toml_dict
-from agnette.host_params.config import ParamValueTiers, resolve_param_values
+from agnette.host_params.config import (
+    ParamValueTiers,
+    resolve_declaration_route_values,
+    resolve_param_values,
+)
 from agnette.host_params.surface import ParamSurface, build_param_surface
 from tests._agl_helpers import EMPTY_REACHABLE
 from tests._config_helpers import unanchored_config as _config
@@ -343,6 +347,7 @@ def _tiers(
     config: GeneralConfig,
     program: ProgramDeclInfo,
     bindings: tuple[HostParamInfo, ...],
+    command_paths: tuple[tuple[str, ...], ...] = (),
     **kwargs: Any,
 ) -> ParamValueTiers:
     return resolve_param_values(
@@ -350,7 +355,7 @@ def _tiers(
         program,
         {},
         entry_segments=("workflow",),
-        command_paths=(),
+        command_paths=command_paths,
         surface=_surface(program, bindings),
         declared_params=bindings,
         **kwargs,
@@ -2148,3 +2153,242 @@ class TestUndeclaredKeyReports:
         )
 
         assert "'steps'" in capsys.readouterr().err
+
+
+def _assert_warned(capsys: pytest.CaptureFixture[str], *expected: tuple[str, str]) -> None:
+    """Assert one ignored-key warning line per expected ``(leaf, table)``, in order."""
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == len(expected)
+    for line, (leaf, table) in zip(lines, expected, strict=True):
+        assert leaf in line
+        assert table in line
+
+
+class TestUndeclaredKeyWarningsPerRouteKind:
+    """A set leaf that no claimant of its table declares draws one warning, per route kind."""
+
+    def test_a_program_route_leaf_is_warned_with_its_table(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        binding = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        _resolve(_config({"workflow": {"run": {"stray": 1, "verbose": True}}}), program, (binding,))
+
+        _assert_warned(capsys, ("stray", "workflow.run"))
+
+    def test_a_declaration_route_leaf_is_warned_with_its_table(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        binding = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        _resolve(_config({"A": {"logging": {"stray": 1, "verbose": True}}}), program, (binding,))
+
+        _assert_warned(capsys, ("stray", "A.logging"))
+
+    def test_a_manifest_leaf_is_warned_with_its_table(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        binding = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        _tiers(
+            _config(),
+            program,
+            (binding,),
+            (("devel", "review"),),
+            package_config={"devel": {"review": {"stray": 1, "logging.verbose": True}}},
+        )
+
+        _assert_warned(capsys, ("stray", "config.devel.review"))
+
+    def test_a_leaf_set_in_two_tables_of_one_route_is_warned_once_for_the_first_table(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        binding = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), binding.module))
+
+        _resolve(
+            _config({"logging": {"stray": 1}}, {"A": {"logging": {"stray": 2}}}),
+            program,
+            (binding,),
+        )
+
+        _assert_warned(capsys, ("stray", "logging"))
+
+    def test_an_unreached_parameters_leaf_is_declared_on_its_route_and_the_program_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        unreached = _binding("A/logging", "verbose")
+        program = _program(closure=(ModuleId.from_path("app/main"), unreached.module))
+
+        resolve_param_values(
+            _config({"A": {"logging": {"verbose": 1}}, "workflow": {"run": {"verbose": 2}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+            declared_params=(unreached,),
+        )
+
+        _assert_warned(capsys)
+
+    def test_parameters_of_one_scope_route_share_one_report(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        first = _binding("A/logging", "trace", scope_path=("debug",))
+        second = _binding("A/logging", "level", IntType(), scope_path=("debug",))
+        program = _program(closure=(ModuleId.from_path("app/main"), first.module))
+
+        values = _resolve(
+            _config({"A": {"logging": {"debug": {"trace": True, "level": 2, "stray": 1}}}}),
+            program,
+            (first, second),
+        )
+
+        assert values == {first.key: True, second.key: 2}
+        _assert_warned(capsys, ("stray", "A.logging.debug"))
+
+    def test_the_entry_modules_program_declares_no_route(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        entry_program = _program(module=ENTRY_ID, name="other", parameters=(_argument("quiet"),))
+        program = _program()
+
+        resolve_param_values(
+            _config({"workflow": {"other": {"quiet": True}}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, ()),
+            declared_params=(),
+            declared_programs=(entry_program,),
+        )
+
+        _assert_warned(capsys)
+
+    def test_a_colliding_declaration_route_value_is_applied_and_not_warned(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """``[devel.review]`` is the command's table, yet a consumed leaf is no stray."""
+        colliding = _binding("devel/review", "quiet")
+        program = _program(closure=(colliding.module,))
+
+        tiers = resolve_param_values(
+            _config({"devel": {"review": {"quiet": True}}}),
+            program,
+            {},
+            entry_segments=("app", "main"),
+            command_paths=(("devel", "review"),),
+            surface=_surface(program, (colliding,), frozenset({"--quiet"})),
+            declared_params=(colliding,),
+        )
+
+        assert tiers.lower == {colliding.key: True}
+        _assert_warned(capsys)
+
+
+class TestDeclarationRoutesSharingATable:
+    """Parameters of distinct declaration routes reading one table are ambiguous when set."""
+
+    @staticmethod
+    def _params() -> tuple[HostParamInfo, HostParamInfo]:
+        return _binding("a/x", "p"), _binding("b/x", "p")
+
+    def test_a_leaf_set_in_the_shared_table_is_rejected(self) -> None:
+        first, second = self._params()
+
+        with pytest.raises(QualifiedConfigLookupError) as exc_info:
+            resolve_declaration_route_values(_config({"x": {"p": 1}}), (first, second))
+
+        assert first.declaration_path in str(exc_info.value)
+        assert second.declaration_path in str(exc_info.value)
+
+    def test_an_unset_leaf_and_a_leaf_of_one_parameter_resolve(self) -> None:
+        first, _ = self._params()
+        other = _binding("b/x", "q")
+
+        assert resolve_declaration_route_values(_config(), (first, other)) == {}
+        assert resolve_declaration_route_values(_config({"x": {"q": 2}}), (first, other)) == {
+            other.key: 2
+        }
+
+    def test_the_quoted_module_anchor_resolves_it(self) -> None:
+        first, second = self._params()
+
+        values = resolve_declaration_route_values(_config({"a/x": {"p": 1}}), (first, second))
+
+        assert values == {first.key: 1}
+
+    def test_an_unreached_parameter_is_no_claimant(self) -> None:
+        reached, unreached = self._params()
+        program = _program(closure=(ModuleId.from_path("app/main"), reached.module))
+
+        tiers = resolve_param_values(
+            _config({"x": {"p": 1}}),
+            program,
+            {},
+            entry_segments=("workflow",),
+            command_paths=(),
+            surface=_surface(program, (reached,)),
+            declared_params=(reached, unreached),
+        )
+
+        assert tiers.lower == {reached.key: 1}
+
+
+class TestEngineSettingsAgainstModuleParameters:
+    """An engine setting claims its ``[exec]`` leaf and only the program spellings it won."""
+
+    @staticmethod
+    def _program_with(*bindings: HostParamInfo) -> ProgramDeclInfo:
+        return _program(closure=(ModuleId.from_path("app/main"), *(b.module for b in bindings)))
+
+    def test_peer_parameters_claiming_an_engine_key_name_are_ambiguous_only_when_set(
+        self,
+    ) -> None:
+        first = _binding("first/logging", "timeout", TextType())
+        second = _binding("second/logging", "timeout", TextType())
+        program = self._program_with(first, second)
+
+        unset = _tiers(_config(), program, (first, second))
+        qualified = _tiers(
+            _config({"workflow": {"run": {"std.config.timeout": "30s"}}}), program, (first, second)
+        )
+        with pytest.raises(QualifiedConfigLookupError) as exc_info:
+            _tiers(_config({"workflow": {"run": {"timeout": "30s"}}}), program, (first, second))
+
+        assert unset.upper == {}
+        assert _engine(qualified.upper) == {"timeout": "30s"}
+        assert first.declaration_path in str(exc_info.value)
+        assert second.declaration_path in str(exc_info.value)
+
+    def test_a_param_shadowing_an_engine_leaf_and_the_setting_each_take_their_own_table(
+        self,
+    ) -> None:
+        binding = _binding("A/logging", "timeout", TextType())
+        program = self._program_with(binding)
+
+        declared = _tiers(
+            _config({"exec": {"timeout": "30s"}, "A": {"logging": {"timeout": "9s"}}}),
+            program,
+            (binding,),
+        )
+        qualified = _tiers(
+            _config(
+                {
+                    "A": {"logging": {"timeout": "9s"}},
+                    "workflow": {"run": {"std.config.timeout": "30s"}},
+                }
+            ),
+            program,
+            (binding,),
+        )
+
+        assert declared.lower[binding.key] == "9s"
+        assert _engine(declared.lower) == {"timeout": "30s"}
+        assert qualified.lower[binding.key] == "9s"
+        assert _engine(qualified.upper) == {"timeout": "30s"}

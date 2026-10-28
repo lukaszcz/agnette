@@ -104,14 +104,12 @@ from agnette.agm.cli_support.program_options import (
     ReservedFlagError,
     build_program_command,
 )
+from agnette.config.claims import QualifiedConfigLookupError
 from agnette.config.context import ConfigContext, current_config_context
 from agnette.config.general import (
     PathAnchor,
     exec_options_from_merged,
     load_general_config,
-)
-from agnette.config.qualified_keys import (
-    QualifiedConfigLookupError,
 )
 from agnette.core.cleanup import preserve_primary_error
 from agnette.core.fs import read_text_arg
