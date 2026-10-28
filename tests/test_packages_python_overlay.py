@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import shutil
 import site
 import sys
 from importlib import metadata
@@ -763,6 +764,32 @@ class TestProcessGeneration:
             assert overlay_for(_project_package(world.project)) is None
         finally:
             os.close(deleting)
+
+    def test_deleted_generation_is_retried_after_opening_its_lock(
+        self, world: _World, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world.install("alpha", _A)
+        old = world.current()
+        new = world.project.root / ".python-new"
+        new.mkdir()
+        (new / python_deps.GENERATION_LOCK).touch()
+        open_lock = python_deps._open_lock
+
+        def open_then_remove(generation: Path) -> int | None:
+            fd = open_lock(generation)
+            if generation == old:
+                (world.project.root / ".python.new").symlink_to(new.name)
+                os.replace(world.project.root / ".python.new", world.overlay)
+                deleting = _hold(old, fcntl.LOCK_EX)
+                try:
+                    shutil.rmtree(old)
+                finally:
+                    os.close(deleting)
+            return fd
+
+        monkeypatch.setattr(python_deps, "_open_lock", open_then_remove)
+        assert overlay_for(_project_package(world.project)) == new
+        assert overlay_for(_project_package(world.project)) == new
 
     def test_an_absent_overlay_is_not_used(self, world: _World) -> None:
         assert overlay_for(_project_package(world.project)) is None

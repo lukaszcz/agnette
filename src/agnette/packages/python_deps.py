@@ -396,7 +396,7 @@ def _hold_current(store: PackageStore) -> Path | None:
         fd = _open_lock(generation)
         if fd is None:
             continue
-        if _flock(fd, fcntl.LOCK_SH):
+        if _flock(fd, fcntl.LOCK_SH) and generation.is_dir():
             _held[generation] = fd
             return generation
         os.close(fd)
