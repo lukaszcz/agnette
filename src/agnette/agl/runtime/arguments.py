@@ -48,7 +48,6 @@ __all__ = [
     "InheritedParamValue",
     "OptionSome",
     "ParamTier",
-    "bind_param_values",
     "bind_positional_arguments",
     "complete_program_arguments",
     "decode_host_param",
@@ -449,30 +448,6 @@ def decode_host_param(
             f"{_inherited_note(inherited_address)}"
         )
         return diagnostic_from_span(message, cast("SourceSpan", executable.param_spans[key]))
-
-
-def bind_param_values[K: HostParamKey](
-    executable: "ExecutableProgram",
-    raw: "Mapping[K, object]",
-    *,
-    default_resolver: "DefaultResolver | None" = None,
-) -> "tuple[Mapping[K, Value], tuple[Diagnostic, ...]]":
-    """Decode every value of *raw* with :func:`decode_host_param`.
-
-    Every key is checked independently so an unknown parameter and all malformed
-    values are returned together before the interpreter starts.
-    """
-    values: dict[K, Value] = {}
-    diagnostics: list[Diagnostic] = []
-    for key, value in raw.items():
-        decoded = decode_host_param(executable, key, value, default_resolver=default_resolver)
-        if isinstance(decoded, Diagnostic):
-            diagnostics.append(decoded)
-        else:
-            values[key] = decoded
-    if diagnostics:
-        return {}, tuple(diagnostics)
-    return values, ()
 
 
 def default_program_arguments(

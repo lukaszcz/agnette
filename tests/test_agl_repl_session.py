@@ -3525,6 +3525,31 @@ class TestModuleParameterSeeds:
         assert _int(retried.value) == 8
         assert calls == 2
 
+    def test_every_malformed_seed_is_reported_together_and_none_applied(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "settings.agl").write_text(
+            "@param let first: int = 1\n@param let second: int = 2\n@param let third: int = 3\n",
+            encoding="utf-8",
+        )
+
+        def resolve(
+            params: tuple[HostParamInfo, ...], _loaded: tuple[HostParamInfo, ...]
+        ) -> Mapping[HostParamKey, object]:
+            return {
+                params[0].key: "bad",
+                params[1].key: 8,
+                params[2].key: "worse",
+            }
+
+        session = repl_session_with_root(tmp_path, param_seed_resolver=resolve)
+
+        result = session.eval_entry("import settings\nsettings::second")
+
+        assert not result.ok
+        assert len(result.diagnostics) == 2
+        assert not session._param_seed_values
+
     def test_session_without_resolver_uses_module_initializers(self, tmp_path: Path) -> None:
         (tmp_path / "settings.agl").write_text("@param let value: int = 6\n", encoding="utf-8")
         session = repl_session_with_root(tmp_path)

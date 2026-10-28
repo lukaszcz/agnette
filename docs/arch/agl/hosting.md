@@ -13,7 +13,7 @@
 - **Check only.** `agm check` (`check_prepared`) stops after lowering: it binds no program arguments and imports no companions, but rejects parameters of its import closure that share a full spelling.
 - **Navigation.** `agm dev definition` runs load/scope and `typecheck_resolved` (`None` on failure), then `agl/navigation.py` maps a source position to declaration locations from scope side tables, refined by type-check results for fields, methods, and patterns. Name occurrences come from the semantic highlighter ([highlighting.md](../highlighting.md)).
 
-The REPL accepts an optional parameter-seed resolver, invoked once per entry with the module and function parameters of the modules that entry first loads and, for collision and route checks, those already loaded ([repl.md](repl.md)).
+The REPL accepts an optional parameter-seed resolver, invoked once per entry with the module and function parameters of the modules that entry first loads and, for collision and route checks, those already loaded ([repl.md](repl.md)). Its seeds decode through `resolve_host_params` as the `DECLARED` tier; any failure fails the entry and applies no seed.
 
 ## Engine Settings and Host Seeds
 

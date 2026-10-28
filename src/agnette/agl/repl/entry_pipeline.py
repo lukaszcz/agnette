@@ -705,7 +705,12 @@ class EntryPipeline:
             diagnostic = diagnostic_from_span(str(exc), exc.span)
             return self._ctx._fail([diagnostic], warnings)
         from agnette.agl.ir.static_keys import host_param_module, split_host_param_values
-        from agnette.agl.runtime.arguments import bind_param_values, diagnose_process_environment
+        from agnette.agl.runtime.arguments import (
+            ParamTier,
+            decode_host_param,
+            diagnose_process_environment,
+        )
+        from agnette.agl.runtime.param_resolution import resolve_host_params
 
         pending_raw_param_values = {
             key: value
@@ -713,14 +718,16 @@ class EntryPipeline:
             if host_param_module(key) in lowered.program.modules
         }
         pending_raw_param_values.update(raw_param_values)
-        decoded_param_seeds, param_diagnostics = bind_param_values(
-            lowered.program,
-            pending_raw_param_values,
-            default_resolver=default_field_resolver(lowered.program),
+        default_resolver = default_field_resolver(lowered.program)
+        decoded_params = resolve_host_params(
+            {ParamTier.DECLARED: pending_raw_param_values},
+            lambda key, _tier, raw: decode_host_param(
+                lowered.program, key, raw, default_resolver=default_resolver
+            ),
         )
-        if param_diagnostics:
+        if decoded_params.diagnostics:
             self._ctx._link_image.restore_state(link_snapshot)
-            return self._ctx._fail(list(param_diagnostics), warnings)
+            return self._ctx._fail(list(decoded_params.diagnostics), warnings)
         # The session's environment snapshot is a host input like the seeds
         # above, and fails the entry the same way rather than surfacing at
         # whichever ``std/env`` read or interpolation hole first encodes it.
@@ -728,6 +735,7 @@ class EntryPipeline:
         if environment_diagnostic is not None:
             self._ctx._link_image.restore_state(link_snapshot)
             return self._ctx._fail([environment_diagnostic], warnings)
+        decoded_param_seeds = {key: value for key, (_tier, value) in decoded_params.values.items()}
         decoded_param_seeds_by_module: dict[ModuleId, dict[HostParamKey, Value]] = {}
         for key, seed in decoded_param_seeds.items():
             decoded_param_seeds_by_module.setdefault(host_param_module(key), {})[key] = seed

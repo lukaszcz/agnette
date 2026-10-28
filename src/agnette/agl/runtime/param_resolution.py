@@ -7,7 +7,8 @@ keyed by :data:`~agnette.agl.ir.static_keys.HostParamKey` and ranked by
 decodes only those winners, with a decoder per kind, the engine settings among the results.
 Whether a failure is a usage error follows from the winning tier alone.
 :func:`resolve_program_params` is the whole resolution for a selected program; ``agm repl``
-has no program and resolves only the engine settings through :func:`resolve_host_params`.
+has no program and resolves its engine settings and its modules' declaration-route seeds
+through :func:`resolve_host_params`.
 """
 
 from __future__ import annotations
