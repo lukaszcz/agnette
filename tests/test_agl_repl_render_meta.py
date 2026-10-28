@@ -566,8 +566,8 @@ class TestType:
         assert type(raised.value) is error
         diagnostic = raised.value.to_diagnostic()
         assert diagnostic.severity == "error"
-        assert diagnostic.line == 1
         span = raised.value.span
+        assert (diagnostic.line is None) == (span is None)
         if span_text is None:
             assert span is None
         else:
@@ -578,7 +578,8 @@ class TestType:
 
         assert outcome.text is not None
         location = format_diagnostic_location(diagnostic, source_name=None)
-        assert outcome.text.startswith(f"{location}: {diagnostic.severity}:")
+        head = f"{location}: " if location else ""
+        assert outcome.text.startswith(f"{head}{diagnostic.severity}:")
         assert outcome.quit is False
         assert session.bindings() == []
 

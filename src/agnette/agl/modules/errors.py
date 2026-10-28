@@ -121,7 +121,7 @@ class PackageImportVisibilityError(AglError):
         importer: str,
         target: str,
         *,
-        span: SourceSpan,
+        span: SourceSpan | None,
     ) -> None:
         super().__init__(
             f"package {importer!r} imports package {target!r} without a "
@@ -145,7 +145,7 @@ class ImportEntryError(AglError):
         module_id: ModuleId,
         entry_path: Path,
         *,
-        span: SourceSpan,
+        span: SourceSpan | None,
     ) -> None:
         msg = f"cannot import '{module_id.display()}': it resolves to the entry file '{entry_path}'"
         super().__init__(msg, span=span)

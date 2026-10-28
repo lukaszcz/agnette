@@ -101,6 +101,7 @@ def package_active() -> None:
 def _assert_requirement_diagnostic(result: RunResult | EntryResult, *, repair: str = _SYNC) -> None:
     assert result.ok is False
     assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].line is None
     message = result.diagnostics[0].message
     assert "python_requirement" in message
     assert _REQUIREMENT in message

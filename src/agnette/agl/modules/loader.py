@@ -314,6 +314,15 @@ def _companion_path_for(
     return companion_path
 
 
+_IMPLICIT_IMPORT_SOURCE = SourceId(label="<stdlib-import>")
+"""Source of the implicit prelude import, which has no text to point at."""
+
+
+def _import_error_span(decl: _ModuleDependencyDecl) -> SourceSpan | None:
+    """Return where an error about *decl* is reported: none for the implicit prelude import."""
+    return None if decl.span.source == _IMPLICIT_IMPORT_SOURCE else decl.span
+
+
 def _synthetic_stdlib_import(node_id: int) -> ImportDecl:
     span = SourceSpan(
         start_line=0,
@@ -322,7 +331,7 @@ def _synthetic_stdlib_import(node_id: int) -> ImportDecl:
         end_col=0,
         start_offset=0,
         end_offset=0,
-        source=SourceId(label="<stdlib-import>"),
+        source=_IMPLICIT_IMPORT_SOURCE,
     )
     return ImportDecl(
         module_path=STD_PRELUDE_ID.segments,
@@ -381,7 +390,7 @@ def _check_package_import_visibility(
     target_id: ModuleId,
     *,
     roots: RootSet,
-    span: SourceSpan,
+    span: SourceSpan | None,
 ) -> None:
     """Reject package-to-package edges missing a manifest dependency.
 
@@ -541,21 +550,22 @@ def _load_into_graph(
         new_pairs: list[_ResolvedDependency] = []
         source_path = modules[source].path
         for decl in decls:
+            span = _import_error_span(decl)
             key = (tuple(decl.module_path), decl.wildcard)
             targets_by_id = dependency_paths.get(key)
             if targets_by_id is None:
                 if decl.wildcard:
-                    targets_by_id = expand_wildcard(key[0], roots, span=decl.span)
+                    targets_by_id = expand_wildcard(key[0], roots, span=span)
                 else:
                     target_id = ModuleId(segments=key[0])
-                    targets_by_id = {target_id: resolve_module(target_id, roots, span=decl.span)}
+                    targets_by_id = {target_id: resolve_module(target_id, roots, span=span)}
                 dependency_paths[key] = targets_by_id
             for mid, target_path in targets_by_id.items():
                 _check_package_import_visibility(
-                    source_path, target_path, mid, roots=roots, span=decl.span
+                    source_path, target_path, mid, roots=roots, span=span
                 )
                 targets.append(mid)
-                if decl.span.source.label != "<stdlib-import>":
+                if decl.span.source != _IMPLICIT_IMPORT_SOURCE:
                     source_targets.append(mid)
                 if mid not in modules:
                     new_pairs.append((mid, decl, target_path))
@@ -582,7 +592,7 @@ def _load_into_graph(
 
         # Reject any import that resolves to the entry file.
         if canonical_entry_path is not None and canon_path == canonical_entry_path:
-            raise ImportEntryError(mid, canonical_entry_path, span=decl.span)
+            raise ImportEntryError(mid, canonical_entry_path, span=_import_error_span(decl))
 
         build = partial(_parse_imported_module, mid, canon_path, default_stdlib=default_stdlib)
         loaded = cached_parsed_module(mid, canon_path, default_stdlib=default_stdlib, build=build)

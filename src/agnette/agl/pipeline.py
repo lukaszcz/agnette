@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from agnette.agl.attributes import ProgramOptionSpec
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
     from agnette.agl.ir.contracts import ExceptionFieldEncode
-    from agnette.agl.ir.ids import NominalId, SourceId, SymbolId
+    from agnette.agl.ir.ids import Location, NominalId, SourceId, SymbolId
     from agnette.agl.ir.program import (
         ExecutableProgram,
         NominalDescriptor,
@@ -631,9 +631,7 @@ class PipelineDriver:
             if len(entry_programs) > 1:
                 return RunResult(
                     ok=False,
-                    diagnostics=[
-                        Diagnostic(message="multiple programs declared; select one", line=1)
-                    ],
+                    diagnostics=[Diagnostic(message="multiple programs declared; select one")],
                     error=None,
                     warnings=list(warnings),
                     bindings={},
@@ -861,7 +859,7 @@ class PipelineDriver:
             trace.run_end(ok=False)
             return RunResult(
                 ok=False,
-                diagnostics=[Diagnostic(message=str(exc), line=1)],
+                diagnostics=[host_failure_diagnostic(exc, executable.sources)],
                 error=None,
                 warnings=list(warnings),
                 bindings={},
@@ -984,7 +982,7 @@ class PipelineDriver:
                 return PreparedProgram(
                     RootSet(roots=frozenset()),
                     None,
-                    (Diagnostic(message=str(exc), line=1),),
+                    (Diagnostic(message=str(exc)),),
                     parsed.warnings,
                 )
             roots = assemble_roots(
@@ -1108,8 +1106,8 @@ class PipelineDriver:
         """Run typecheck + match compilation.
 
         The static-pipeline steps :meth:`discover_programs` needs before
-        building its own program-declaration products: entry-module
-        resolution, typecheck, and match compilation.
+        building its own program-declaration products: typecheck and match
+        compilation.
 
         Returns a :class:`ProgramDiscovery` whose ``programs`` is always
         empty — :meth:`discover_programs` fills it in on success.
@@ -1118,8 +1116,7 @@ class PipelineDriver:
         :attr:`~ProgramDiscovery.compiled` are non-``None``. On failure
         ``compiled`` is always ``None``; ``checked`` is non-``None`` only for
         a match-compile failure (the checked program is still meaningful),
-        and ``None`` for every earlier failure, including a missing entry
-        module.
+        and ``None`` for every earlier failure.
         """
         if prepared.resolved is None:
             outcome = self._govern_warnings(prepared, None)
@@ -1151,15 +1148,6 @@ class PipelineDriver:
                 checked=checked,
                 compiled=None,
                 diagnostics=match_diagnostics,
-                warnings=all_warnings,
-            )
-
-        if checked.entry_id not in checked.modules:
-            return ProgramDiscovery(
-                programs=(),
-                checked=None,
-                compiled=None,
-                diagnostics=(Diagnostic(message="Entry module not found in program", line=1),),
                 warnings=all_warnings,
             )
 
@@ -1535,11 +1523,7 @@ class PipelineDriver:
                 with frontend_recursion_boundary():
                     executable = lower_program(compiled)
             except (NestingTooDeepError, ResourceError) as exc:
-                diagnostic = (
-                    diagnostic_from_span(str(exc), exc.span)
-                    if exc.span is not None
-                    else Diagnostic(message=str(exc))
-                )
+                diagnostic = diagnostic_from_span(str(exc), exc.span)
                 return (
                     RunResult(
                         ok=False,
@@ -2225,11 +2209,33 @@ def _package_requirements_hold(
                     message=(
                         f"package {package.manifest.name!r} has unsatisfied Python "
                         f"requirements ({listed}); {requirement_repair(package)}"
-                    ),
-                    line=1,
+                    )
                 )
             )
     return verdict
+
+
+def host_failure_diagnostic(
+    exc: HostConfigurationError, sources: "Mapping[SourceId, SourceFile]"
+) -> Diagnostic:
+    """Report *exc* where it was raised, or without a location when it has none."""
+    location = exc.span
+    if location is None:
+        return Diagnostic(message=str(exc))
+    return Diagnostic(
+        message=str(exc),
+        line=location.start_line,
+        column=location.start_col,
+        source_label=_location_source_name(location, sources),
+    )
+
+
+def _location_source_name(
+    location: "Location", sources: "Mapping[SourceId, SourceFile] | None"
+) -> str | None:
+    """The display name of *location*'s source, or ``None`` when *sources* lacks it."""
+    source = sources.get(location.source_id) if sources is not None else None
+    return source.display_name if source is not None else None
 
 
 def exception_value_to_run_error(
@@ -2278,8 +2284,7 @@ def exception_value_to_run_error(
     if isinstance(span, Location):
         line = span.start_line
         col = span.start_col
-        if sources is not None and span.source_id in sources:
-            source = sources[span.source_id].display_name
+        source = _location_source_name(span, sources)
     elif isinstance(span, SourceSpan):
         line = span.start_line
         col = span.start_col

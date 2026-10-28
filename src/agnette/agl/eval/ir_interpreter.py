@@ -223,11 +223,14 @@ _ArgT = TypeVar("_ArgT")
 class HostConfigurationError(Exception):
     """A host-backed value cannot be materialized as a valid AgL binding.
 
-    The evaluator raises this for a malformed startup ``agent`` and
-    for a read of a non-engine ``builtin var`` that has neither a host seed nor
-    a declared default. Pipeline hosts translate it to an ordinary language
-    diagnostic rather than leaking a Python implementation exception.
+    The evaluator raises this for a malformed startup ``agent``; a read of a
+    non-engine ``builtin var`` with neither a host seed nor a declared default
+    raises the :class:`MissingBuiltinVarSeedError` subclass. Pipeline hosts
+    translate it to an ordinary language diagnostic rather than leaking a Python
+    implementation exception. ``span`` is the read it failed at, when it has one.
     """
+
+    span: Location | None = None
 
 
 class MissingBuiltinVarSeedError(HostConfigurationError):
@@ -1932,7 +1935,11 @@ class IrInterpreter:
                     )
 
                 case IrBuiltinLoad(key=key):
-                    return self._load_builtin_setting(key)
+                    try:
+                        return self._load_builtin_setting(key)
+                    except MissingBuiltinVarSeedError as exc:
+                        exc.span = node.location
+                        raise
 
                 case IrBuiltinStore(key=key, value=value_expr):
                     stored = self._eval(value_expr)

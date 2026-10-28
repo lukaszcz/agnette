@@ -101,17 +101,21 @@ _D = TypeVar("_D", bound=Diagnostic)
 
 
 @overload
-def diagnostic_from_span(message: str, span: SourceSpan) -> Diagnostic: ...
+def diagnostic_from_span(message: str, span: SourceSpan | None) -> Diagnostic: ...
 
 
 @overload
-def diagnostic_from_span(message: str, span: SourceSpan, diagnostic_type: type[_D]) -> _D: ...
+def diagnostic_from_span(
+    message: str, span: SourceSpan | None, diagnostic_type: type[_D]
+) -> _D: ...
 
 
 def diagnostic_from_span(
-    message: str, span: SourceSpan, diagnostic_type: type[Diagnostic] = Diagnostic
+    message: str, span: SourceSpan | None, diagnostic_type: type[Diagnostic] = Diagnostic
 ) -> Diagnostic:
-    """Build an error diagnostic (of *diagnostic_type*) pinned to a concrete source span.
+    """Build an error diagnostic (of *diagnostic_type*) pinned to a source span.
+
+    A ``None`` *span* yields a diagnostic with no location.
 
     When ``span.source`` is a real (non-default) ``SourceId``, the diagnostic's
     ``source_label`` is populated from ``span.source.label`` so that multi-file
@@ -119,6 +123,8 @@ def diagnostic_from_span(
     ``UNKNOWN_SOURCE``, ``source_label`` is left as ``None`` so that callers
     can supply a ``source_name`` argument to the formatting functions.
     """
+    if span is None:
+        return diagnostic_type(message=message)
     return diagnostic_type(
         message=message,
         line=span.start_line,
@@ -276,10 +282,7 @@ class AglError(Exception):
         related = tuple(
             related_diagnostic_from_span(message, span) for message, span in self.related
         )
-        if self.span is None:
-            return Diagnostic(message=str(self), line=1, related=related)
-        primary = diagnostic_from_span(str(self), self.span)
-        return replace(primary, related=related)
+        return replace(diagnostic_from_span(str(self), self.span), related=related)
 
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         """Every diagnostic this error reports; consumers render this, not one diagnostic."""

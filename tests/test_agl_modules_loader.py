@@ -726,6 +726,25 @@ class TestPackageRootsAndVisibility:
 
         assert exc_info.value.target == "helper"
 
+    def test_package_module_rejects_an_unowned_implicit_prelude_without_a_location(
+        self, tmp_path: Path
+    ) -> None:
+        alpha = _package(tmp_path, "alpha")
+        _write_package_module(alpha, "alpha/main")
+        loose = tmp_path / "loose"
+        loose.mkdir()
+        _write_module(loose, "std/prelude")
+
+        with pytest.raises(PackageImportVisibilityError) as exc_info:
+            load_graph(
+                "import alpha/main",
+                entry_path=None,
+                roots=_package_roots(tmp_path, alpha, loose_roots=(loose,)),
+            )
+
+        assert exc_info.value.span is None
+        assert exc_info.value.to_diagnostic().line is None
+
     def test_package_module_rejects_undeclared_cross_package_import(self, tmp_path: Path) -> None:
         alpha = _package(tmp_path, "alpha")
         bravo = _package(tmp_path, "bravo")
@@ -1255,6 +1274,20 @@ class TestErrorsCarrySpan:
             assert exc.span is not None
         else:
             pytest.fail("Expected ImportEntryError")
+
+    def test_importing_the_prelude_as_the_entry_reports_no_location(self, tmp_path: Path) -> None:
+        """The implicit prelude import has no source text, so the error points nowhere."""
+        prelude = _REPO_STDLIB_ROOT / "src" / "prelude.agl"
+
+        with pytest.raises(ImportEntryError) as exc_info:
+            load_graph(
+                prelude.read_text(encoding="utf-8"),
+                entry_path=prelude,
+                roots=_package_roots(tmp_path, stdlib_root=_REPO_STDLIB_ROOT),
+            )
+
+        assert exc_info.value.span is None
+        assert exc_info.value.to_diagnostic().line is None
 
 
 # ---------------------------------------------------------------------------

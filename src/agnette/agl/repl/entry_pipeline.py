@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from agnette.agl.semantics.values import Value
     from agnette.agl.syntax.advisories import SpacedQualifier
     from agnette.agl.syntax.nodes import ImportDecl, Item, Program, ScopeRegion
+    from agnette.agl.syntax.spans import SourceSpan
     from agnette.agl.typecheck.env import CheckedModule
     from agnette.agl.typecheck.program import CheckedProgram
 
@@ -95,6 +96,31 @@ def _hashability_downgrade(previous: TypeTable, current: TypeTable) -> TypeDef |
         if not satisfies(proof, ConstraintKind.HASHABLE, current, {}):
             return typedef
     return None
+
+
+def _extending_declaration_span(
+    previous: TypeTable, current: TypeTable, base: TypeDef, entry: Program
+) -> SourceSpan | None:
+    """Locate the new exception of *entry* that extends *base*, directly or not."""
+    from agnette.agl.syntax.nodes import static_type_items
+
+    def extends_base(typedef: TypeDef) -> bool:
+        while typedef.base is not None:
+            if typedef.base == base.decl_node_id:
+                return True
+            typedef = current.typedef_of(typedef.base)
+        return False
+
+    new = {
+        typedef.decl_node_id
+        for typedef in current.entries()
+        if typedef.kind == "exception"
+        and typedef.decl_node_id not in previous.defs
+        and extends_base(typedef)
+    }
+    return next(
+        (item.span for item in static_type_items(entry.body.items) if item.node_id in new), None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +317,13 @@ class EntryPipeline:
             message = (
                 f"This entry would make previously Hashable type '{downgrade.name}' non-Hashable."
             )
-            return self._ctx._fail([Diagnostic(message=message, line=1)], warnings)
+            span = _extending_declaration_span(
+                self._ctx._type_env.type_table,
+                entry_cm.type_env.type_table,
+                downgrade,
+                resolved_program.modules[ENTRY_ID].source,
+            )
+            return self._ctx._fail([diagnostic_from_span(message, span)], warnings)
 
         from agnette.agl.matchcompile import (
             cached_module_sites,
@@ -624,7 +656,11 @@ class EntryPipeline:
         )
         from agnette.agl.ir.program import ValueDescriptors
         from agnette.agl.lower import lower_repl_program
-        from agnette.agl.pipeline import _wire_extern_registry, exception_value_to_run_error
+        from agnette.agl.pipeline import (
+            _wire_extern_registry,
+            exception_value_to_run_error,
+            host_failure_diagnostic,
+        )
         from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
         from agnette.agl.runtime.request import AgentCancelled
         from agnette.agl.runtime.trace import TraceStore
@@ -666,11 +702,7 @@ class EntryPipeline:
             # A plain lowering-time ``ValueError``, not a static ``AglError``:
             # no ``failure`` to report.
             self._ctx._link_image.restore_state(link_snapshot)
-            diagnostic = (
-                diagnostic_from_span(str(exc), exc.span)
-                if exc.span is not None
-                else Diagnostic(message=str(exc))
-            )
+            diagnostic = diagnostic_from_span(str(exc), exc.span)
             return self._ctx._fail([diagnostic], warnings)
         from agnette.agl.ir.static_keys import host_param_module, split_host_param_values
         from agnette.agl.runtime.arguments import bind_param_values, diagnose_process_environment
@@ -809,7 +841,7 @@ class EntryPipeline:
                 name=name,
                 value=None,
                 value_type=None,
-                diagnostics=[Diagnostic(message=str(exc), line=1)],
+                diagnostics=[host_failure_diagnostic(exc, lowered.program.sources)],
                 warnings=warnings,
                 error=None,
                 ok=False,
@@ -975,7 +1007,9 @@ class EntryPipeline:
             # A host-backed library value may be read after earlier entry work
             # completed. Preserve that completed state while reporting the
             # missing/invalid host value as an ordinary language diagnostic.
-            return partial_failure(diagnostics=[Diagnostic(message=str(exc), line=1)], error=None)
+            return partial_failure(
+                diagnostics=[host_failure_diagnostic(exc, lowered.program.sources)], error=None
+            )
         except (AgentCancelled, KeyboardInterrupt) as exc:
             cancellation_message = (
                 "Agent call cancelled — entry aborted."
@@ -983,7 +1017,7 @@ class EntryPipeline:
                 else "Entry interrupted — entry aborted."
             )
             return partial_failure(
-                diagnostics=[Diagnostic(message=cancellation_message, line=1)], error=None
+                diagnostics=[Diagnostic(message=cancellation_message)], error=None
             )
         trace.run_end(ok=True)
         # Setting writes are ordinary non-transactional mutations: persist all

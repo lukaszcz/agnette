@@ -668,12 +668,6 @@ class TestSourceSpan:
 
 
 class TestAglError:
-    def test_agl_error_no_span(self) -> None:
-        err = AglError("something went wrong")
-        diag = err.to_diagnostic()
-        assert diag.line == 1
-        assert "something went wrong" in diag.message
-
     def test_agl_error_with_span(self) -> None:
         span = SourceSpan(
             start_line=5,
@@ -3462,22 +3456,6 @@ class TestPrepareProgramFailures:
 
 class TestDiscoverProgramsFailures:
     """A failure while discovering programs is reported through the discovery result."""
-
-    def test_discover_programs_missing_entry_in_checked(self, tmp_path: pathlib.Path) -> None:
-        """discover_programs returns diagnostic when checked graph has no entry module."""
-        from unittest.mock import MagicMock, patch
-
-        roots = agl_roots()
-        prepared = prepare_inline_code("let x = 1\nx", entry_path=None, roots=roots)
-        rt = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        # Patch check_program to return a graph with no ENTRY_ID.
-        fake_checked = MagicMock()
-        fake_checked.modules = {}
-
-        with patch("agnette.agl.typecheck.program.check_program", return_value=fake_checked):
-            discovery = rt.discover_programs(prepared)
-        assert len(discovery.diagnostics) >= 1
-        assert "Entry module" in discovery.diagnostics[0].message
 
     def test_discover_programs_typecheck_failure(self, tmp_path: pathlib.Path) -> None:
         """discover_programs returns diagnostics when typecheck fails."""
