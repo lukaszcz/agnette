@@ -803,7 +803,7 @@ class TestParsePositional:
 
     def test_more_positional_tokens_than_declared_are_collected_unconditionally(self) -> None:
         """No cap here: an excess positional argument is diagnosed downstream
-        by the shared zone binder (``bind_program_arguments``), which reports
+        by the shared zone binder (``bind_positional_arguments``), which reports
         a different message depending on whether the program declares any
         named-only parameters — this parser defers to it rather than
         duplicating (and pre-empting) that diagnosis."""

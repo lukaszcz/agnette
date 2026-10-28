@@ -7,7 +7,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple, NoReturn
 
-from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.static_keys import (
     FunctionParamKey,
     HostParamKey,
@@ -18,11 +18,11 @@ from agnette.agl.modules.ids import ModuleId
 from agnette.agl.runtime.arguments import InheritedParamValue, ParamTier
 from agnette.agl.runtime.engine_config import (
     EngineSettings,
-    EngineValueFailure,
+    engine_setting_decoder,
     engine_setting_params,
-    resolve_engine_settings,
     split_engine_values,
 )
+from agnette.agl.runtime.param_resolution import resolve_host_params
 from agnette.agl.runtime.types import (
     HostParamInfo,
     HostParamKind,
@@ -539,21 +539,20 @@ def resolve_declaration_route_values(
 
 def resolve_programless_engine_settings(
     config: "GeneralConfig", supplied: "Mapping[StaticBindingKey, object]"
-) -> tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]:
+) -> tuple[EngineSettings, tuple[Diagnostic, ...], tuple[Diagnostic, ...]]:
     """Rank *supplied* flag values over the ``[exec]`` declaration route; no program.
 
-    The resolution ``agm exec`` applies to a program's engine settings, without the
-    program-bound tiers; returns what
-    :func:`~agnette.agl.runtime.engine_config.resolve_engine_settings` does.
+    The ranking and decoding ``agm exec`` applies to a program's engine settings, without
+    the program-bound tiers. Returns the settings, the diagnostics of the invalid values,
+    and those among them that *supplied* values caused.
     """
     declared = split_engine_values(
         resolve_declaration_route_values(config, engine_setting_params())
     )[1]
-    return resolve_engine_settings(
-        {ParamTier.DECLARED: declared, ParamTier.SUPPLIED: supplied},
-        {},
-        nominals=NO_BUILTIN_DECLARATIONS,
+    decoded = resolve_host_params(
+        {ParamTier.DECLARED: declared, ParamTier.SUPPLIED: supplied}, engine_setting_decoder()
     )
+    return decoded.engine, decoded.diagnostics, decoded.usage_diagnostics
 
 
 def _native_value(param: ProgramParamInfo | HostParamInfo, configured: ConfiguredValue) -> object:

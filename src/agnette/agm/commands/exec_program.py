@@ -69,11 +69,10 @@ from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import ProgramDeclInfo
 from agnette.agl.syntax.nodes import FuncDef, scope_names, static_items
 from agnette.agl.warning_policy import WarningPolicy
-from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
+from agnette.agm.cli_support.agl_errors import exit_for_agl_exception, fail_with_diagnostics
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     engine_seed_values,
-    fail_engine_settings,
     host_agent_spec_resolver,
     reject_register_conflicts,
     resolve_strict_json,
@@ -615,14 +614,10 @@ def run(
         supplied=param_tiers.supplied,
     )
     if isinstance(argument_preflight, ArgumentPreflightFailure):
-        usage = argument_preflight.usage_diagnostics
-        for diag in argument_preflight.result.diagnostics:
-            if diag not in usage:
-                print(format_diagnostic(diag, source_name=diagnostic_source_name), file=sys.stderr)
-        fail_engine_settings(
-            argument_preflight.engine_failures,
-            argument_preflight.engine_usage_failures,
-            usage_messages=[diag.message for diag in usage],
+        fail_with_diagnostics(
+            argument_preflight.result.diagnostics,
+            argument_preflight.usage_diagnostics,
+            source_name=diagnostic_source_name,
             program=selected_program,
         )
     executable = argument_preflight.executable

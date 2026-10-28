@@ -26,7 +26,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from agnette.agl.diagnostics import AglError, Diagnostic, HiddenMemberError
-from agnette.agl.lexer.positions import LineIndex, entry_padding
+from agnette.agl.lexer.positions import LineIndex, entry_padding, tab_position
 from agnette.agl.lexer.tokens import LAYOUT_TOKENS
 from agnette.agl.repl.entry import (
     REPL_LABEL,
@@ -2901,7 +2901,7 @@ class ReplSession:
         self._add_governed_advisories(
             result,
             label,
-            (w for w in lexed.tab_warnings if lines.offset(w.line, cast(int, w.column)) >= resume),
+            (w for w in lexed.tab_warnings if lines.offset(*tab_position(w)) >= resume),
             regions,
         )
 

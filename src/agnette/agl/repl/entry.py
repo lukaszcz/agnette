@@ -125,10 +125,17 @@ class Place(Protocol):
 
 
 def relocate_diagnostic(diagnostic: Diagnostic, place: Place) -> Diagnostic:
-    """Return *diagnostic* with its location and its notes' moved by *place*."""
+    """Return *diagnostic* with its location and its notes' moved by *place*.
 
-    def moved[D: (Diagnostic, RelatedDiagnostic)](located: D) -> D:
-        label, line, column = place((located.source_label, located.line, located.column))
+    A diagnostic without a location stays as it is.
+    """
+
+    if diagnostic.line is None:
+        return diagnostic
+    primary_line = diagnostic.line
+
+    def moved[D: (Diagnostic, RelatedDiagnostic)](located: D, located_line: int) -> D:
+        label, line, column = place((located.source_label, located_line, located.column))
         end_line, end_column = located.end_line, located.end_column
         if end_line is not None:
             _, end_line, end_column = place((located.source_label, end_line, end_column))
@@ -141,7 +148,10 @@ def relocate_diagnostic(diagnostic: Diagnostic, place: Place) -> Diagnostic:
             source_label=label,
         )
 
-    return replace(moved(diagnostic), related=tuple(moved(note) for note in diagnostic.related))
+    return replace(
+        moved(diagnostic, primary_line),
+        related=tuple(moved(note, note.line) for note in diagnostic.related),
+    )
 
 
 def relocate(

@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec import AGENT_SPECS
+from agnette.agl.diagnostics import Diagnostic
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS, BuiltinNominals
 from agnette.agl.ir.builtin_vars import is_engine_builtin_var_key
 from agnette.agl.ir.reserved_nominals import AGENT_SANDBOX_MEMBERS
@@ -17,7 +18,7 @@ from agnette.config.engine_keys import ENGINE_KEYS, NON_NEGATIVE_ENGINE_KEYS, En
 from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from agnette.agl.ir.ids import NominalId
     from agnette.agl.runtime.types import HostParamInfo
@@ -28,11 +29,13 @@ if TYPE_CHECKING:
 __all__ = [
     "EngineRangeError",
     "EngineSettings",
-    "EngineValueFailure",
     "decode_engine_raw",
     "engine_default_settings",
+    "engine_setting_decoder",
+    "engine_setting_name",
     "engine_setting_params",
-    "resolve_engine_settings",
+    "engine_settings_from",
+    "prepare_engine_config",
     "restamp_engine_setting",
     "split_engine_values",
     "validate_engine_value",
@@ -228,14 +231,6 @@ def split_engine_values[V](
 
 
 @dataclass(frozen=True, slots=True)
-class EngineValueFailure:
-    """An invalid engine setting value, which has no source location to report at."""
-
-    name: str
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
 class EngineSettings:
     """The engine settings a host explicitly controls, decoded, with each one's winning tier.
 
@@ -246,40 +241,22 @@ class EngineSettings:
     ranks: "Mapping[str, ParamTier]"
 
 
-def _engine_origin(name: str, *, supplied: bool) -> str:
-    """Name where engine setting *name*'s value came from: its flag or its configuration key."""
-    return f"--{name}" if supplied else f"configuration key {name}"
+def engine_setting_name(key: HostParamKey) -> str | None:
+    """Return the engine setting *key* names, or ``None`` for any other host parameter."""
+    return key[2] if isinstance(key, tuple) and is_engine_builtin_var_key(key) else None
 
 
-def _invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
-    """Return the message for engine setting *name*'s invalid value from *origin*."""
-    return f"invalid {name} value from {origin}: {error}"
+def prepare_engine_config(
+    config: "Mapping[StaticBindingKey, Value]", *, nominals: BuiltinNominals
+) -> "tuple[dict[StaticBindingKey, Value], list[Diagnostic]]":
+    """Restamp a program's ``@config`` engine values onto the standard identity and validate them.
 
-
-def resolve_engine_settings(
-    tiers: "Mapping[ParamTier, Mapping[StaticBindingKey, object]]",
-    config: "Mapping[StaticBindingKey, Value]",
-    *,
-    nominals: BuiltinNominals,
-) -> "tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]":
-    """Rank the engine setting sources and decode each setting's winning value.
-
-    *tiers* hold raw values by engine setting key, one mapping per :class:`ParamTier` (none
-    for ``INHERITED``: an engine setting takes no ``@inherit``), in the
-    shape :func:`~agnette.agl.runtime.arguments.decode_param_value` takes. *config* holds the
-    program's ``@config`` values, already decoded onto *nominals*' identity; they rank
-    :attr:`ParamTier.CONFIG` and are validated whether or not a higher tier overrides them.
-    Only the winning raw value of any other tier is decoded, onto the standard identity.
-
-    Returns the settings, then the failures of invalid configured values, then those of
-    invalid :attr:`ParamTier.SUPPLIED` values (usage errors).
+    *config* holds the values already decoded onto *nominals*' identity. Every one is
+    validated, whether or not a higher tier overrides it; returns the valid ones, then a
+    diagnostic for each invalid one.
     """
-    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-    from agnette.agl.semantics.type_table import create_seeded_type_table
-
-    configured_failures: list[EngineValueFailure] = []
-    usage_failures: list[EngineValueFailure] = []
-    from_config: dict[StaticBindingKey, object] = {}
+    valid: dict[StaticBindingKey, Value] = {}
+    diagnostics: list[Diagnostic] = []
     for key, value in config.items():
         name = key[2]
         value = restamp_engine_setting(
@@ -288,35 +265,51 @@ def resolve_engine_settings(
         try:
             validate_engine_value(name, value)
         except ValueError as exc:
-            configured_failures.append(
-                EngineValueFailure(name, _invalid_engine_message(name, "@config", exc))
-            )
+            diagnostics.append(Diagnostic(message=_invalid_engine_message(name, "@config", exc)))
         else:
-            from_config[key] = value
+            valid[key] = value
+    return valid, diagnostics
 
-    by_tier = {**tiers, ParamTier.CONFIG: from_config}
-    winners: dict[StaticBindingKey, tuple[ParamTier, object]] = {}
-    for tier in ParamTier:
-        winners.update({key: (tier, raw) for key, raw in by_tier.get(tier, {}).items()})
 
+def _invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
+    """Return the message for engine setting *name*'s invalid value from *origin*."""
+    return f"invalid {name} value from {origin}: {error}"
+
+
+def engine_setting_decoder() -> "Callable[[HostParamKey, ParamTier, object], Value | Diagnostic]":
+    """Return the decoder of an engine setting's raw winning value, for ``resolve_host_params``.
+
+    Decodes onto the standard identity; an invalid value is a diagnostic without a source
+    location naming its origin (the flag, or the configuration key).
+    """
+    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
+    from agnette.agl.semantics.type_table import create_seeded_type_table
+
+    type_table = create_seeded_type_table()
+
+    def decode(key: HostParamKey, tier: ParamTier, raw: object) -> "Value | Diagnostic":
+        name = cast(str, engine_setting_name(key))
+        try:
+            return decode_engine_raw(name, raw, ENGINE_KEY_TYPES[name], type_table)
+        except ValueError as exc:
+            origin = f"--{name}" if tier is ParamTier.SUPPLIED else f"configuration key {name}"
+            return Diagnostic(message=_invalid_engine_message(name, origin, exc))
+
+    return decode
+
+
+def engine_settings_from[K: HostParamKey](
+    decoded: "Mapping[K, tuple[ParamTier, Value]]",
+) -> EngineSettings:
+    """Collect the engine settings among the *decoded* host parameter values."""
     values: dict[str, Value] = {}
     ranks: dict[str, ParamTier] = {}
-    type_table = create_seeded_type_table()
-    for key, (tier, raw) in winners.items():
-        name = key[2]
-        if tier is ParamTier.CONFIG:
-            values[name] = cast("Value", raw)
-        else:
-            try:
-                values[name] = decode_engine_raw(name, raw, ENGINE_KEY_TYPES[name], type_table)
-            except ValueError as exc:
-                is_supplied = tier is ParamTier.SUPPLIED
-                origin = _engine_origin(name, supplied=is_supplied)
-                failure = EngineValueFailure(name, _invalid_engine_message(name, origin, exc))
-                (usage_failures if is_supplied else configured_failures).append(failure)
-                continue
-        ranks[name] = tier
-    return EngineSettings(values, ranks), configured_failures, usage_failures
+    for key, (tier, value) in decoded.items():
+        name = engine_setting_name(key)
+        if name is not None:
+            values[name] = value
+            ranks[name] = tier
+    return EngineSettings(values, ranks)
 
 
 def _reserved_default_resolver(nominal: "NominalId", field_index: int) -> "Value":

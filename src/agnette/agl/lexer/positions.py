@@ -93,6 +93,22 @@ def entry_text(lines: LineIndex, start: int, end: int, padding: int) -> str:
     return " " * padding + lines.text[start:end]
 
 
+def tab_extent(advisory: Diagnostic) -> tuple[int, int, int, int]:
+    """Return the ``(line, column, end_line, end_column)`` of a located TAB advisory."""
+    return (
+        cast(int, advisory.line),
+        cast(int, advisory.column),
+        cast(int, advisory.end_line),
+        cast(int, advisory.end_column),
+    )
+
+
+def tab_position(advisory: Diagnostic) -> tuple[int, int]:
+    """Return the ``(line, column)`` of a located TAB advisory."""
+    line, column, _end_line, _end_column = tab_extent(advisory)
+    return line, column
+
+
 class Rebase:
     """Maps positions in a text to the positions they have in the entry starting at *start*.
 
@@ -149,11 +165,11 @@ class Rebase:
 
     def diagnostic(self, diagnostic: Diagnostic) -> Diagnostic:
         """Return a copy of *diagnostic* with its positions rebased."""
-        line, end_line = diagnostic.line, cast(int, diagnostic.end_line)
+        line, column, end_line, end_column = tab_extent(diagnostic)
         return replace(
             diagnostic,
             line=self.line(line),
-            column=self.column(line, cast(int, diagnostic.column)),
+            column=self.column(line, column),
             end_line=self.line(end_line),
-            end_column=self.column(end_line, cast(int, diagnostic.end_column)),
+            end_column=self.column(end_line, end_column),
         )

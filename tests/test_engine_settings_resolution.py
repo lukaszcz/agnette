@@ -1,24 +1,25 @@
 """Ranking and decoding of the engine settings an AgL host seeds.
 
-``resolve_engine_settings`` picks each setting's winning source, decodes only that value
-and records its tier; ``trace_decision`` reads the derived ``trace`` setting off those tiers.
+``resolve_host_params`` picks each setting's winning source, decodes only that value and
+records its tier; ``trace_decision`` reads the derived ``trace`` setting off
+those tiers.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
+from agnette.agl.diagnostics import Diagnostic, configured_diagnostics
 from agnette.agl.ir.static_keys import StaticBindingKey, static_binding_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.runtime.arguments import OptionSome, ParamTier, option_none_raw
 from agnette.agl.runtime.engine_config import (
     EngineSettings,
-    EngineValueFailure,
-    resolve_engine_settings,
+    engine_setting_decoder,
     split_engine_values,
 )
-from agnette.agl.semantics.values import BoolValue, IntValue, Value
+from agnette.agl.runtime.param_resolution import resolve_host_params
+from agnette.agl.semantics.values import BoolValue, Value
 from agnette.agm.cli_support.engine_seeds import engine_seed_values, trace_decision
 from agnette.core.log import TraceDecision
 
@@ -29,14 +30,17 @@ def _key(name: str) -> StaticBindingKey:
     return static_binding_key(STD_CONFIG_ID, (), name)
 
 
-def _resolve(
-    tiers: _Tiers, config: dict[str, Value] | None = None
-) -> tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]:
-    """Resolve raw values given by setting name; return the settings and both failure lists."""
-    return resolve_engine_settings(
+def _resolve(tiers: _Tiers) -> tuple[EngineSettings, list[Diagnostic], list[Diagnostic]]:
+    """Resolve raw values given by setting name; return the settings, then the configured and
+    the usage failures."""
+    decoded = resolve_host_params(
         {tier: {_key(n): raw for n, raw in values.items()} for tier, values in tiers},
-        {_key(n): value for n, value in (config or {}).items()},
-        nominals=NO_BUILTIN_DECLARATIONS,
+        engine_setting_decoder(),
+    )
+    return (
+        decoded.engine,
+        configured_diagnostics(decoded.diagnostics, decoded.usage_diagnostics),
+        list(decoded.usage_diagnostics),
     )
 
 
@@ -48,8 +52,7 @@ class TestWinningTier:
                 (ParamTier.INHERITED, {"strict-json": True}),
                 (ParamTier.CONFIGURED, {"trace": True}),
                 (ParamTier.SUPPLIED, {"debug": True}),
-            ],
-            {"strict-json": BoolValue(False)},
+            ]
         )
 
         assert settings.values == {
@@ -63,14 +66,6 @@ class TestWinningTier:
             "debug": ParamTier.SUPPLIED,
         }
         assert usage == configured == []
-
-    def test_a_config_attribute_value_outranks_the_declared_tier_only(self) -> None:
-        settings, _, _ = _resolve(
-            [(ParamTier.DECLARED, {"trace": False}), (ParamTier.CONFIGURED, {"debug": False})],
-            {"trace": BoolValue(True), "debug": BoolValue(True)},
-        )
-
-        assert settings.ranks == {"trace": ParamTier.CONFIG, "debug": ParamTier.CONFIGURED}
 
     def test_a_setting_no_tier_sets_is_absent(self) -> None:
         settings, _, _ = _resolve([(ParamTier.DECLARED, {})])
@@ -120,16 +115,6 @@ class TestFailures:
 
         assert settings == EngineSettings({}, {})
         assert len(usage) == 1
-        assert len(configured) == 1
-
-    def test_a_failing_config_attribute_value_is_reported_even_when_overridden(self) -> None:
-        settings, configured, usage = _resolve(
-            [(ParamTier.SUPPLIED, {"parse-error-retries": "2"})],
-            {"parse-error-retries": IntValue(-1)},
-        )
-
-        assert settings.values == {"parse-error-retries": IntValue(2)}
-        assert usage == []
         assert len(configured) == 1
 
 

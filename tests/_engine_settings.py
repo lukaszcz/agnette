@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from agnette.agl.diagnostics import Diagnostic, configured_diagnostics
 from agnette.agl.ir.static_keys import StaticBindingKey
-from agnette.agl.runtime.engine_config import EngineSettings, EngineValueFailure
+from agnette.agl.runtime.engine_config import EngineSettings
 from agnette.agl.semantics.values import Value
 from agnette.agm.cli_support.engine_seeds import engine_seed_values, parse_engine_flags
 from agnette.config.general import GeneralConfig
 from agnette.host_params.config import resolve_programless_engine_settings
 from tests._engine_flags import engine_flag_tokens
 
-type Resolved = tuple[EngineSettings, list[EngineValueFailure], list[EngineValueFailure]]
+#: The settings, the configured failures, then the usage failures (supplied by the command line).
+type Resolved = tuple[EngineSettings, list[Diagnostic], list[Diagnostic]]
 
 
 def _flag_tokens(name: str, value: object | None) -> list[str]:
@@ -53,7 +55,8 @@ def resolve_programless(
 ) -> Resolved:
     """Resolve engine settings from native *cli* flag values over an ``[exec]`` table."""
     config = GeneralConfig.from_layers([{"exec": dict(exec_table or {})}], [None])
-    return resolve_programless_engine_settings(config, _supplied(cli or {}))
+    settings, diagnostics, usage = resolve_programless_engine_settings(config, _supplied(cli or {}))
+    return settings, configured_diagnostics(diagnostics, usage), list(usage)
 
 
 def programless_seeds(

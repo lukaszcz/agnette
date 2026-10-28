@@ -35,16 +35,10 @@ from agnette.agl.eval.ir_interpreter import (
     resolver_over_interpreter,
 )
 from agnette.agl.ir.nodes import UseDefault
-from agnette.agl.ir.static_keys import FunctionParamKey, split_host_param_values
+from agnette.agl.ir.static_keys import FunctionParamKey
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.runtime.agents import AgentFn
-from agnette.agl.runtime.engine_config import (
-    EngineSettings,
-    EngineValueFailure,
-    engine_setting_params,
-    resolve_engine_settings,
-    split_engine_values,
-)
+from agnette.agl.runtime.engine_config import EngineSettings, engine_setting_params
 from agnette.agl.runtime.types import (
     HostEnvironment,
     HostParamInfo,
@@ -239,17 +233,14 @@ class ArgumentPreflightFailure:
     """Failed result of ``PipelineDriver.preflight_arguments``; ``result`` holds the diagnostics.
 
     ``usage_diagnostics`` are the failures of values the command line or environment
-    supplied, and of missing or unknown program arguments, separate from the static and
-    configured-value diagnostics so CLI hosts can present them as usage errors.
-    ``engine_failures`` and ``engine_usage_failures`` are the invalid engine setting values,
-    configured and supplied respectively; they have no source location, so they are not
-    in ``result``.
+    supplied and the positional-binding, duplicate and missing-argument diagnostics (an
+    unknown argument, or a positional-only one given by name, only when supplied),
+    separate from the static and configured-value diagnostics so CLI hosts can present
+    them as usage errors.
     """
 
     result: "RunResult"
     usage_diagnostics: "tuple[Diagnostic, ...]" = ()
-    engine_failures: "tuple[EngineValueFailure, ...]" = ()
-    engine_usage_failures: "tuple[EngineValueFailure, ...]" = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,7 +413,8 @@ class RunResult:
     ``diagnostics``
         Pre-execution FAILURES only: error-severity items from
         lex/parse/scope/typecheck/matchcompile/program-argument-validation.  Each entry has a
-        ``.message`` (str) and a ``.line`` (int, 1-based).  Reported warnings are a
+        ``.message`` (str) and an optional 1-based ``.line`` (``None``
+        for a diagnostic no source declares).  Reported warnings are a
         SEPARATE channel (``warnings``); only a warning the policy denies appears
         here, as an error with its ``warning_name`` kept, after the errors of the
         failing pass.  On a successful run this list is empty.
@@ -623,7 +615,7 @@ class PipelineDriver:
         ``None`` means no argument source was ever consulted: every parameter
         is derived to its own default, and a required parameter with none
         becomes the same pre-execution diagnostic
-        :func:`~agnette.agl.runtime.arguments.bind_program_arguments` reports for
+        :func:`~agnette.agl.runtime.arguments.complete_program_arguments` reports for
         an explicit miss — never an interpreter arity crash.
         """
         check_only = options.check_only
@@ -1379,171 +1371,65 @@ class PipelineDriver:
 
         Runs the static pipeline exactly as :meth:`run_prepared` does under
         ``check_only``, then binds and decodes the *positional* arguments and the
-        named ones the tiers carry against the lowered program's signature for *program*
-        (:func:`~agnette.agl.runtime.arguments.bind_program_arguments_for`). Hand
+        values the tiers carry against the lowered program's signature for *program*. Hand
         the lowered executable and the bound arguments back to
         :meth:`run_prepared` (``executable=``, ``arguments=``) to execute it
         without lowering it a second time.
 
-        Values are keyed by :data:`~agnette.agl.ir.static_keys.HostParamKey`
-        and merged by tier, lowest first, so one chain ranks every kind:
+        Values are keyed by :data:`~agnette.agl.ir.static_keys.HostParamKey`, whatever
+        their kind (module, function and engine-setting parameters; the program's own
+        arguments), and ranked by tier, lowest first, by one rule
+        (:func:`~agnette.agl.runtime.param_resolution.resolve_program_params`):
         *param_values_lower* (the declaration route, a package-owned program's
         manifest ``[config]`` values already folded in above it), then the
         program's own ``@config`` entries, then *param_values_inherited* (raw
         ``@inherit`` values, each with its address), then *param_values*
-        (supplied and program-route values). A value a higher tier overrides is
-        never decoded. The ``@config`` values are already typed ``Value``s (evaluated
-        by :meth:`_evaluate_program_config`) and need no decoding. Engine settings
-        are keyed by their ``std/config`` binding like any module parameter, but
-        resolve into :attr:`ArgumentPreflight.engine` rather than the seeds
-        (:func:`~agnette.agl.runtime.engine_config.resolve_engine_settings`). The tiers are
-        the only channel of named program arguments: one is keyed by its
-        program's :class:`~agnette.agl.ir.static_keys.FunctionParamKey`, the
-        other keys become the module and function seeds. A value for a
-        positionally bound argument must be left out by the caller. A bound
-        ``@param`` argument of *program* is also a function seed, so its value
-        reaches every other call that omits it. *supplied* names the keys the
-        command line or environment supplied: a decode failure of a value among
-        them (or a missing or unknown argument) is a usage diagnostic, any other
-        failure is a configuration one.
+        (supplied and program-route values), then *positional*. A value a higher tier
+        overrides is never decoded. The ``@config`` values are already typed ``Value``s
+        (evaluated by :meth:`_evaluate_program_config`) and need no decoding. The winners
+        split on output: engine settings into :attr:`ArgumentPreflight.engine`, the
+        program's own arguments into the bound arguments, and the rest into the
+        module and function seeds; a ``@param`` argument of *program* is also a
+        function seed, so its value reaches every other call that omits it. *supplied*
+        names the keys the command line or environment supplied: a failure of a value
+        among them (or a missing argument) is a usage diagnostic, any other failure is
+        a configuration one. An invalid engine setting value has no source location.
         """
-        from agnette.agl.runtime.arguments import (
-            ConfiguredArgumentDiagnostic,
-            ParamTier,
-            ProgramArguments,
-            bind_param_values,
-            bind_program_arguments_for,
-            split_program_arguments,
-        )
+        from agnette.agl.runtime.param_resolution import resolve_program_params
 
         result, executable = self._lower_and_record(prepared, program, compiled=compiled)
         if executable is None or not result.ok:
             return ArgumentPreflightFailure(result=result)
 
         get_interp = lazy_interpreter(executable)
-        default_resolver = resolver_over_interpreter(get_interp)
-        param_values, engine_upper = split_engine_values(param_values or {})
-        param_values_lower, engine_lower = split_engine_values(param_values_lower or {})
-        upper, upper_arguments = split_program_arguments(param_values, program)
-        upper_keys = frozenset(param_values)
-        lower_params, lower_arguments = split_program_arguments(param_values_lower, program)
-        inherited = {
-            key: item
-            for key, item in (param_values_inherited or {}).items()
-            if key not in upper_keys
-        }
-        inherited_addresses = {key: item.address for key, item in inherited.items()}
-        inherited_params, inherited_arguments = split_program_arguments(
-            {key: item.value for key, item in inherited.items()}, program
-        )
-        program_config, engine_config = split_engine_values(
-            self._evaluate_program_config(executable, program, get_interp)
-        )
-        config_seeds, config_arguments = split_program_arguments(program_config, program)
-        named = {
-            **{
-                name: value
-                for name, value in lower_arguments.items()
-                if name not in config_arguments
-            },
-            **inherited_arguments,
-            **upper_arguments,
-        }
-        bound, bind_diagnostics = bind_program_arguments_for(
+        resolution = resolve_program_params(
             executable,
             program,
-            ProgramArguments(positional=positional, named=named, fallback=config_arguments),
-            default_resolver=default_resolver,
-            configured=frozenset(name for name in named if program.param_key(name) not in supplied),
-            inherited={
-                name: inherited_addresses[program.param_key(name)] for name in inherited_arguments
-            },
+            positional=positional,
+            lower=param_values_lower or {},
+            config=self._evaluate_program_config(executable, program, get_interp),
+            inherited=param_values_inherited or {},
+            upper=param_values or {},
+            supplied=supplied,
+            default_resolver=resolver_over_interpreter(get_interp),
         )
-        usage_diagnostics = tuple(
-            diag for diag in bind_diagnostics if not isinstance(diag, ConfiguredArgumentDiagnostic)
-        )
-        config_param_values = {
-            key: value
-            for key, value in config_seeds.items()
-            if (key in executable.param_bindings or key in executable.function_param_bindings)
-            and key not in inherited_params
-        }
-        lower = {
-            key: value
-            for key, value in lower_params.items()
-            if key not in upper and key not in config_param_values and key not in inherited_params
-        }
-        decoded_lower, lower_diagnostics = bind_param_values(
-            executable, lower, default_resolver=default_resolver
-        )
-        decoded_inherited, inherited_diagnostics = bind_param_values(
-            executable,
-            inherited_params,
-            default_resolver=default_resolver,
-            inherited=inherited_addresses,
-        )
-        decoded_configured, configured_diagnostics = bind_param_values(
-            executable,
-            {key: value for key, value in upper.items() if key not in supplied},
-            default_resolver=default_resolver,
-        )
-        decoded_supplied, supplied_diagnostics = bind_param_values(
-            executable,
-            {key: value for key, value in upper.items() if key in supplied},
-            default_resolver=default_resolver,
-        )
-        engine, engine_failures, engine_usage_failures = resolve_engine_settings(
-            {
-                ParamTier.DECLARED: engine_lower,
-                ParamTier.CONFIGURED: {k: v for k, v in engine_upper.items() if k not in supplied},
-                ParamTier.SUPPLIED: {k: v for k, v in engine_upper.items() if k in supplied},
-            },
-            engine_config,
-            nominals=executable.builtin_nominals,
-        )
-        seed_tiers = {
-            ParamTier.DECLARED: decoded_lower,
-            ParamTier.CONFIG: config_param_values,
-            ParamTier.INHERITED: decoded_inherited,
-            ParamTier.CONFIGURED: decoded_configured,
-            ParamTier.SUPPLIED: decoded_supplied,
-        }
-        seeds: dict[HostParamKey, Value] = {}
-        for tier in ParamTier:
-            seeds.update(seed_tiers[tier])
-        param_seeds, function_param_seeds = split_host_param_values(seeds)
-        if not bind_diagnostics:
-            for param, value in zip(program.parameters, bound, strict=True):
-                key = program.param_key(param.name)
-                if key in executable.function_param_bindings and not isinstance(value, UseDefault):
-                    function_param_seeds[key] = value
-        usage_diagnostics = (*usage_diagnostics, *supplied_diagnostics)
-        diagnostics = (
-            *bind_diagnostics,
-            *lower_diagnostics,
-            *inherited_diagnostics,
-            *configured_diagnostics,
-            *supplied_diagnostics,
-        )
-        if diagnostics or engine_failures or engine_usage_failures:
+        if resolution.diagnostics:
             return ArgumentPreflightFailure(
                 result=RunResult(
                     ok=False,
-                    diagnostics=list(diagnostics),
+                    diagnostics=list(resolution.diagnostics),
                     error=None,
                     warnings=result.warnings,
                 ),
-                usage_diagnostics=usage_diagnostics,
-                engine_failures=tuple(engine_failures),
-                engine_usage_failures=tuple(engine_usage_failures),
+                usage_diagnostics=resolution.usage_diagnostics,
             )
         return ArgumentPreflight(
             result=result,
             executable=executable,
-            arguments=bound,
-            param_seeds=param_seeds,
-            function_param_seeds=function_param_seeds,
-            engine=engine,
+            arguments=resolution.arguments,
+            param_seeds=resolution.param_seeds,
+            function_param_seeds=resolution.function_param_seeds,
+            engine=resolution.engine,
         )
 
     @staticmethod
@@ -1652,7 +1538,7 @@ class PipelineDriver:
                 diagnostic = (
                     diagnostic_from_span(str(exc), exc.span)
                     if exc.span is not None
-                    else Diagnostic(message=str(exc), line=1)
+                    else Diagnostic(message=str(exc))
                 )
                 return (
                     RunResult(

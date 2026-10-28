@@ -59,7 +59,7 @@ import click
 from click.core import ParameterSource
 
 from agnette.agl.ir.static_keys import HostParamKey
-from agnette.agl.runtime.arguments import ProgramArguments, option_none_raw
+from agnette.agl.runtime.arguments import option_none_raw
 from agnette.agl.runtime.types import (
     HostParamInfo,
     HostParamKind,
@@ -283,6 +283,19 @@ class ExecTail:
 
     file: str | None
     tokens: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramArguments:
+    """Raw program argument values parsed from one command line.
+
+    ``positional`` is in token order; ``named`` maps a parameter name to its value. Values
+    are plain Python objects (strings, native TOML or JSON-shaped values) not yet decoded
+    against any parameter type.
+    """
+
+    positional: tuple[object, ...]
+    named: Mapping[str, object]
 
 
 @dataclass(frozen=True, slots=True)

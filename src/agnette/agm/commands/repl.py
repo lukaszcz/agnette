@@ -43,10 +43,10 @@ from agnette.agl.runtime.engine_config import EngineSettings
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import HostParamInfo
 from agnette.agl.warning_policy import WarningPolicy
+from agnette.agm.cli_support.agl_errors import fail_with_diagnostics
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
     engine_seed_values,
-    fail_engine_settings,
     host_agent_spec_resolver,
     parse_engine_flags,
     resolve_strict_json,
@@ -118,9 +118,9 @@ def _resolve_engine_settings(
         supplied = parse_engine_flags(tokens)
     except ValueError as exc:
         raise CommandUsageError(str(exc)) from exc
-    settings, configured, usage = resolve_programless_engine_settings(general_config, supplied)
-    if configured or usage:
-        fail_engine_settings(configured, usage)
+    settings, diagnostics, usage = resolve_programless_engine_settings(general_config, supplied)
+    if diagnostics:
+        fail_with_diagnostics(diagnostics, usage)
     return settings
 
 

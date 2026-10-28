@@ -163,7 +163,7 @@ def apply_warning_policy(
 
 def _allowed_by_region(warning: Diagnostic, name: str, regions: Iterable[AllowRegion]) -> bool:
     """Whether a region naming *name* contains the warning, from its start to its exclusive end."""
-    return any(
+    return warning.line is not None and any(
         name in region.names and region.contains(warning.line, warning.column or 1)
         for region in regions
     )

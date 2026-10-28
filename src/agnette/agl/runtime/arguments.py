@@ -1,32 +1,26 @@
 """Runtime program-argument binding: host-supplied raw values -> checked ``Value``s.
 
-``ProgramArguments`` is what a host (``agm exec``, a registered package
-command, the config layer, the e2e harness) hands the pipeline: the raw
-positional and named values it collected from its own surface (CLI tokens,
-config-table entries, …). :func:`bind_program_arguments` runs those against a
-program's parameter signature through the shared zone binder
-(``agnette.agl.semantics.arguments``), decodes each supplied value through its
-``ParamDecoder``, and reports every violation as a pre-execution
-:class:`~agnette.agl.diagnostics.Diagnostic`, anchored at the offending
+A program's arguments are host parameters like any
+other (:mod:`agnette.agl.runtime.param_resolution` ranks and decodes them):
+:func:`bind_positional_arguments` maps the positional ones onto parameter names
+through the shared zone binder (``agnette.agl.semantics.arguments``),
+:func:`decode_program_argument` and :func:`decode_host_param` decode a raw value
+through its ``ParamDecoder``, and :func:`complete_program_arguments` fills the
+remaining defaults and reports the missing required ones. Every violation is a
+pre-execution :class:`~agnette.agl.diagnostics.Diagnostic`, anchored at the offending
 parameter's declaration span — or the program's own span when no single
-parameter is at fault (an unknown name, or an excess/misdirected positional
-argument). A structural violation (unknown name, duplicate, positional
-overflow, a positional-only parameter supplied by name) stops binding at the
-first one found, since it makes the rest of the binding meaningless; a
-missing required parameter and a decode failure both accumulate, so every
-offending parameter is reported in one pass.
+parameter is at fault (an excess or misdirected positional argument, an unknown name).
 """
 
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 from agnette.agl.diagnostics import Diagnostic, diagnostic_from_span
 from agnette.agl.ir.nodes import UseDefault
 from agnette.agl.ir.static_keys import (
-    FunctionParamKey,
     HostParamKey,
     host_param_label,
 )
@@ -40,6 +34,7 @@ from agnette.util.unicode import require_scalar_text, surrogate_index, visible_t
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from collections.abc import Set as AbstractSet
 
     from agnette.agl.ir.contracts import DecodeSchema, ParamDecoder
     from agnette.agl.ir.program import ExecutableProgram, IrProgramParam
@@ -50,18 +45,22 @@ if TYPE_CHECKING:
     from agnette.agl.zones import ParamZone
 
 __all__ = [
-    "ConfiguredArgumentDiagnostic",
     "InheritedParamValue",
     "OptionSome",
     "ParamTier",
-    "ProgramArguments",
-    "bind_program_arguments_for",
     "bind_param_values",
+    "bind_positional_arguments",
+    "complete_program_arguments",
+    "decode_host_param",
     "decode_param_value",
+    "decode_program_argument",
     "default_program_arguments",
     "diagnose_process_environment",
+    "duplicate_argument_diagnostic",
     "option_none_raw",
-    "split_program_arguments",
+    "positional_only_by_name_diagnostic",
+    "program_signature",
+    "unknown_argument_diagnostic",
 ]
 
 
@@ -85,8 +84,7 @@ def diagnose_process_environment(
                 message=(
                     f"environment variable {visible_text(name)} is not "
                     f"valid UTF-8: '{visible_text(value)}'"
-                ),
-                line=1,
+                )
             )
     return None
 
@@ -123,31 +121,9 @@ class InheritedParamValue:
     address: str
 
 
-def _inherited_note[K](inherited: "Mapping[K, str] | None", key: K) -> str:
-    """Return the diagnostic suffix naming the ``@inherit`` address *key*'s value came from."""
-    address = None if inherited is None else inherited.get(key)
+def _inherited_note(address: str | None) -> str:
+    """Return the diagnostic suffix naming the ``@inherit`` *address* a value came from."""
     return "" if address is None else f" (inherited from '{address}')"
-
-
-@dataclass(frozen=True, slots=True)
-class ConfiguredArgumentDiagnostic(Diagnostic):
-    """A decode failure of an argument value that a configuration tier supplied."""
-
-
-@dataclass(frozen=True, slots=True)
-class ProgramArguments:
-    """Raw host-supplied values for one program invocation.
-
-    ``positional`` is host-supplied in source/token order; ``named`` maps a
-    parameter name to its host-supplied value. Values are plain Python
-    objects — JSON-shaped values, strings, or native TOML values — not yet
-    decoded against any parameter type. ``fallback`` holds already-decoded
-    values for the parameters neither a positional nor a named argument binds.
-    """
-
-    positional: tuple[object, ...]
-    named: "Mapping[str, object]"
-    fallback: "Mapping[str, Value]" = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,8 +213,9 @@ def decode_param_value(
 ) -> "Value":
     """Decode a raw host param value against *decoder* into a typed ``Value``.
 
-    The single decode path shared by program-argument binding
-    (:func:`bind_program_arguments`) and the host engine-config decode path
+    The single decode path shared by program-argument and parameter decoding
+    (:func:`decode_program_argument`, :func:`decode_host_param`) and the host
+    engine-config decode path
     (``runtime.engine_config.convert_host_value``). A textual value is read
     through the shared host-text dispatch
     (``runtime.value_decode.host_param_text_to_json``): ``text`` params
@@ -328,117 +305,150 @@ class _Supplied:
     value: object
 
 
-def bind_program_arguments(
-    signature: ProgramSignature,
-    arguments: ProgramArguments,
-    *,
-    default_resolver: "DefaultResolver | None" = None,
-    configured: frozenset[str] = frozenset(),
-    inherited: "Mapping[str, str] | None" = None,
-) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
-    """Bind and decode *arguments* against *signature*.
+def program_signature(
+    executable: "ExecutableProgram", program: "ProgramDeclInfo"
+) -> ProgramSignature:
+    """Fuse *program*'s declaration info with *executable*'s signature.
 
-    Runs the shared zone binder (positional-greedy; a host supplies plain
-    values rather than AST expressions, so no item is ever treated as a bare
-    name) with every parameter's default suppressed, so a missing required
-    parameter never stops the binder early; it is instead reported below,
-    alongside every other missing required parameter; a parameter nothing
-    binds takes its ``arguments.fallback`` value before its default or a
-    missing-required report. A structural
-    violation (unknown name, duplicate, positional overflow, or a
-    positional-only parameter supplied by name) still stops binding
-    immediately, since it makes the rest of the binding meaningless.
-
-    Returns ``(values, ())`` on success, where *values* is ready for
-    ``IrInterpreter.run``'s ``arguments`` (one entry per parameter, in
-    declaration order: a decoded ``Value``, the ``arguments.fallback`` value for
-    a parameter nothing bound, or ``UseDefault`` for an omitted defaulted
-    parameter) — a zero-parameter program returns ``((), ())``, so
-    a caller must key success off the diagnostics tuple, not off whether
-    values is non-empty. Returns ``((), diagnostics)`` on any binding or
-    decode failure — one diagnostic for a structural violation, or one per
-    parameter that is missing-and-required or failed to decode (both keep
-    checking every parameter rather than stopping at the first).
-    *default_resolver*, when given, fills an omitted defaulted field nested in
-    a supplied argument's value (see :func:`decode_param_value`). A decode
-    failure of a *configured* name (a configuration tier supplied its value) is
-    a :class:`ConfiguredArgumentDiagnostic`; *inherited* maps the arguments whose
-    value is inherited to their ``@inherit`` address, which that diagnostic names.
+    *program* and *executable* must describe the same selected program.
     """
-    from agnette.agl.runtime.convert import StrictJsonParseError
+    program_symbol = executable.program_symbols[program.node_id]
+    return ProgramSignature.fuse(
+        executable.program_signatures[program_symbol], program.parameters, program.span
+    )
 
+
+def bind_positional_arguments(
+    signature: ProgramSignature, positional: "tuple[object, ...]"
+) -> "tuple[dict[str, object], tuple[Diagnostic, ...]]":
+    """Map *positional* raw values onto *signature*'s parameter names, in zone order.
+
+    The shared zone binder is positional-greedy; a host supplies plain values rather
+    than AST expressions, so no item is ever treated as a bare name. Returns the raw
+    value of each positionally bound parameter, or one diagnostic for an excess or
+    misdirected positional argument.
+    """
     bind_params = [
         BindParam(name=p.name, kind=p.kind, has_default=True) for p in signature.parameters
     ]
-    boxed_positional = [_Supplied(value) for value in arguments.positional]
-    boxed_named = [(name, _Supplied(value)) for name, value in arguments.named.items()]
     try:
-        bound = bind_arguments(bind_params, boxed_positional, boxed_named)
+        bound = bind_arguments(bind_params, [_Supplied(value) for value in positional], [])
     except ArgumentBindingError as exc:
-        return (), (_diagnose_binding_error(exc, signature),)
-
-    values: "list[Value | UseDefault]" = []
-    diagnostics: list[Diagnostic] = []
-    for index, (param, box) in enumerate(zip(signature.parameters, bound, strict=True)):
-        if box is None:
-            if param.name in arguments.fallback:
-                values.append(arguments.fallback[param.name])
-            elif param.has_default:
-                values.append(UseDefault(param_index=index))
-            else:
-                diagnostics.append(
-                    diagnostic_from_span(_missing_required_message(param.name), param.span)
-                )
-            continue
-        try:
-            values.append(
-                decode_param_value(param.decoder, box.value, default_resolver=default_resolver)
-            )
-        except (StrictJsonParseError, ValueError) as exc:
-            diagnostics.append(
-                diagnostic_from_span(
-                    f"Program argument {param.name!r}: could not parse as "
-                    f"{param.decoder.target_type_label}: {exc}"
-                    f"{_inherited_note(inherited, param.name)}",
-                    param.span,
-                    diagnostic_type=(
-                        ConfiguredArgumentDiagnostic if param.name in configured else Diagnostic
-                    ),
-                )
-            )
-    if diagnostics:
-        return (), tuple(diagnostics)
-    return tuple(values), ()
+        return {}, (_diagnose_binding_error(exc, signature),)
+    return {
+        param.name: box.value
+        for param, box in zip(signature.parameters, bound, strict=True)
+        if box is not None
+    }, ()
 
 
-def bind_program_arguments_for(
-    executable: "ExecutableProgram",
-    program: "ProgramDeclInfo",
-    arguments: ProgramArguments,
+def decode_program_argument(
+    param: ProgramParameter,
+    raw: object,
     *,
     default_resolver: "DefaultResolver | None" = None,
-    configured: frozenset[str] = frozenset(),
-    inherited: "Mapping[str, str] | None" = None,
-) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
-    """Fuse *program*'s declaration info with *executable*'s signature, then bind *arguments*.
+    inherited_address: str | None = None,
+) -> "Value | Diagnostic":
+    """Decode *raw* against *param*'s decoder; a failure is a diagnostic at its declaration.
 
-    *program* and *executable* must describe the same selected program.
-    *default_resolver*, when given, fills a defaulted field an argument's value omits
-    (built by the caller over *executable*'s own real nominal table — this package never
-    constructs an evaluator itself). *configured* names the arguments a configuration
-    tier supplied (see :func:`bind_program_arguments`).
+    *default_resolver*, when given, fills an omitted defaulted field nested in *raw*
+    (see :func:`decode_param_value`); *inherited_address* names the ``@inherit``
+    address *raw* came from.
     """
-    program_symbol = executable.program_symbols[program.node_id]
-    signature = ProgramSignature.fuse(
-        executable.program_signatures[program_symbol], program.parameters, program.span
+    from agnette.agl.runtime.convert import StrictJsonParseError
+
+    try:
+        return decode_param_value(param.decoder, raw, default_resolver=default_resolver)
+    except (StrictJsonParseError, ValueError) as exc:
+        return diagnostic_from_span(
+            f"Program argument {param.name!r}: could not parse as "
+            f"{param.decoder.target_type_label}: {exc}{_inherited_note(inherited_address)}",
+            param.span,
+        )
+
+
+def unknown_argument_diagnostic(signature: ProgramSignature, name: str) -> Diagnostic:
+    """Return the diagnostic for a value of a program argument *signature* does not declare."""
+    return diagnostic_from_span(f"Unknown program argument: {name!r}", signature.span)
+
+
+def duplicate_argument_diagnostic(param: ProgramParameter) -> Diagnostic:
+    """Return the diagnostic for the argument *param* given both positionally and by name."""
+    return diagnostic_from_span(
+        f"Program argument {param.name!r} supplied more than once", param.span
     )
-    return bind_program_arguments(
-        signature,
-        arguments,
-        default_resolver=default_resolver,
-        configured=configured,
-        inherited=inherited,
+
+
+def positional_only_by_name_diagnostic(param: ProgramParameter) -> Diagnostic:
+    """Return the diagnostic for a value of the positional-only *param* supplied by name."""
+    return diagnostic_from_span(
+        f"Program argument {param.name!r} is positional-only and cannot be supplied by name",
+        param.span,
     )
+
+
+def complete_program_arguments(
+    signature: ProgramSignature,
+    values: "Mapping[str, Value]",
+    *,
+    failed: "AbstractSet[str]" = frozenset(),
+) -> "tuple[tuple[Value | UseDefault, ...], tuple[Diagnostic, ...]]":
+    """Return one entry per parameter, in declaration order, from the decoded *values*.
+
+    A parameter *values* lacks takes ``UseDefault`` when it has a default and is
+    otherwise reported missing, every missing required one in a single pass; a name in
+    *failed* already has a decode diagnostic and is skipped. Returns ``(entries, ())``
+    ready for ``IrInterpreter.run``'s ``arguments`` — a zero-parameter program returns
+    ``((), ())``, so a caller must key success off the diagnostics tuple — or
+    ``((), diagnostics)``.
+    """
+    entries: "list[Value | UseDefault]" = []
+    diagnostics: list[Diagnostic] = []
+    for index, param in enumerate(signature.parameters):
+        if param.name in values:
+            entries.append(values[param.name])
+        elif param.name in failed:
+            continue
+        elif param.has_default:
+            entries.append(UseDefault(param_index=index))
+        else:
+            diagnostics.append(
+                diagnostic_from_span(_missing_required_message(param.name), param.span)
+            )
+    if diagnostics or failed:
+        return (), tuple(diagnostics)
+    return tuple(entries), ()
+
+
+def decode_host_param(
+    executable: "ExecutableProgram",
+    key: HostParamKey,
+    raw: object,
+    *,
+    default_resolver: "DefaultResolver | None" = None,
+    inherited_address: str | None = None,
+) -> "Value | Diagnostic":
+    """Decode a module- or function-parameter value *raw* against *executable*'s tables.
+
+    An unknown *key* or a malformed value is a diagnostic (the latter at the parameter's
+    declaration). *default_resolver*, when given, fills a defaulted field a value omits
+    (built by the caller over *executable*'s own real nominal table); a failure of a
+    value from an ``@inherit`` address names *inherited_address*.
+    """
+    from agnette.agl.runtime.convert import StrictJsonParseError
+
+    decoder = executable.param_decoders.get(key)
+    if decoder is None:
+        return Diagnostic(message=f"Unknown parameter: {host_param_label(key)}")
+    try:
+        return decode_param_value(decoder, raw, default_resolver=default_resolver)
+    except (StrictJsonParseError, ValueError) as exc:
+        message = (
+            f"Parameter {host_param_label(key)}: "
+            f"could not parse as {decoder.target_type_label}: {exc}"
+            f"{_inherited_note(inherited_address)}"
+        )
+        return diagnostic_from_span(message, cast("SourceSpan", executable.param_spans[key]))
 
 
 def bind_param_values[K: HostParamKey](
@@ -446,60 +456,23 @@ def bind_param_values[K: HostParamKey](
     raw: "Mapping[K, object]",
     *,
     default_resolver: "DefaultResolver | None" = None,
-    inherited: "Mapping[K, str] | None" = None,
 ) -> "tuple[Mapping[K, Value], tuple[Diagnostic, ...]]":
-    """Decode supplied module- and function-parameter values against *executable*'s tables.
+    """Decode every value of *raw* with :func:`decode_host_param`.
 
-    Every supplied key is checked independently so an unknown parameter and
-    all malformed values are returned together before the interpreter starts.
-    *default_resolver*, when given, fills a defaulted field a value omits
-    (built by the caller over *executable*'s own real nominal table). A failure
-    of a key in *inherited* names its ``@inherit`` address.
+    Every key is checked independently so an unknown parameter and all malformed
+    values are returned together before the interpreter starts.
     """
-    from agnette.agl.runtime.convert import StrictJsonParseError
-
     values: dict[K, Value] = {}
     diagnostics: list[Diagnostic] = []
     for key, value in raw.items():
-        decoder = executable.param_decoders.get(key)
-        if decoder is None:
-            diagnostics.append(
-                Diagnostic(message=f"Unknown parameter: {host_param_label(key)}", line=1)
-            )
-            continue
-        try:
-            values[key] = decode_param_value(decoder, value, default_resolver=default_resolver)
-        except (StrictJsonParseError, ValueError) as exc:
-            message = (
-                f"Parameter {host_param_label(key)}: "
-                f"could not parse as {decoder.target_type_label}: {exc}"
-                f"{_inherited_note(inherited, key)}"
-            )
-            span = cast("SourceSpan", executable.param_spans[key])
-            diagnostics.append(diagnostic_from_span(message, span))
+        decoded = decode_host_param(executable, key, value, default_resolver=default_resolver)
+        if isinstance(decoded, Diagnostic):
+            diagnostics.append(decoded)
+        else:
+            values[key] = decoded
     if diagnostics:
         return {}, tuple(diagnostics)
     return values, ()
-
-
-def split_program_arguments[V](
-    values: "Mapping[HostParamKey, V]", program: "ProgramDeclInfo"
-) -> "tuple[dict[HostParamKey, V], dict[str, V]]":
-    """Split host parameter *values* into seeds and *program*'s own arguments.
-
-    Returns the seeds (module parameters and other functions' parameters) and
-    *program*'s own arguments by name (whether or not it declares them, so the
-    binder can reject an unknown one).
-    """
-    seeds: dict[HostParamKey, V] = {}
-    arguments: dict[str, V] = {}
-    function = program.declaration_key
-    for key, value in values.items():
-        if isinstance(key, FunctionParamKey) and key.declaration_key == function:
-            arguments[key.param] = value
-        else:
-            seeds[key] = value
-    return seeds, arguments
 
 
 def default_program_arguments(
@@ -508,11 +481,11 @@ def default_program_arguments(
     """Derive an argument list for a program invoked with no host-supplied values.
 
     Used when a caller runs a selected program without going through
-    :func:`bind_program_arguments` — no ``ProgramArguments`` was ever
+    :func:`complete_program_arguments` — no argument value was ever
     collected, only the lowered signature is on hand. Every parameter defers
     to its own default (``UseDefault``); a parameter with none is reported
-    with the same message :func:`bind_program_arguments` uses for an
-    explicitly missing argument, anchored at line 1 since no declaration span
+    with the same message :func:`complete_program_arguments` uses for an
+    explicitly missing argument, without a location since no declaration span
     is reachable from an ``IrProgramParam`` alone.
 
     Returns ``(values, ())`` on success — one entry per parameter, in
@@ -520,7 +493,7 @@ def default_program_arguments(
     required parameter.
     """
     diagnostics = tuple(
-        Diagnostic(message=_missing_required_message(param.name), line=1)
+        Diagnostic(message=_missing_required_message(param.name))
         for param in signature
         if param.required
     )
@@ -529,38 +502,18 @@ def default_program_arguments(
     return tuple(UseDefault(param_index=i) for i in range(len(signature))), ()
 
 
-#: `bind_program_arguments` always passes `has_default=True` for every
-#: parameter, so its binder never short-circuits on a missing required one —
-#: they accumulate and are reported per parameter there instead. This is the
-#: remaining, structural subset `_diagnose_binding_error` classifies.
+#: :func:`bind_positional_arguments` binds positional values only, with every parameter
+#: defaulted, so only the two positional-territory violations can occur.
 type StructuralBindingErrorKind = Literal[
-    ArgumentBindingErrorKind.UNKNOWN_NAME,
-    ArgumentBindingErrorKind.POSITIONAL_ONLY_BY_NAME,
-    ArgumentBindingErrorKind.DUPLICATE,
     ArgumentBindingErrorKind.TOO_MANY_POSITIONAL,
     ArgumentBindingErrorKind.POSITIONAL_IN_NAMED_ONLY,
 ]
 
 
 def _diagnose_binding_error(exc: ArgumentBindingError, signature: ProgramSignature) -> Diagnostic:
-    """Translate one structural zone-binding violation into a pre-execution diagnostic."""
+    """Translate one positional zone-binding violation into a pre-execution diagnostic."""
     kind = cast(StructuralBindingErrorKind, exc.kind)
     match kind:
-        case ArgumentBindingErrorKind.UNKNOWN_NAME:
-            name = cast(str, exc.name)
-            return diagnostic_from_span(f"Unknown program argument: {name!r}", signature.span)
-        case ArgumentBindingErrorKind.POSITIONAL_ONLY_BY_NAME:
-            name = cast(str, exc.name)
-            return diagnostic_from_span(
-                f"Program argument {name!r} is positional-only and cannot be supplied by name",
-                _span_for(signature, name),
-            )
-        case ArgumentBindingErrorKind.DUPLICATE:
-            name = cast(str, exc.name)
-            return diagnostic_from_span(
-                f"Program argument {name!r} supplied more than once",
-                _span_for(signature, name),
-            )
         case ArgumentBindingErrorKind.TOO_MANY_POSITIONAL:
             return diagnostic_from_span("Too many positional program arguments", signature.span)
         case ArgumentBindingErrorKind.POSITIONAL_IN_NAMED_ONLY:
@@ -569,11 +522,6 @@ def _diagnose_binding_error(exc: ArgumentBindingError, signature: ProgramSignatu
             )
         case _ as unreachable:  # pragma: no cover
             assert_never(unreachable)
-
-
-def _span_for(signature: ProgramSignature, name: str) -> "SourceSpan":
-    """Return the declaration span of the parameter named *name*."""
-    return next(p for p in signature.parameters if p.name == name).span
 
 
 def _is_json_shaped(obj: object) -> bool:

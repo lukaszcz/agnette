@@ -6,8 +6,8 @@
 back from them, so a run's log file and its readable ``trace`` setting can never disagree.
 ``agm repl`` has no program:
 :func:`~agnette.host_params.config.resolve_programless_engine_settings` ranks its CLI flags
-over ``[exec]``, the declaration route, through the same resolver into the same settings.
-:func:`fail_engine_settings` is the one failure report both hosts share.
+over ``[exec]``, the declaration route, through the same ranking and decoding into the same
+settings.
 :func:`host_agent_spec_resolver` builds the dispatch-time agent defaults both hosts apply
 from ``[agent]``.
 """
@@ -15,21 +15,17 @@ from ``[agent]``.
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING
 
 from agnette.agent.spec_defaults import AgentSpecResolver, configured_defaults_resolver
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey, static_binding_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.runtime.arguments import ParamTier
-from agnette.agl.runtime.engine_config import (
-    EngineSettings,
-    EngineValueFailure,
-    split_engine_values,
-)
+from agnette.agl.runtime.engine_config import EngineSettings, split_engine_values
 from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, RecordValue
-from agnette.agm.cli_support.program_options import CommandUsageError, engine_command
+from agnette.agm.cli_support.program_options import engine_command
 from agnette.config.engine_keys import (
     ENGINE_REGISTERS,
     engine_keys_for_register,
@@ -40,14 +36,12 @@ from agnette.core.log import TraceDecision
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
-    from agnette.agl.runtime.types import ProgramDeclInfo
     from agnette.agl.semantics.values import Value
     from agnette.core.toml import TomlDict
     from agnette.host_params.surface import ParamSurfaceEntry
 
 __all__ = [
     "engine_seed_values",
-    "fail_engine_settings",
     "host_agent_spec_resolver",
     "parse_engine_flags",
     "reject_register_conflicts",
@@ -89,27 +83,6 @@ def parse_engine_flags(tokens: "Sequence[str]") -> dict[StaticBindingKey, object
         raise ValueError(f"unexpected argument: {parsed.arguments.positional[0]!r}")
     reject_register_conflicts(command.surface.entries, parsed.params)
     return split_engine_values(parsed.params)[1]
-
-
-def fail_engine_settings(
-    configured: "Sequence[EngineValueFailure]",
-    usage: "Sequence[EngineValueFailure]",
-    *,
-    usage_messages: "Sequence[str]" = (),
-    program: "ProgramDeclInfo | None" = None,
-) -> NoReturn:
-    """Report invalid engine settings and fail the command.
-
-    Prints each *configured* failure as an ``error:`` diagnostic. Any *usage* failure
-    or extra *usage_messages* raise one :class:`CommandUsageError` folding them with
-    ``; ``; otherwise exits 1.
-    """
-    for failure in configured:
-        print(f"error: {failure.message}", file=sys.stderr)
-    messages = [*usage_messages, *(failure.message for failure in usage)]
-    if messages:
-        raise CommandUsageError("; ".join(messages), program)
-    raise SystemExit(1)
 
 
 def resolve_timeout(engine_seeds: "Mapping[str, Value]") -> float | None:

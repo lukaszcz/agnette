@@ -1,9 +1,10 @@
 """Tests for ``agnette.agl.runtime.arguments``: host program-argument binding.
 
 Covers ``ProgramSignature.fuse`` (pairing an executable's per-parameter
-decoders with a declaration's spans/types, by name), ``bind_program_arguments``
-(the shared zone binder plus per-parameter decoding, with diagnostics for
-every binding/decode failure), and the ``decode_param_value`` boundary it
+decoders with a declaration's spans/types, by name), the argument primitives
+(``bind_positional_arguments``, ``decode_program_argument``,
+``complete_program_arguments``: diagnostics for every binding/decode failure and
+missing argument), and the ``decode_param_value`` boundary it
 shares with the rest of the runtime.
 """
 
@@ -27,11 +28,15 @@ from agnette.agl.ir.reserved_nominals import (
 from agnette.agl.modules.ids import RESERVED_ID
 from agnette.agl.runtime.arguments import (
     OptionSome,
-    ProgramArguments,
     ProgramParameter,
     ProgramSignature,
-    bind_program_arguments,
+    bind_positional_arguments,
+    complete_program_arguments,
     decode_param_value,
+    decode_program_argument,
+    duplicate_argument_diagnostic,
+    positional_only_by_name_diagnostic,
+    unknown_argument_diagnostic,
 )
 from agnette.agl.runtime.option import some_value
 from agnette.agl.runtime.types import ProgramParamInfo
@@ -53,6 +58,7 @@ from agnette.agl.semantics.values import (
     JsonValue,
     RecordValue,
     TextValue,
+    Value,
 )
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.type_schema import build_param_decoder
@@ -143,260 +149,155 @@ class TestProgramSignatureFuse:
         assert by_name["name"].span == name_info.span
         assert by_name["count"].span == count_info.span
 
-        values, diagnostics = bind_program_arguments(
-            signature,
-            ProgramArguments(positional=("alice",), named={"count": "not-an-int"}),
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
         # The decode failure for "count" must be anchored at count's own
         # span (line 2), not name's (line 1) — proving the pairing is by
         # name, not position.
-        assert diagnostics[0].line == 2
+        failure = decode_program_argument(by_name["count"], "not-an-int")
+        assert isinstance(failure, Diagnostic)
+        assert failure.line == 2
 
 
-class TestBindProgramArgumentsSuccess:
-    """Successful bindings across zones, sources, and default use."""
+def _param(
+    name: str, kind: ParamZone, typ: AglType, *, required: bool, line: int = 1
+) -> ProgramParameter:
+    return _signature(_param_and_info(name, kind, typ, required=required, line=line)).parameters[0]
 
-    def test_all_supplied_by_name(self) -> None:
-        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=1)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"count": 5})
-        )
-        assert diagnostics == ()
-        assert values == (IntValue(5),)
+
+def _decoded(param: ProgramParameter, raw: object) -> Value:
+    value = decode_program_argument(param, raw)
+    assert not isinstance(value, Diagnostic)
+    return value
+
+
+class TestBindPositional:
+    """``bind_positional_arguments`` maps positional raw values onto parameter names."""
 
     def test_positional_only_supplied_positionally(self) -> None:
         name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
-        signature = _signature(name)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=("alice",), named={})
-        )
-        assert diagnostics == ()
-        assert values == (TextValue("alice"),)
+        assert bind_positional_arguments(_signature(name), ("alice",)) == ({"name": "alice"}, ())
 
     def test_standard_parameter_supplied_positionally(self) -> None:
         count = _param_and_info("count", ParamZone.STANDARD, IntType(), required=True, line=1)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(3,), named={})
-        )
-        assert diagnostics == ()
-        assert values == (IntValue(3),)
+        assert bind_positional_arguments(_signature(count), (3,)) == ({"count": 3}, ())
 
-    def test_standard_parameter_supplied_by_name(self) -> None:
-        count = _param_and_info("count", ParamZone.STANDARD, IntType(), required=True, line=1)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"count": 3})
-        )
-        assert diagnostics == ()
-        assert values == (IntValue(3),)
-
-    def test_omitted_defaulted_parameter_yields_use_default(self) -> None:
-        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=False, line=1)
-        signature = _signature(flag)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={})
-        )
-        assert diagnostics == ()
-        assert values == (UseDefault(param_index=0),)
-
-    def test_multiple_parameters_mixed_sources(self) -> None:
+    def test_mixed_zones_bind_in_order_leaving_named_only_unbound(self) -> None:
         name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
         flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=False, line=2)
-        signature = _signature(name, flag)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=("bob",), named={"flag": True})
+        assert bind_positional_arguments(_signature(name, flag), ("bob",)) == ({"name": "bob"}, ())
+
+    def test_no_positional_values_bind_nothing(self) -> None:
+        assert bind_positional_arguments(_signature(), ()) == ({}, ())
+
+    def test_an_explicit_json_null_is_a_bound_value_not_an_omitted_one(self) -> None:
+        payload = _param_and_info("payload", ParamZone.STANDARD, JsonType(), required=False, line=1)
+        assert bind_positional_arguments(_signature(payload), (None,)) == ({"payload": None}, ())
+
+    def test_named_only_rejected_positionally_at_the_program_span(self) -> None:
+        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=True, line=1)
+        bound, diagnostics = bind_positional_arguments(_signature(flag), (True,))
+        assert bound == {}
+        # The violation names no single parameter: anchored at the program's own span.
+        assert [d.line for d in diagnostics] == [_PROGRAM_LINE]
+
+    def test_too_many_positional_values_are_rejected_at_the_program_span(self) -> None:
+        name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
+        bound, diagnostics = bind_positional_arguments(_signature(name), ("alice", "extra"))
+        assert bound == {}
+        assert [d.line for d in diagnostics] == [_PROGRAM_LINE]
+
+
+class TestDecodeProgramArgument:
+    """A raw value decodes against its parameter's type, or fails at the parameter's span."""
+
+    def test_a_valid_value_decodes(self) -> None:
+        count = _param("count", ParamZone.NAMED_ONLY, IntType(), required=True)
+        assert _decoded(count, 5) == IntValue(5)
+
+    def test_an_explicit_json_null_decodes_rather_than_defaulting(self) -> None:
+        payload = _param("payload", ParamZone.NAMED_ONLY, JsonType(), required=False)
+        assert _decoded(payload, None) == JsonValue(None)
+
+    def test_a_malformed_value_is_a_diagnostic_at_the_parameter(self) -> None:
+        count = _param("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=4)
+        failure = decode_program_argument(count, "not-json-int")
+        assert isinstance(failure, Diagnostic)
+        assert failure.line == 4
+
+    def test_an_inherited_value_decodes_the_same_way(self) -> None:
+        count = _param("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=4)
+        failure = decode_program_argument(count, "nope", inherited_address="a.b")
+        assert isinstance(failure, Diagnostic)
+        assert failure.line == 4
+
+
+class TestCompleteProgramArguments:
+    """Completion fills defaults in declaration order and reports every missing required one."""
+
+    def test_decoded_values_fill_their_parameters_in_declaration_order(self) -> None:
+        name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
+        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=False, line=2)
+        entries, diagnostics = complete_program_arguments(
+            _signature(name, flag), {"flag": BoolValue(True), "name": TextValue("bob")}
         )
         assert diagnostics == ()
-        assert values == (TextValue("bob"), BoolValue(True))
+        assert entries == (TextValue("bob"), BoolValue(True))
 
-    def test_zero_parameter_program_returns_empty_values_and_no_diagnostics(self) -> None:
-        signature = _signature()
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={})
+    def test_an_omitted_defaulted_parameter_yields_use_default(self) -> None:
+        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=False, line=1)
+        assert complete_program_arguments(_signature(flag), {}) == (
+            (UseDefault(param_index=0),),
+            (),
         )
-        assert values == ()
-        assert diagnostics == ()
 
-    def test_explicit_json_null_named_argument_decodes_rather_than_defaulting(self) -> None:
-        # A host-supplied `None` (JSON null) is a real argument, not an
-        # omitted one: it must decode to `JsonValue(None)`, not fall back to
-        # the parameter's default or be reported missing.
-        payload = _param_and_info(
-            "payload", ParamZone.NAMED_ONLY, JsonType(), required=False, line=1
-        )
-        signature = _signature(payload)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"payload": None})
-        )
-        assert diagnostics == ()
-        assert values == (JsonValue(None),)
+    def test_a_zero_parameter_program_completes_to_nothing(self) -> None:
+        assert complete_program_arguments(_signature(), {}) == ((), ())
 
-    def test_explicit_json_null_satisfies_a_required_parameter(self) -> None:
+    def test_an_explicit_json_null_satisfies_a_required_parameter(self) -> None:
         payload = _param_and_info(
             "payload", ParamZone.NAMED_ONLY, JsonType(), required=True, line=1
         )
-        signature = _signature(payload)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"payload": None})
+        entries, diagnostics = complete_program_arguments(
+            _signature(payload), {"payload": JsonValue(None)}
         )
         assert diagnostics == ()
-        assert values == (JsonValue(None),)
+        assert entries == (JsonValue(None),)
 
-    def test_explicit_json_null_positional_argument_decodes_rather_than_defaulting(self) -> None:
-        payload = _param_and_info("payload", ParamZone.STANDARD, JsonType(), required=False, line=1)
-        signature = _signature(payload)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(None,), named={})
-        )
-        assert diagnostics == ()
-        assert values == (JsonValue(None),)
-
-
-class TestBindProgramArgumentsBindingErrors:
-    """Zone-binding violations become pre-execution diagnostics."""
-
-    def test_named_only_rejected_positionally(self) -> None:
-        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=True, line=1)
-        signature = _signature(flag)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(True,), named={})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert isinstance(diagnostics[0], Diagnostic)
-        # The remaining-positional-in-named-only-territory violation names no
-        # single parameter; anchored at the program's own span (99), not
-        # flag's declaration span (1).
-        assert diagnostics[0].line == _PROGRAM_LINE
-        assert "by name" in diagnostics[0].message
-
-    def test_too_many_positional_reports_count_not_zone(self) -> None:
-        name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
-        signature = _signature(name)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=("alice", "extra"), named={})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert diagnostics[0].line == _PROGRAM_LINE
-        assert "too many" in diagnostics[0].message.lower()
-
-    def test_positional_only_supplied_by_name_names_the_parameter(self) -> None:
-        name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=5)
-        signature = _signature(name)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"name": "alice"})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert "name" in diagnostics[0].message
-        assert "positional-only" in diagnostics[0].message
-        # Anchored at the parameter's own declaration span, not the program's.
-        assert diagnostics[0].line == 5
-
-    def test_unknown_named(self) -> None:
-        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=1)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"bogus": 1, "count": 1})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert "bogus" in diagnostics[0].message
-        # Anchored at the program's span, since no declared parameter is
-        # named "bogus".
-        assert diagnostics[0].line == _PROGRAM_LINE
-
-    def test_duplicate_positional_and_named(self) -> None:
-        name = _param_and_info("name", ParamZone.STANDARD, TextType(), required=True, line=3)
-        signature = _signature(name)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=("alice",), named={"name": "bob"})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert "name" in diagnostics[0].message
-        assert diagnostics[0].line == 3
-
-    def test_excess_positional(self) -> None:
-        name = _param_and_info("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=1)
-        signature = _signature(name)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=("alice", "extra"), named={})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert diagnostics[0].line == _PROGRAM_LINE
-
-
-class TestBindProgramArgumentsMissingRequired:
-    """Missing-required diagnostics accumulate rather than short-circuiting."""
-
-    def test_single_missing_required(self) -> None:
-        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=7)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={})
-        )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert "count" in diagnostics[0].message
-        assert diagnostics[0].line == 7
-
-    def test_two_missing_required_both_reported(self) -> None:
+    def test_every_missing_required_parameter_is_reported_at_its_own_span(self) -> None:
         count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=7)
         flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=True, line=8)
-        signature = _signature(count, flag)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={})
-        )
-        assert values == ()
-        assert len(diagnostics) == 2
-        assert {d.line for d in diagnostics} == {7, 8}
-        messages = " ".join(d.message for d in diagnostics)
-        assert "count" in messages
-        assert "flag" in messages
+        entries, diagnostics = complete_program_arguments(_signature(count, flag), {})
+        assert entries == ()
+        assert [d.line for d in diagnostics] == [7, 8]
 
-    def test_missing_required_and_decode_failure_both_reported(self) -> None:
+    def test_a_missing_parameter_is_reported_beside_a_failed_one(self) -> None:
         count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=7)
         flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=True, line=8)
-        signature = _signature(count, flag)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"flag": "not-a-bool"})
+        entries, diagnostics = complete_program_arguments(
+            _signature(count, flag), {}, failed=frozenset({"flag"})
         )
-        assert values == ()
-        assert len(diagnostics) == 2
-        assert {d.line for d in diagnostics} == {7, 8}
+        assert entries == ()
+        assert [d.line for d in diagnostics] == [7]
 
-
-class TestBindProgramArgumentsDecodeFailure:
-    """A supplied value that fails to decode against its parameter's type."""
-
-    def test_decode_failure_wrong_json_shape(self) -> None:
-        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=4)
-        signature = _signature(count)
-        values, diagnostics = bind_program_arguments(
-            signature, ProgramArguments(positional=(), named={"count": "not-json-int"})
+    def test_a_parameter_that_failed_to_decode_is_not_reported_missing(self) -> None:
+        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=7)
+        assert complete_program_arguments(_signature(count), {}, failed=frozenset({"count"})) == (
+            (),
+            (),
         )
-        assert values == ()
-        assert len(diagnostics) == 1
-        assert "count" in diagnostics[0].message
-        assert diagnostics[0].line == 4
 
-    def test_decode_failure_reports_every_failing_parameter(self) -> None:
-        count = _param_and_info("count", ParamZone.NAMED_ONLY, IntType(), required=True, line=4)
-        flag = _param_and_info("flag", ParamZone.NAMED_ONLY, BoolType(), required=True, line=5)
-        signature = _signature(count, flag)
-        values, diagnostics = bind_program_arguments(
-            signature,
-            ProgramArguments(positional=(), named={"count": "nope", "flag": "nope"}),
-        )
-        assert values == ()
-        assert {d.line for d in diagnostics} == {4, 5}
+
+class TestArgumentDiagnostics:
+    """Each argument diagnostic is anchored where it can be acted on."""
+
+    def test_a_duplicate_and_a_positional_only_by_name_argument_are_anchored_at_the_parameter(
+        self,
+    ) -> None:
+        name = _param("name", ParamZone.POSITIONAL_ONLY, TextType(), required=True, line=3)
+        assert duplicate_argument_diagnostic(name).line == 3
+        assert positional_only_by_name_diagnostic(name).line == 3
+
+    def test_an_unknown_argument_is_anchored_at_the_program(self) -> None:
+        assert unknown_argument_diagnostic(_signature(), "bogus").line == _PROGRAM_LINE
 
 
 class TestDecodeParamValue:

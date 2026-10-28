@@ -33,7 +33,7 @@ class TestExecConfigFromConfigFiles:
     def _settings(self, home: Path, cwd: Path, proj_dir: Path | None = None) -> EngineSettings:
         config = load_general_config(home=home, proj_dir=proj_dir, cwd=cwd)
         settings, configured, usage = resolve_programless_engine_settings(config, {})
-        assert configured == usage == []
+        assert configured == usage == ()
         return settings
 
     @staticmethod

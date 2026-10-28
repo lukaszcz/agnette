@@ -669,7 +669,7 @@ class EntryPipeline:
             diagnostic = (
                 diagnostic_from_span(str(exc), exc.span)
                 if exc.span is not None
-                else Diagnostic(message=str(exc), line=1)
+                else Diagnostic(message=str(exc))
             )
             return self._ctx._fail([diagnostic], warnings)
         from agnette.agl.ir.static_keys import host_param_module, split_host_param_values

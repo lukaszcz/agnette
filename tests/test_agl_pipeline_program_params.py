@@ -918,34 +918,3 @@ class TestProgramArgumentTierMerge:
         assert isinstance(preflight, ArgumentPreflightFailure)
         assert preflight.result.diagnostics
         assert not preflight.usage_diagnostics
-
-
-class TestSplitProgramArguments:
-    """Host values split by the kind of parameter their key identifies."""
-
-    def test_every_key_of_the_selected_program_is_one_of_its_arguments_declared_or_not(
-        self, tmp_path: Path
-    ) -> None:
-        from agnette.agl.ir.static_keys import FunctionParamKey
-        from agnette.agl.runtime.arguments import split_program_arguments
-
-        runtime = PipelineDriver(resolve_agent_spec=None, get_sandbox_context=None)
-        discovery = runtime.discover_programs(
-            _prepared("program def main(count: int = 1) -> unit = ()\n", tmp_path)
-        )
-        program = discovery.programs[0]
-        foreign = FunctionParamKey(program.module, (), "helper", "count")
-        other_program = FunctionParamKey(program.module, (), "other", "count")
-
-        seeds, arguments = split_program_arguments(
-            {
-                program.param_key("count"): 3,
-                program.param_key("undeclared"): 6,
-                foreign: 4,
-                other_program: 5,
-            },
-            program,
-        )
-
-        assert arguments == {"count": 3, "undeclared": 6}
-        assert seeds == {foreign: 4, other_program: 5}

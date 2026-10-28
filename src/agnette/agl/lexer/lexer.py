@@ -62,7 +62,14 @@ from agnette.agl.lexer.operators import (
     promotes_as_operator,
     scanner_token_type,
 )
-from agnette.agl.lexer.positions import LineIndex, Rebase, entry_text, range_at, token_span
+from agnette.agl.lexer.positions import (
+    LineIndex,
+    Rebase,
+    entry_text,
+    range_at,
+    tab_position,
+    token_span,
+)
 from agnette.agl.lexer.scanner import _Scanner
 from agnette.agl.lexer.tokens import (
     ARROW,
@@ -323,7 +330,7 @@ def lexed_slices(
         )
     tabs: list[list[Diagnostic]] = [[] for _ in ranges]
     for advisory in lexed.tab_warnings:
-        index = range_at(starts, lines.offset(advisory.line, cast(int, advisory.column)))
+        index = range_at(starts, lines.offset(*tab_position(advisory)))
         tabs[index].append(rebases[index].diagnostic(advisory))
     return [
         LexedSource(

@@ -37,7 +37,7 @@ The runtime package is the eval-free services layer: agent dispatch and session 
 
 ## Code Entry Points
 
-- `src/agnette/agl/runtime/agents.py`, `sessions.py`, `request.py`, `sandbox_values.py` — agent dispatch, sessions, requests, sandbox operands; `arguments.py` — program-argument binding; `host_agents.py` — companion agent services.
+- `src/agnette/agl/runtime/agents.py`, `sessions.py`, `request.py`, `sandbox_values.py` — agent dispatch, sessions, requests, sandbox operands; `arguments.py`, `param_resolution.py` — argument binding, host parameter ranking and decoding; `host_agents.py` — companion agent services.
 - `src/agnette/agl/runtime/codec.py`, `convert.py`, `value_decode.py`, `engine_config.py` — output parsing, conversion, host-value decoding, engine settings.
 - `src/agnette/agl/runtime/render.py`, `serialize.py` — rendering and JSON serialization.
 - `src/agnette/agl/runtime/trace.py`, `host_settings.py`, `types.py`, `option.py` — tracing, live settings, host types, `Option` construction.

@@ -1,7 +1,7 @@
 """Diagnostic types for the AgL pipeline.
 
 `Diagnostic` is the user-visible error record: a human-readable message and
-a 1-based source location.  `AglError` is the base class for all fatal pipeline
+an optional 1-based source location.  `AglError` is the base class for all fatal pipeline
 errors raised *before* evaluation begins (lex, parse, scope, typecheck).
 Match-compilation failures use the same pre-execution diagnostic channel.
 
@@ -50,7 +50,9 @@ class Diagnostic:
     """A single pre-execution diagnostic.
 
     ``line`` and ``column`` are 1-based.  ``end_line``/``end_column`` are
-    optional end-exclusive positions when the diagnostic has a range.
+    optional end-exclusive positions when the diagnostic has a range.  A
+    diagnostic about something no source declares has no ``line`` (and no
+    ``column``): it is reported without a location.
     ``message`` is a human-readable description.
     ``severity`` is ``"error"`` (the default) or ``"warning"``: warnings are
     reported to the user but, unlike errors, do not cause the run to fail (see
@@ -68,7 +70,7 @@ class Diagnostic:
     """
 
     message: str
-    line: int
+    line: int | None = None
     column: int | None = None
     end_line: int | None = None
     end_column: int | None = None
@@ -167,7 +169,12 @@ def _format_diagnostic_location(
 def format_diagnostic_location(
     diagnostic: Diagnostic | RelatedDiagnostic, *, source_name: str | None = "<agl>"
 ) -> str:
-    """Return a compiler-style source location for a diagnostic or related note."""
+    """Return a compiler-style source location for a diagnostic or related note.
+
+    A diagnostic without a ``line`` has no location: the result is empty.
+    """
+    if diagnostic.line is None:
+        return ""
     return _format_diagnostic_location(
         line=diagnostic.line,
         column=diagnostic.column,
@@ -178,13 +185,20 @@ def format_diagnostic_location(
     )
 
 
+def configured_diagnostics(
+    diagnostics: Iterable[Diagnostic], usage_diagnostics: Iterable[Diagnostic]
+) -> list[Diagnostic]:
+    """Return the *diagnostics* that are not among *usage_diagnostics*."""
+    usage = tuple(usage_diagnostics)
+    return [diag for diag in diagnostics if diag not in usage]
+
+
 def format_diagnostic(diagnostic: Diagnostic, *, source_name: str | None = "<agl>") -> str:
     """Return a user-visible primary diagnostic followed by its related notes."""
     suffix = "" if diagnostic.warning_name is None else f" [{diagnostic.warning_name}]"
-    primary = (
-        f"{format_diagnostic_location(diagnostic, source_name=source_name)}: "
-        f"{diagnostic.severity}: {diagnostic.message}{suffix}"
-    )
+    location = format_diagnostic_location(diagnostic, source_name=source_name)
+    head = f"{location}: " if location else ""
+    primary = f"{head}{diagnostic.severity}: {diagnostic.message}{suffix}"
     notes = (
         f"  {format_diagnostic_location(note, source_name=source_name)}: note: {note.message}"
         for note in diagnostic.related

@@ -887,7 +887,8 @@ def _builtin_type_args_match(
 
 
 def _source_position(diagnostic: Diagnostic) -> tuple[int, int]:
-    return diagnostic.line, diagnostic.column or 0
+    """Return the sort key of *diagnostic*; one without a location sorts first."""
+    return diagnostic.line or 0, diagnostic.column or 0
 
 
 def _signature_matches(
