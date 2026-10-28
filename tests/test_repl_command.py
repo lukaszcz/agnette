@@ -130,6 +130,17 @@ class TestReplArgsParsing:
         assert invoke(runner, ["repl", *argv]).exit_code == 0
         assert getattr(recorded_runs[0], "tokens") == argv
 
+    @pytest.mark.parametrize("value", ["--quiet", "--help", "--"])
+    def test_engine_value_matching_repl_option(
+        self, runner: CliRunner, recorded_runs: list[object], value: str
+    ) -> None:
+        result = invoke(runner, ["repl", "--trace-file", value, "--plain"])
+        assert result.exit_code == 0
+        assert len(recorded_runs) == 1
+        assert getattr(recorded_runs[0], "tokens") == ["--trace-file", value]
+        assert getattr(recorded_runs[0], "quiet") is False
+        assert getattr(recorded_runs[0], "plain") is True
+
 
 class TestReplEngineFlagErrors:
     """Malformed engine-setting flags are reported before any session starts."""

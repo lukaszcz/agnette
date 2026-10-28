@@ -888,6 +888,26 @@ class ReplCommand(TyperCommand):
     values like any program's.
     """
 
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Preserve engine values while parsing the REPL's own options."""
+        from agnette.agm.cli_support.program_options import (
+            engine_command,
+            option_value_map,
+            protect_host_option_values,
+        )
+
+        host_options = option_value_map(
+            tuple(param for param in self.params if isinstance(param, TyperOption))
+        )
+        protected, replacements = protect_host_option_values(args, engine_command(), host_options)
+        remaining = super().parse_args(ctx, protected)
+        ctx.args[:] = [replacements.get(token, token) for token in ctx.args]
+        parsed_params = cast(dict[str, object], ctx.params)
+        parsed_params["tokens"] = tuple(
+            replacements.get(token, token) for token in _string_list(parsed_params.get("tokens"))
+        )
+        return [replacements.get(token, token) for token in remaining]
+
     def get_params(self, ctx: click.Context) -> list[click.Parameter]:
         """Return this command's parameters, plus completion-only engine value options."""
         from agnette.agm.cli_support.program_options import engine_command
