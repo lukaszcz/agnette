@@ -77,7 +77,6 @@ from agnette.core.process import terminating_signals_exit
 from agnette.host_params.config import (
     colliding_declarations,
     declaration_route_tables,
-    report_undeclared_exec_keys,
     resolve_declaration_route_values,
     resolve_programless_engine_settings,
 )
@@ -134,7 +133,6 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     except ValueError as exc:
         print(f"Error: invalid exec configuration: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    report_undeclared_exec_keys(general_config)
     resolve_agent_spec = host_agent_spec_resolver(merged_config)
     repl_config = load_repl_config(home=ctx.home, proj_dir=ctx.proj_dir, cwd=ctx.cwd)
 

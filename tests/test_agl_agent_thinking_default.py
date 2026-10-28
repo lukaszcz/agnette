@@ -13,11 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.runtime.engine_config import convert_config_value
 from agnette.agl.semantics.type_table import create_seeded_type_table
-from agnette.agl.semantics.types import BUILTIN_PRELUDE_TYPES
 from agnette.agl.semantics.values import RecordValue, TextValue
 from agnette.agm.commands import exec as exec_command
+from agnette.host_params.projection import decode_engine_config_value
 from tests._agl_helpers import write_file_program
 from tests.test_exec_command import _config_home, _exec_args_no_trace
 
@@ -81,10 +80,9 @@ def test_agent_config_table_fills_omitted_thinking(
 
 def test_seeded_agent_decode_fills_omitted_thinking() -> None:
     """The seeded fallback ``Agent`` (no stdlib loaded) defaults ``thinking`` too."""
-    value = convert_config_value(
+    value = decode_engine_config_value(
         "agent",
         {"$case": "AgentPi", "provider": "anthropic", "model": "sonnet"},
-        BUILTIN_PRELUDE_TYPES["Agent"],
         create_seeded_type_table(),
     )
     assert isinstance(value, RecordValue)

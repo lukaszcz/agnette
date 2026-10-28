@@ -1146,6 +1146,36 @@ class TestManifestConfigDiscipline:
         validate_package(package)
 
     @pytest.mark.parametrize(
+        ("leaf", "valid"),
+        [
+            ("timeout = 0", True),
+            ("timeout = -5", True),
+            ('trace-file = "  "', True),
+            ('sandbox = "Native"', True),
+            ('agent = "claude"', True),
+            ('sandbox = "NoSuchSandbox"', False),
+            ('timeout = "not-a-duration"', False),
+        ],
+    )
+    def test_manifest_engine_leaves_follow_config_file_decoding(
+        self, tmp_path: Path, leaf: str, valid: bool
+    ) -> None:
+        """Non-positive/blank ``Option[text]`` leaves are absent; enum-typed ones decode."""
+        package = self._write(
+            tmp_path / "package",
+            '[package]\nname = "custom"\nversion = "1.0.0"\n\n'
+            '[commands]\nstart = { program = "custom/main::main" }\n\n'
+            f"[config]\n{leaf}\n",
+            "program def main() -> unit = ()\n",
+        )
+
+        if valid:
+            validate_package(package)
+        else:
+            with pytest.raises(DisciplineError):
+                validate_package(package)
+
+    @pytest.mark.parametrize(
         "leaf",
         ["timeout = true", "timeout = [1]", "timeout = { a = 1 }", "trace-file = true"],
     )

@@ -119,7 +119,6 @@ from agnette.core.toml import TomlDict
 from agnette.host_params.config import (
     ParamValueTiers,
     report_colliding_declarations,
-    report_undeclared_exec_keys,
     resolve_param_values,
 )
 from agnette.host_params.inherit import InheritScope
@@ -502,7 +501,6 @@ def run(
     # ``echo`` and ``max-call-depth`` come from ``[exec]`` alone; the engine settings
     # are resolved with every other host parameter once the program is selected.
     options = exec_options_from_merged(merged_config)
-    report_undeclared_exec_keys(config_view)
     resolve_agent_spec = host_agent_spec_resolver(merged_config)
 
     # Resolve max call depth: CLI > config.  ``None`` (nothing set at

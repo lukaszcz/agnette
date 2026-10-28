@@ -21,12 +21,12 @@ from shutil import copyfile
 import pytest
 
 from agnette.agl.repl import ReplSession
-from agnette.agl.runtime.engine_config import build_engine_config_seeds
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.request import AgentRequest, AgentResponse
 from agnette.agl.semantics.values import BoolValue, IntValue, RecordValue, TextValue, Value
 from tests._agl_helpers import (
     agent_value,
+    engine_config_values,
 )
 from tests._agl_helpers import (
     eval_ok as _ok,
@@ -210,7 +210,7 @@ class TestDefaultsAndSeeding:
         s = ReplSession(
             stdlib_root=stdlib_root,
             default_stdlib=False,
-            engine_base=build_engine_config_seeds({"strict-json": False}),
+            engine_base=engine_config_values({"strict-json": False}),
         )
 
         _ok(s, "import std/config")
@@ -289,7 +289,7 @@ def _host_seeded_session(
         raw["debug"] = debug
     if parse_error_retries is not None:
         raw["parse-error-retries"] = parse_error_retries
-    engine_base = build_engine_config_seeds(raw)
+    engine_base = engine_config_values(raw)
     if agent is not None:
         engine_base["agent"] = agent_value("AgentCommand", command=agent)
     return _session(
@@ -406,7 +406,7 @@ class TestTimeoutSeedWinsOverDriverArgument:
         s = _session(
             stdlib_root=_STDLIB_ROOT,
             shell_exec_timeout=30.0,
-            engine_base=build_engine_config_seeds({"timeout": "5s"}),
+            engine_base=engine_config_values({"timeout": "5s"}),
         )
         assert s._shell_exec_timeout == 5.0
 
@@ -416,7 +416,7 @@ class TestTimeoutSeedWinsOverDriverArgument:
         s = _session(
             stdlib_root=_STDLIB_ROOT,
             shell_exec_timeout=30.0,
-            engine_base=build_engine_config_seeds({"timeout": None}),
+            engine_base=engine_config_values({"timeout": None}),
         )
         assert s._shell_exec_timeout is None
 
@@ -451,7 +451,7 @@ class TestSeedGovernsRuntimeEffectOverDriverArgument:
             stdlib_root=_STDLIB_ROOT,
             agent_dispatcher=_FencedAgent(),
             default_strict_json=True,
-            engine_base=build_engine_config_seeds({"strict-json": False}),
+            engine_base=engine_config_values({"strict-json": False}),
         )
         assert _ok(s, 'let a: int = ask """how many"""').value == IntValue(42)
 
@@ -517,7 +517,7 @@ class TestResetSeedWinsOverDriverArgument:
         s = _session(
             stdlib_root=_STDLIB_ROOT,
             default_strict_json=True,
-            engine_base=build_engine_config_seeds({"strict-json": False}),
+            engine_base=engine_config_values({"strict-json": False}),
         )
         _ok(s, "import std/config")
         assert _read(s, "strict-json") == BoolValue(False)
@@ -530,7 +530,7 @@ class TestResetSeedWinsOverDriverArgument:
         s = _session(
             stdlib_root=_STDLIB_ROOT,
             shell_exec_timeout=30.0,
-            engine_base=build_engine_config_seeds({"timeout": "5s"}),
+            engine_base=engine_config_values({"timeout": "5s"}),
         )
         _ok(s, "import std/config")
         _ok(s, 'std/config::timeout := Some("99s")')
@@ -547,7 +547,7 @@ class TestResetSeedWinsOverDriverArgument:
         s = _session(
             stdlib_root=_STDLIB_ROOT,
             shell_exec_timeout=30.0,
-            engine_base=build_engine_config_seeds({"timeout": None}),
+            engine_base=engine_config_values({"timeout": None}),
         )
         _ok(s, "import std/config")
         assert s._shell_exec_timeout is None
@@ -594,7 +594,7 @@ class TestResetRestoresMixedSeedOrigins:
         _copy_core_and_option(config_path.parent)
         s = _session(
             stdlib_root=stdlib_root,
-            engine_base=build_engine_config_seeds({"timeout": "5s"}),
+            engine_base=engine_config_values({"timeout": "5s"}),
         )
 
         _ok(s, "import std/config")

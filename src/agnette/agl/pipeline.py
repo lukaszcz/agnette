@@ -206,7 +206,7 @@ class ArgumentPreflight:
     ``param_seeds``
         The decoded module-parameter values, ready for ``run_prepared``.
         Already folds in any ``@config`` entry targeting a ``@param``
-        binding, at its rank between the module-route and ``@inherit``
+        binding, at its rank between the declaration-route and ``@inherit``
         tiers (:meth:`PipelineDriver.preflight_arguments`).
     ``function_param_seeds``
         The decoded ``@param`` ``def``-parameter values, ready for ``run_prepared``:

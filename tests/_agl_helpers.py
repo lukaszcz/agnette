@@ -142,6 +142,7 @@ from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.zones import ParamZone
 from agnette.agm.cli_support.engine_seeds import engine_seed_values
 from agnette.config.context import ConfigContext
+from agnette.host_params.projection import decode_engine_config_value
 from agnette.sandbox.prepare import SandboxContext, lazy_sandbox_context
 
 if TYPE_CHECKING:
@@ -715,6 +716,12 @@ def key_exception_descriptor(nominal: NominalId, name: str) -> NominalDescriptor
         fields=("message", "key"),
         field_json_names=("message", "key"),
     )
+
+
+def engine_config_values(raw: Mapping[str, object]) -> dict[str, Value]:
+    """Decode configured native engine-setting values (``None`` is an ``Option`` setting's none)."""
+    table = create_seeded_type_table()
+    return {name: decode_engine_config_value(name, value, table) for name, value in raw.items()}
 
 
 def agent_value(variant: str, **fields: str) -> RecordValue:

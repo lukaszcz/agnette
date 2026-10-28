@@ -23,7 +23,6 @@ from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     require_reserved_nominal_id,
 )
-from agnette.agl.runtime.engine_config import build_engine_config_seeds
 from agnette.agl.semantics.values import BoolValue, RecordValue
 from agnette.agm.cli_support.args import CheckArgs
 from agnette.agm.commands import check as check_command
@@ -32,6 +31,10 @@ from agnette.agm.commands import exec_program as exec_engine
 from agnette.config.context import ConfigContext
 from tests._agl_helpers import (
     assert_shape as _assert_shape,
+)
+from tests._agl_helpers import (
+    engine_config_values,
+    write_file_program,
 )
 from tests._agl_helpers import (
     eval_ok as _ok,
@@ -50,9 +53,6 @@ from tests._agl_helpers import (
 )
 from tests._agl_helpers import (
     unopened_repl_session as _unopened_session,
-)
-from tests._agl_helpers import (
-    write_file_program,
 )
 from tests.test_exec_command import _exec_args_no_trace
 
@@ -129,7 +129,7 @@ def test_sandbox_initializer_and_qualified_write_are_visible() -> None:
 
 
 def test_host_seed_overrides_initializer_until_source_write() -> None:
-    seed = build_engine_config_seeds({"sandbox": "Native"})
+    seed = engine_config_values({"sandbox": "Native"})
     result = _run(
         "import std/config\n"
         "let seeded = std/config::sandbox\n"
@@ -457,7 +457,7 @@ class TestReplSandboxSeedThreading:
     """Mirrors ``test_agl_repl_builtin_settings.py``'s ``TestAgentSeedThreading``."""
 
     def test_seed_is_observed_and_persists_across_entries(self) -> None:
-        s = _unopened_session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
+        s = _unopened_session(engine_base=engine_config_values({"sandbox": "Native"}))
         _ok(s, "import std/config")
         result = _read_result(s, "sandbox")
         assert isinstance(result.value, RecordValue)
@@ -474,7 +474,7 @@ class TestReplSandboxSeedThreading:
         assert _variant(later.value, later.descriptors) == "Native"
 
     def test_source_write_still_overrides_it_afterward(self) -> None:
-        s = _unopened_session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
+        s = _unopened_session(engine_base=engine_config_values({"sandbox": "Native"}))
         _ok(s, "import std/config")
         initial = _read_result(s, "sandbox")
         assert isinstance(initial.value, RecordValue)
@@ -523,7 +523,7 @@ class TestResetHostSeedPrecedenceForSandboxSetting:
     """
 
     def test_host_seed_survives_a_source_write(self) -> None:
-        s = _session(engine_base=build_engine_config_seeds({"sandbox": "Native"}))
+        s = _session(engine_base=engine_config_values({"sandbox": "Native"}))
         _ok(s, "import std/config")
         _ok(s, "std/config::sandbox := AgentSandbox::Disabled")
         s.reset()

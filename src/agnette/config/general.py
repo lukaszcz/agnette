@@ -10,7 +10,6 @@ from typing import Generic, NamedTuple, TypeVar
 
 from agnette.agl.warnings import WarningLevel, warning_level_setting
 from agnette.agm.project.layout import project_config_dir
-from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.home import agm_home_dir, agm_path_candidates
 from agnette.core.fs import mkdir, write_text
 from agnette.core.toml import (
@@ -298,14 +297,6 @@ def exec_options_from_merged(merged: TomlDict) -> ExecOptions:
     return ExecOptions(
         echo=_optional_bool(exec_table, _ECHO_KEY),
         max_call_depth=_optional_positive_int(exec_table, _MAX_CALL_DEPTH_KEY),
-    )
-
-
-def undeclared_exec_keys(merged: TomlDict) -> tuple[str, ...]:
-    """Return the sorted ``[exec]`` keys of *merged* that are no engine setting or option."""
-    declared = ENGINE_KEY_NAMES | frozenset(EXEC_OPTION_KEYS)
-    return tuple(
-        sorted(key for key in toml_dict(merged.get(EXEC_CONFIG_SECTION)) if key not in declared)
     )
 
 

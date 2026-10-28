@@ -13,10 +13,12 @@ resolution and the claim-level table can never disagree. Free of Click.
 from __future__ import annotations
 
 import enum
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from agnette.agl.runtime.arguments import OptionSome, option_none_raw
+from agnette.agl.runtime.engine_config import decode_engine_raw, engine_setting_params
 from agnette.agl.runtime.serialize import dumps_exact
 from agnette.agl.runtime.types import HostParamInfo, HostParamKind, ProgramParamInfo
 from agnette.agl.semantics.types import (
@@ -32,11 +34,15 @@ from agnette.config.engine_keys import REGISTER_ENABLING_ENGINE_KEYS
 from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
+    from agnette.agl.semantics.type_table import TypeTable
     from agnette.agl.semantics.types import Type as AglType
+    from agnette.agl.semantics.values import Value
 
 __all__ = [
     "ProjectedOption",
     "ValueForm",
+    "config_raw_value",
+    "decode_engine_config_value",
     "is_nullable_value_form",
     "is_optional_default",
     "native_raw_value",
@@ -251,6 +257,35 @@ def native_raw_value(
     if projected.value_form is ValueForm.JSON and isinstance(raw, str):
         return dumps_exact(raw, indent=None)
     return raw
+
+
+def config_raw_value(
+    param: ProgramParamInfo | HostParamInfo,
+    raw: object,
+    anchor: Callable[[object], object] | None = None,
+) -> object:
+    """Project a configured native value onto *param*'s raw argument shape.
+
+    :func:`native_raw_value` over *param*'s own projection. A path-typed *param*'s *raw*
+    first goes through *anchor*, unless it is the ``Optional`` keyword standing for no path.
+    """
+    projected = project_option(param.cli.name, param.type)
+    if anchor is not None and param.is_path and not is_optional_default(projected, raw):
+        raw = anchor(raw)
+    return native_raw_value(
+        projected, raw, option_text=isinstance(param, HostParamInfo) and param.config_option_text
+    )
+
+
+def decode_engine_config_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
+    """Decode and validate one configured native value of engine setting *name*.
+
+    Decodes *raw* as a config table's value (:func:`config_raw_value`, then
+    :func:`~agnette.agl.runtime.engine_config.decode_engine_raw`) without anchoring paths,
+    for callers with no program. Raises ``ValueError`` on any failure.
+    """
+    param = next(param for param in engine_setting_params() if param.name == name)
+    return decode_engine_raw(name, config_raw_value(param, raw), param.type, type_table)
 
 
 def short_flag(param: ProgramParamInfo | HostParamInfo) -> str | None:

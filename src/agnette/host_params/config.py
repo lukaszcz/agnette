@@ -41,10 +41,10 @@ from agnette.config.claims import (
 )
 from agnette.config.general import (
     EXEC_CONFIG_SECTION,
+    EXEC_OPTION_KEYS,
     GeneralConfig,
     PathAnchor,
     anchor_path_value,
-    undeclared_exec_keys,
 )
 from agnette.config.qualified_keys import (
     ConfigRoute,
@@ -59,11 +59,7 @@ from agnette.host_params.inherit import (
     InheritScope,
     resolve_inherited_values,
 )
-from agnette.host_params.projection import (
-    is_optional_default,
-    native_raw_value,
-    project_option,
-)
+from agnette.host_params.projection import config_raw_value
 from agnette.host_params.surface import ParamSurface, ParamSurfaceEntry
 
 __all__ = [
@@ -71,7 +67,6 @@ __all__ = [
     "colliding_declarations",
     "declaration_route_tables",
     "report_colliding_declarations",
-    "report_undeclared_exec_keys",
     "resolve_declaration_route_values",
     "resolve_param_values",
     "resolve_programless_engine_settings",
@@ -143,6 +138,10 @@ _POSITIONAL_ONLY = (
 )
 
 
+# The engine settings' declaration route; its execution options are declared beside them.
+_EXEC_ROUTE = ConfigRoute.in_section(EXEC_CONFIG_SECTION)
+
+
 def _warn_ignored_config_key(leaf: str, table_name: str, reason: str) -> None:
     """Print the warning that config key *leaf* in table *table_name* is ignored."""
     print(
@@ -150,14 +149,6 @@ def _warn_ignored_config_key(leaf: str, table_name: str, reason: str) -> None:
         f"{reason} and will be ignored",
         file=sys.stderr,
     )
-
-
-def report_undeclared_exec_keys(config: GeneralConfig) -> None:
-    """Warn for each ``[exec]`` key that is no engine setting or execution option."""
-    for key in undeclared_exec_keys(config.merged):
-        _warn_ignored_config_key(
-            key, EXEC_CONFIG_SECTION, "is not an engine setting or execution option"
-        )
 
 
 def _report_undeclared_config_keys(
@@ -173,11 +164,9 @@ def _report_undeclared_config_keys(
     table is validated only against its program, and a table a registered
     descendant command inherits from may hold defaults for that command. Claims
     of any route reading a table consume its leaves, so overlapping routes warn
-    once. The ``[exec]`` section route is checked by :func:`report_undeclared_exec_keys`.
+    once.
     """
     for route, positional_only in routes.items():
-        if route.section is not None:
-            continue
         exempt = (command_tables - frozenset(route.command_paths)) | (
             _tables_with_registered_descendants(route.command_paths, package_command_paths)
         )
@@ -428,7 +417,10 @@ class _Claims:
         self._command_tables = command_tables
 
     def declare(self, params: Iterable[HostParamInfo], reached: frozenset[HostParamKey]) -> None:
-        """Claim each of *params*'s name on its declaration route; only *reached* ones feed."""
+        """Claim each of *params*'s name on its declaration route; only *reached* ones feed.
+
+        ``[exec]`` also declares ``EXEC_OPTION_KEYS`` (declare-only).
+        """
         by_route: dict[ConfigRoute, tuple[list[_Target], list[str]]] = {}
         for param in params:
             route = _declaration_route(param)
@@ -440,6 +432,8 @@ class _Claims:
                     )
                 else:
                     declared.append(param.cli.name)
+        if _EXEC_ROUTE in by_route:
+            by_route[_EXEC_ROUTE][1].extend(EXEC_OPTION_KEYS)
         for route, (feeding, declared) in by_route.items():
             self.route(RouteKind.DECLARATION, route, feeding, declared)
 
@@ -604,6 +598,8 @@ def resolve_declaration_route_values(
     config: GeneralConfig,
     params: Sequence[HostParamInfo],
     nested_routes: frozenset[tuple[str, ...]] = frozenset(),
+    *,
+    report_undeclared: bool = False,
 ) -> dict[HostParamKey, object]:
     """Resolve module and function parameter values from their declaration routes only.
 
@@ -611,11 +607,19 @@ def resolve_declaration_route_values(
     modules without selecting a program, so they have no program route. A table
     at a leaf position is a nested route when it is a route of *params* or in
     *nested_routes* (other declarations the host knows), else a native value.
+    With *report_undeclared*, a key set in a route's table that no claim consumes warns
+    (execution options are declared without being params); set only when *params* are the
+    complete declarations of their routes (REPL engine settings), not for per-entry module
+    seeding.
     """
     claims = _Claims()
     claims.declare(params, reached=frozenset(param.key for param in params))
     source = ConfigSource.from_config(config, nested_routes | known_route_tables(claims.routes))
     claims.index.reject_ambiguities(source)
+    if report_undeclared:
+        _report_undeclared_config_keys(
+            source, claims.index, claims.routes, frozenset(), frozenset()
+        )
     return claims.values(claims.index.resolve(source), RouteKind.DECLARATION)
 
 
@@ -626,10 +630,10 @@ def resolve_programless_engine_settings(
 
     The ranking and decoding ``agm exec`` applies to a program's engine settings, without
     the program-bound tiers. Returns the settings, the diagnostics of the invalid values,
-    and those among them that *supplied* values caused.
+    and those among them that *supplied* values caused. An undeclared ``[exec]`` key warns.
     """
     declared = split_engine_values(
-        resolve_declaration_route_values(config, engine_setting_params())
+        resolve_declaration_route_values(config, engine_setting_params(), report_undeclared=True)
     )[1]
     decoded = resolve_host_params(
         {ParamTier.DECLARED: declared, ParamTier.SUPPLIED: supplied}, engine_setting_decoder()
@@ -643,12 +647,9 @@ def _native_value(param: ProgramParamInfo | HostParamInfo, configured: Configure
     A path-typed value anchors to the file (or manifest) that supplied it,
     unless it is the ``Optional`` keyword standing for no path.
     """
-    projected = project_option(param.cli.name, param.type)
-    raw = configured.value
-    if param.is_path and not is_optional_default(projected, raw):
-        raw = anchor_path_value(raw, configured.anchor)
-    option_text = isinstance(param, HostParamInfo) and param.config_option_text
-    return native_raw_value(projected, raw, option_text=option_text)
+    return config_raw_value(
+        param, configured.value, lambda raw: anchor_path_value(raw, configured.anchor)
+    )
 
 
 def _declaration_route(param: HostParamInfo) -> ConfigRoute | None:
@@ -659,7 +660,7 @@ def _declaration_route(param: HostParamInfo) -> ConfigRoute | None:
     if param.module.is_entry:
         return None
     if param.kind is HostParamKind.ENGINE:
-        return ConfigRoute.in_section(EXEC_CONFIG_SECTION)
+        return _EXEC_ROUTE
     return ConfigRoute(param.module.segments, param.route_path)
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import TYPE_CHECKING, cast
 
 from agnette.agent.spec import AGENT_SPECS
@@ -15,7 +14,6 @@ from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
 from agnette.agl.runtime.arguments import ParamTier
 from agnette.agl.semantics.values import IntValue, RecordValue
 from agnette.config.engine_keys import ENGINE_KEYS, NON_NEGATIVE_ENGINE_KEYS, EngineKeyKind
-from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -39,7 +37,6 @@ __all__ = [
     "restamp_engine_setting",
     "split_engine_values",
     "validate_engine_value",
-    "validate_manifest_leaf_value",
 ]
 
 
@@ -150,38 +147,29 @@ def restamp_engine_setting(
     )
 
 
-def build_engine_config_seeds(raw_values: "Mapping[str, object]") -> "dict[str, Value]":
-    """Decode explicitly supplied scalar, ``Option``, or ``Agent`` host engine settings.
+def engine_default_settings() -> "dict[str, Value]":
+    """Build the typed engine-default value for every defaulted engine key.
 
-    The returned mapping deliberately omits absent keys. This preserves the
-    distinction between a host control and the runtime fallback, letting a
-    ``builtin var`` initializer supply the latter.  A present value of
-    ``None`` remains meaningful for ``Option`` settings such as ``timeout``.
+    Decodes the shared engine-key catalog's defaults through :func:`decode_engine_raw` against
+    a fresh seeded ``TypeTable``; a ``None`` default is an ``Option`` setting's none.
+    ``agent`` and ``sandbox`` have no host-side default: they come from the ``std/config``
+    ``builtin var`` declarations like any other declared default.
     """
+    from agnette.agl.runtime.arguments import option_none_raw
     from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
     from agnette.agl.semantics.type_table import create_seeded_type_table
 
     type_table = create_seeded_type_table()
     return {
-        key_name: convert_config_value(key_name, raw, ENGINE_KEY_TYPES[key_name], type_table)
-        for key_name, raw in raw_values.items()
+        spec.name: decode_engine_raw(
+            spec.name,
+            option_none_raw() if spec.default is None else spec.default,
+            ENGINE_KEY_TYPES[spec.name],
+            type_table,
+        )
+        for spec in ENGINE_KEYS
+        if spec.has_default
     }
-
-
-def engine_default_settings() -> "dict[str, Value]":
-    """Build the typed engine-default value for every defaulted scalar engine key.
-
-    Derives the raw values from the shared engine-key catalog, then decodes
-    them via :func:`convert_config_value`, building its own fresh seeded
-    ``TypeTable`` rather than requiring one from the caller.
-
-    ``agent`` is an ``Agent`` value rather than a scalar one and has no
-    host-side default: it comes from the ``std/config`` ``builtin var``
-    declaration like any other declared default.
-    """
-    return build_engine_config_seeds(
-        {spec.name: spec.default for spec in ENGINE_KEYS if spec.has_default}
-    )
 
 
 _engine_setting_params: "tuple[HostParamInfo, ...] | None" = None
@@ -339,8 +327,7 @@ def convert_host_value(
     embeds in the compiled IR (via :func:`~agnette.agl.type_schema.build_param_decoder`)
     and runs the shared :func:`~agnette.agl.runtime.arguments.decode_param_value`
     path, so this and the compiled-IR value-decode boundary go through one
-    mechanism. :func:`convert_config_value` and :func:`decode_engine_raw` decode
-    host engine-setting values (CLI flags, config-file entries) through it.
+    mechanism. :func:`decode_engine_raw` decodes every host engine-setting value through it.
 
     ``text`` values are taken verbatim; a JSON-compatible Python value (not a
     string) crosses the canonical JSON boundary, its nested strings read as a
@@ -383,43 +370,6 @@ def decode_engine_raw(
     return value
 
 
-def convert_config_value(
-    name: str, raw: object, key_type: AglType, type_table: "TypeTable | None" = None
-) -> "Value":
-    """Convert a raw scalar, ``Option``, or ``Agent`` host engine value to its AgL type.
-
-    ``agent`` is an ``Agent`` value, not a scalar or ``Option`` setting;
-    its host-supplied text or JSON-shaped data (``--agent``/config)
-    decodes through :func:`convert_host_value` exactly like every other key.
-    For ``Option[T]`` engine keys (``timeout``, ``trace-file``) a present *raw*
-    is boxed as an :class:`~agnette.agl.runtime.arguments.OptionSome` and decoded
-    through :func:`convert_host_value` against the *whole* ``Option[T]``
-    type — the same deferred-decode path a program's own ``Option[T]``
-    parameter uses — and an absent (``None``) *raw* is ``none`` directly.
-    Non-Option keys decode directly through :func:`convert_host_value`.
-    *type_table* is threaded through to it.
-
-    The settings accepted here are built-in scalar, ``Option[text]``, or the
-    builtin ``Agent`` enum, never user-declared nominal types, so *type_table*
-    defaults to a fresh
-    seeded ``TypeTable`` when the caller has none in hand (e.g. CLI-flag config
-    projection); callers that already hold the session/program table (the
-    REPL) pass it explicitly.
-    """
-    from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
-    from agnette.agl.runtime.arguments import OptionSome
-    from agnette.agl.runtime.option import none_value
-    from agnette.agl.semantics.type_table import create_seeded_type_table
-    from agnette.agl.semantics.types import is_standard_option_enum
-
-    table = type_table if type_table is not None else create_seeded_type_table()
-    if is_standard_option_enum(key_type):
-        if raw is None:
-            return none_value(nominals=NO_BUILTIN_DECLARATIONS)
-        return convert_host_value(name, OptionSome(raw), key_type, table)
-    return convert_host_value(name, raw, key_type, table)
-
-
 class EngineRangeError(ValueError):
     """A decoded engine value outside its key's accepted range."""
 
@@ -449,24 +399,3 @@ def validate_engine_value(
             parse_timeout(text)
     if name in NON_NEGATIVE_ENGINE_KEYS and isinstance(value, IntValue) and value.value < 0:
         raise EngineRangeError(f"setting {name!r} must not be negative, got {value.value}")
-
-
-def validate_manifest_leaf_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
-    """Decode one manifest ``[config]`` engine leaf, raising ``ValueError`` on any failure.
-
-    An ``Option[text]``-kind key is first normalized by
-    :func:`normalize_option_text`, as a config-file entry is: positive
-    numbers become their string spelling, a blank or non-positive value is absent.
-    A value of any other type (bool, array, table) is an error, not absence.
-    The result is decoded through :func:`convert_config_value` (``None`` is an empty
-    ``Option``) against ``ENGINE_KEY_TYPES`` and checked with :func:`validate_engine_value`.
-    """
-    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-
-    if _ENGINE_KEY_KINDS_BY_NAME.get(name) is EngineKeyKind.OPTION_TEXT:
-        if isinstance(raw, bool) or not isinstance(raw, (str, int, float, Decimal)):
-            raise ValueError(f"Setting {name!r}: expected a string or number, got {raw!r}.")
-        raw = normalize_option_text(raw)
-    value = convert_config_value(name, raw, ENGINE_KEY_TYPES[name], type_table)
-    validate_engine_value(name, value)
-    return value
