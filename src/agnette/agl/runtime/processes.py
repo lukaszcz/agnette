@@ -10,7 +10,8 @@ only by exiting, so EOF is followed by a reaping. Waiting drains the pipes of al
 children, so a child blocked on a full pipe never stalls behind another wait. Terminating
 signals are held only around short critical sections (the fork and attach, a chunk read, the
 reaping, detach, the final kill), never across a blocking wait: an interrupt then propagates
-promptly.
+promptly. Completion predicates avoid generators: short-circuit finalization can swallow
+signal-handler exceptions.
 
 *Lifetime.* Terminating processes sends SIGTERM to each child and its group, keeps draining
 and reaping until one shared deadline, then SIGKILLs the stragglers; an interrupt meanwhile
@@ -557,8 +558,18 @@ class ProcessHost:
         if not ids:
             raise ProcessHostError("settle_any needs at least one process")
         entries = [self._entry(id) for id in ids]
-        self._pump(lambda: any(entry.done for entry in entries))
-        return next(index for index, entry in enumerate(entries) if entry.done)
+        finished_index = 0
+
+        def finished() -> bool:
+            nonlocal finished_index
+            for index, entry in enumerate(entries):
+                if entry.done:
+                    finished_index = index
+                    return True
+            return False
+
+        self._pump(finished)
+        return finished_index
 
     def outcome(self, id: str) -> Outcome:
         """Block until process *id* has finished, then return its outcome (idempotent).
@@ -668,8 +679,14 @@ class ProcessHost:
             raise
 
     @staticmethod
-    def _all_done(entries: Sequence[_Entry]) -> Callable[[], bool]:
-        return lambda: all(entry.done for entry in entries)
+    def _all_done(entries: Sequence[_Entry], *, groups: bool = False) -> Callable[[], bool]:
+        def done() -> bool:
+            for entry in entries:
+                if not entry.done or (groups and _group_exists(entry)):
+                    return False
+            return True
+
+        return done
 
     def _terminate(self, entries: Sequence[_Entry]) -> None:
         """Terminate unfinished children and surviving groups under one shared deadline.
@@ -681,8 +698,7 @@ class ProcessHost:
         """
         targets = [entry for entry in entries if not entry.done or _group_exists(entry)]
 
-        def done() -> bool:
-            return all(entry.done and not _group_exists(entry) for entry in targets)
+        done = self._all_done(targets, groups=True)
 
         try:
             for entry in targets:

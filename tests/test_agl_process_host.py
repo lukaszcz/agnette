@@ -23,6 +23,7 @@ import time
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from types import FrameType
 from typing import Any, cast
 from unittest import mock
 
@@ -2266,6 +2267,80 @@ def test_an_interrupt_during_termination_kills_the_remaining_processes_at_once(
     }
 
 
+def _interrupt_in_completion_predicate(workdir: Path, how: str) -> dict[str, Any]:
+    ready, gate = _Gate(), _Gate()
+    sent = False
+    predicates = {
+        "ProcessHost._all_done.<locals>.<lambda>",
+        "ProcessHost._all_done.<locals>.done",
+        "ProcessHost._terminate.<locals>.done",
+    }
+
+    def trace(frame: FrameType, event: str, arg: Any) -> Any:
+        nonlocal sent
+        if not sent and frame.f_code.co_filename == ProcessHost.settle_any.__code__.co_filename:
+            # Interrupt generator close, or the replacement predicate's normal return.
+            closing = (
+                event == "exception"
+                and frame.f_code.co_name == "<genexpr>"
+                and arg[0] is GeneratorExit
+            )
+            returning = event == "return" and (
+                (arg is False and frame.f_code.co_qualname in predicates)
+                or (
+                    arg is True
+                    and frame.f_code.co_qualname == "ProcessHost.settle_any.<locals>.finished"
+                )
+            )
+            if closing or returning:
+                sent = True
+                os.kill(os.getpid(), signal.SIGINT)
+        return trace
+
+    with _host(grace=0.0) as host:
+        info = host.fork(_stubborn(ready, gate), ())
+        ready.wait()
+        if how == "settle":
+            gate.open()
+            host.settle(info.id)
+        previous = sys.gettrace()
+        try:
+            sys.settrace(trace)
+            try:
+                if how == "terminate":
+                    host.terminate(info.id)
+                elif how == "end_settle":
+                    host.end(Disposition.SETTLE)
+                else:
+                    host.settle_any([info.id])
+            except KeyboardInterrupt:
+                interrupted = True
+            else:
+                interrupted = False
+        finally:
+            sys.settrace(previous)
+        return {
+            "sent": sent,
+            "interrupted": interrupted,
+            "reaped": _is_reaped(info.pid),
+            "outcome": _show(host.outcome(info.id)),
+        }
+
+
+@pytest.mark.parametrize("how", ["end_settle", "terminate", "settle"])
+def test_completion_predicates_do_not_lose_sigint(tmp_path: Path, how: str) -> None:
+    report = run_callable(
+        _interrupt_in_completion_predicate, tmp_path, {"how": how}, timeout=RUN_TIMEOUT
+    ).value
+
+    assert report == {
+        "sent": True,
+        "interrupted": True,
+        "reaped": True,
+        "outcome": ["D", "stubborn"] if how == "settle" else ["E", None, signal.SIGKILL],
+    }
+
+
 def _scopes(workdir: Path) -> dict[str, Any]:
     open_gate, doomed = _Gate(), _Gate()
     report: dict[str, Any] = {}
@@ -2568,21 +2643,25 @@ def test_a_child_that_fails_terminates_its_grandchildren_escalating_to_sigkill(
 
 
 def _terminated_while_settling(workdir: Path) -> dict[str, Any]:
-    ready, forked, termed, gate = _Gate(), _Gate(), _Gate(), _Gate()
+    ready, settling, termed, gate = _Gate(), _Gate(), _Gate(), _Gate()
     alive_read, alive_write = os.pipe()
+    root = os.getpid()
 
     def middle() -> bytes:
         host.fork(_stubborn(ready, gate, termed), ())
-        forked.open()
         return b"unreachable"
 
+    def before_poll(call: int) -> None:
+        if os.getppid() == root:
+            settling.open()
+
     # A grace period that no test waits out: only the second SIGTERM can end the termination.
-    with _host(grace=600.0) as host:
+    with _host(grace=600.0) as host, before_each_poll(before_poll):
         child = host.fork(middle, ())
         os.close(alive_write)
-        # A signal during the child's own fork would abort that fork.
+        # Await the grandchild's handler and the child's automatic settling, not its callable.
         ready.wait()
-        forked.wait()
+        settling.wait()
         kill_group(child.pid, signal.SIGTERM)
         termed.wait()
         kill_group(child.pid, signal.SIGTERM)
