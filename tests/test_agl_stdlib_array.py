@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Protocol, cast
@@ -29,6 +30,18 @@ _PAIR = NominalId(9_400_005)
 
 
 class _ArrayCompanion(Protocol):
+    def first(self, values: object) -> object: ...
+
+    def last(self, values: object) -> object: ...
+
+    def first_option(self, values: object) -> object: ...
+
+    def last_option(self, values: object) -> object: ...
+
+    def pop(self, values: object) -> object: ...
+
+    def remove_at(self, values: object, index: int) -> object: ...
+
     def index_of(self, values: object, value: object) -> int: ...
 
     def index_of_option(self, values: object, value: object) -> object: ...
@@ -105,5 +118,42 @@ def test_array_search_raises_for_an_absent_value_and_options_it_separately() -> 
 
     with pytest.raises(AglException) as exc_info:
         companion.index_of(values, 9)
+    assert exc_info.value.value.nominal == _INDEX_ERROR
     assert exc_info.value.value.fields["index"] == IntValue(-1)
     assert exc_info.value.value.fields["length"] == IntValue(3)
+
+
+def test_array_endpoints_preserve_order_and_present_zero_values() -> None:
+    companion = _array_companion()
+    for values in ([0, 20, 30], [10, 20, 0]):
+        original = values.copy()
+        assert companion.first(values) == values[0]
+        assert companion.last(values) == values[-1]
+        assert decode_boundary_value(companion.first_option(values)) == RecordValue(
+            _OPTION_SOME, {"value": IntValue(values[0])}
+        )
+        assert decode_boundary_value(companion.last_option(values)) == RecordValue(
+            _OPTION_SOME, {"value": IntValue(values[-1])}
+        )
+        assert values == original
+
+
+def test_array_index_failures_retain_the_nominal_index_length_and_receiver() -> None:
+    companion = _array_companion()
+    values = [10, 20]
+    failures: tuple[tuple[Callable[[], object], int, int], ...] = (
+        (lambda: companion.first([]), 0, 0),
+        (lambda: companion.last([]), -1, 0),
+        (lambda: companion.pop([]), -1, 0),
+        (lambda: companion.remove_at([], 0), 0, 0),
+        (lambda: companion.remove_at(values, 2), 2, 2),
+        (lambda: companion.remove_at(values, -3), -3, 2),
+    )
+    for operation, index, length in failures:
+        with pytest.raises(AglException) as exc_info:
+            operation()
+        error = exc_info.value.value
+        assert error.nominal == _INDEX_ERROR
+        assert error.fields["index"] == IntValue(index)
+        assert error.fields["length"] == IntValue(length)
+        assert values == [10, 20]

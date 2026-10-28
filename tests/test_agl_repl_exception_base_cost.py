@@ -22,10 +22,10 @@ def _session() -> ReplSession:
     return session
 
 
-def _resolutions(
-    monkeypatch: pytest.MonkeyPatch, session: ReplSession, action: Callable[[ReplSession], object]
-) -> int:
-    """Count the programs *action* resolves."""
+def _resolutions[T](
+    monkeypatch: pytest.MonkeyPatch, session: ReplSession, action: Callable[[ReplSession], T]
+) -> tuple[T, int]:
+    """Return *action*'s result and the number of programs it resolves."""
     count = 0
     resolve = EntryPipeline.resolve_program
 
@@ -39,8 +39,8 @@ def _resolutions(
 
     with monkeypatch.context() as patch:
         patch.setattr(EntryPipeline, "resolve_program", counting(resolve))
-        action(session)
-    return count
+        result = action(session)
+    return result, count
 
 
 def test_a_redeclared_cycle_of_bases_is_displayed() -> None:
@@ -52,8 +52,8 @@ def test_a_redeclared_cycle_of_bases_is_displayed() -> None:
     info = session.info_of("C")
 
     assert shown.ok
-    assert shown.type_display is not None
-    assert info is not None
+    assert shown.type_display == "exception C extends B"
+    assert _extends_line(info) == shown.type_display
 
 
 def test_a_deep_chain_of_bases_is_spelled_with_constant_work(
@@ -61,17 +61,24 @@ def test_a_deep_chain_of_bases_is_spelled_with_constant_work(
 ) -> None:
     def chain(length: int) -> ReplSession:
         session = _session()
-        assert session.eval_entry("exception E0").ok
-        for i in range(1, length):
-            assert session.eval_entry(f"exception E{i} extends E{i - 1}").ok
+        declarations = ["exception E0"]
+        declarations.extend(f"exception E{i} extends E{i - 1}" for i in range(1, length))
+        assert session.eval_entry("\n".join(declarations)).ok
         return session
 
     short, long = chain(40), chain(80)
 
-    short_work = _resolutions(monkeypatch, short, lambda s: s.eval_entry("E39"))
-    long_work = _resolutions(monkeypatch, long, lambda s: s.eval_entry("E79"))
+    short_shown, short_work = _resolutions(monkeypatch, short, lambda s: s.eval_entry("E39"))
+    long_shown, long_work = _resolutions(monkeypatch, long, lambda s: s.eval_entry("E79"))
 
     assert long_work == short_work
+    for session, shown, name, base in [
+        (short, short_shown, "E39", "E38"),
+        (long, long_shown, "E79", "E78"),
+    ]:
+        assert shown.ok
+        assert shown.type_display == f"exception {name} extends {base}"
+        _redefines_same_base(session, name, declaration=shown.type_display)
 
 
 def test_many_aliases_do_not_multiply_the_work_of_an_unspellable_base(
@@ -79,17 +86,20 @@ def test_many_aliases_do_not_multiply_the_work_of_an_unspellable_base(
 ) -> None:
     def session_with(aliases: int) -> ReplSession:
         session = _session()
-        assert session.eval_entry("scope sc\n  exception E\n  exception F extends E\nend sc").ok
-        for i in range(aliases):
-            assert session.eval_entry(f"type A{i} = int").ok
+        declarations = ["scope sc\n  exception E\n  exception F extends E\nend sc"]
+        declarations.extend(f"type A{i} = int" for i in range(aliases))
+        assert session.eval_entry("\n".join(declarations)).ok
         return session
 
     few, many = session_with(5), session_with(100)
 
-    few_work = _resolutions(monkeypatch, few, lambda s: s.info_of("sc::F"))
-    many_work = _resolutions(monkeypatch, many, lambda s: s.info_of("sc::F"))
+    few_shown, few_work = _resolutions(monkeypatch, few, lambda s: s.info_of("sc::F"))
+    many_shown, many_work = _resolutions(monkeypatch, many, lambda s: s.info_of("sc::F"))
 
     assert many_work == few_work
+    for shown in (few_shown, many_shown):
+        # E is scoped: the declaration must retain its bare-name fallback.
+        assert _extends_line(shown) == "exception sc::F extends E"
 
 
 def test_aliases_of_imported_types_do_not_multiply_the_work_of_an_unspellable_base(
@@ -102,16 +112,19 @@ def test_aliases_of_imported_types_do_not_multiply_the_work_of_an_unspellable_ba
         session.open()
         for entry in ["import lib", "exception X", "exception Y extends X", "exception X"]:
             assert session.eval_entry(entry).ok
-        for i in range(aliases):
-            assert session.eval_entry(f"type A{i} = lib::LA").ok
+        assert session.eval_entry("\n".join(f"type A{i} = lib::LA" for i in range(aliases))).ok
         return session
 
     few, many = session_with(3), session_with(40)
 
-    few_work = _resolutions(monkeypatch, few, lambda s: s.eval_entry("Y"))
-    many_work = _resolutions(monkeypatch, many, lambda s: s.eval_entry("Y"))
+    few_shown, few_work = _resolutions(monkeypatch, few, lambda s: s.eval_entry("Y"))
+    many_shown, many_work = _resolutions(monkeypatch, many, lambda s: s.eval_entry("Y"))
 
     assert many_work == few_work
+    for shown in (few_shown, many_shown):
+        assert shown.ok
+        # Y retains the old X, which has no reachable spelling after redeclaration.
+        assert shown.type_display == "exception Y extends X"
 
 
 def test_a_base_is_spelled_by_an_alias_when_its_own_name_is_out_of_reach() -> None:
@@ -159,9 +172,12 @@ def _base_of(session: ReplSession, name: str) -> object:
     return shown.type_table.exception_def(shown.value_type).base
 
 
-def _redefines_same_base(session: ReplSession, name: str) -> None:
+def _redefines_same_base(
+    session: ReplSession, name: str, *, declaration: str | None = None
+) -> None:
     """Re-evaluating *name*'s printed declaration defines an exception with *name*'s base."""
-    declaration = _extends_line(session.info_of(name))
+    if declaration is None:
+        declaration = _extends_line(session.info_of(name))
     assert session.eval_entry(declaration.replace(f"exception {name}", "exception Again", 1)).ok
     assert _base_of(session, "Again") == _base_of(session, name)
 

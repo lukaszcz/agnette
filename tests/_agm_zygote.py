@@ -15,8 +15,8 @@ own, since every child inherits the zygote's. :envvar:`AGM_TEST_NO_ZYGOTE`
 turns the whole mechanism off and returns every invocation to a plain
 ``subprocess.run``, which is how the suite is run to settle either question.
 
-The zygote never runs a command itself, so a child inherits only what the zygote
-imported, its hash seed and its interpreter-start environment.
+The zygote never runs a command itself, so a child inherits only its imports,
+immutable compiler caches, hash seed and interpreter-start environment.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from tests import _zygote
+from tests import _command_coverage, _zygote
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -43,6 +43,9 @@ DISABLE_ENV = _zygote.DISABLE_ENV
 
 # How long a client waits for a newly spawned zygote to start listening.
 _STARTUP_TIMEOUT = 60.0
+
+# A deadlock must fail the test, but a loaded parallel suite needs ample headroom.
+COMMAND_TIMEOUT = 300.0
 
 # Standard descriptors, in the order the client hands them over.
 _STREAM_COUNT = 3
@@ -73,16 +76,20 @@ _PRELOADED = (
     "agnette.agm.commands.exec_program",
     "agnette.agl.pipeline",
     "agnette.agl.runtime",
+    "agnette.agl.repl",
+    "agnette.agl.eval.ir_interpreter",
+    "agnette.packages.install",
 )
 
 
 def _preload() -> None:
-    """Import everything a command could need, so a forked child imports none of it."""
+    """Preload CLI imports and immutable standard-library compiler artifacts."""
     for name in _PRELOADED:
         importlib.import_module(name)
+    _zygote.preload_stdlib()
 
 
-def _run_command(request: Invocation) -> int:
+def _run_command(request: Invocation, dispatch_fd: int | None = None) -> int:
     """Become the invocation described by *request* and run the CLI.
 
     Returns what the staged entry point would hand to ``sys.exit``.
@@ -90,6 +97,7 @@ def _run_command(request: Invocation) -> int:
     argv, env, cwd = request
     _zygote.adopt(env, cwd)
     sys.argv = list(argv)
+    _command_coverage.install_dispatch_observer(dispatch_fd)
     from agnette.agm.cli import main
 
     return _zygote.exit_status(main())
@@ -99,12 +107,15 @@ def _child(request: Invocation, fds: list[int]) -> NoReturn:
     """Take over the standard descriptors, run the command, and exit."""
 
     def body() -> int:
-        for target, fd in enumerate(fds):
+        os.setsid()
+        streams = fds[:_STREAM_COUNT]
+        for target, fd in enumerate(streams):
             os.dup2(fd, target)
-        for fd in fds:
+        for fd in streams:
             if fd >= _STREAM_COUNT:
                 os.close(fd)
-        return _run_command(request)
+        dispatch_fd = fds[_STREAM_COUNT] if len(fds) > _STREAM_COUNT else None
+        return _run_command(request, dispatch_fd)
 
     _zygote.run_child(body)
 
@@ -123,6 +134,9 @@ class Zygote(_zygote.Launcher):
         env: dict[str, str],
         cwd: str,
         stdin_text: str | None,
+        *,
+        dispatch_fd: int | None = None,
+        timeout: float = COMMAND_TIMEOUT,
     ) -> subprocess.CompletedProcess[str]:
         """Run *argv* in a forked child and collect it like ``subprocess.run`` would.
 
@@ -138,16 +152,18 @@ class Zygote(_zygote.Launcher):
                 stdin_file.write(stdin_text.encode(_encoding()))
                 stdin_file.seek(0)
             request: Invocation = (list(argv), env, cwd)
-            reply = self.invoke(
-                request, (stdin_file.fileno(), stdout_file.fileno(), stderr_file.fileno())
-            )
+            fds = (stdin_file.fileno(), stdout_file.fileno(), stderr_file.fileno())
+            if dispatch_fd is not None:
+                fds = (*fds, dispatch_fd)
+            reply = self.invoke(request, fds, timeout=timeout, kill=_zygote.kill_process_tree)
             stdout_file.seek(0)
             stderr_file.seek(0)
+            stdout = _decode(stdout_file.read())
+            stderr = _decode(stderr_file.read())
+            if reply.timed_out:
+                raise subprocess.TimeoutExpired(list(argv), timeout, stdout, stderr)
             return subprocess.CompletedProcess(
-                list(argv),
-                os.waitstatus_to_exitcode(reply.status),
-                _decode(stdout_file.read()),
-                _decode(stderr_file.read()),
+                list(argv), os.waitstatus_to_exitcode(reply.status), stdout, stderr
             )
 
 

@@ -18,7 +18,7 @@ from agnette.agl.self_validation import self_validation_enabled, set_self_valida
 from agnette.core import dry_run, process
 from agnette.core.process import CapturedOutput
 from agnette.packages import python_deps
-from tests import _command_coverage, _isolation
+from tests import _command_coverage, _isolation, _zygote
 from tests._durations import (
     pytest_runtest_protocol,
     pytest_sessionfinish,
@@ -33,7 +33,7 @@ from tests.agl import isolated_runner
 __all__ = ["pytest_runtest_protocol", "pytest_sessionfinish", "pytest_testnodedown"]
 
 _GC_THRESHOLDS = pytest.StashKey[tuple[int, int, int]]()
-_GC_TESTS = pytest.StashKey[int]()
+_GC_COLLECTIONS = pytest.StashKey[int]()
 
 # Enable the optional invariant self-checks — match-compilation self-checks, IR
 # structural validation, and completion's re-raising of the failures it would
@@ -85,10 +85,11 @@ def pytest_configure(config: pytest.Config) -> None:
     hooks) cannot express twice under one name.
     """
     config.pluginmanager.register(_command_coverage, "agm_command_coverage")
+    _zygote.preload_coverage(warm=False)
     # Collect cyclic compiler state at bounded test boundaries, not during allocations.
     thresholds = gc.get_threshold()
     config.stash[_GC_THRESHOLDS] = thresholds
-    config.stash[_GC_TESTS] = 0
+    config.stash[_GC_COLLECTIONS] = 0
     gc.set_threshold(0)
     config.add_cleanup(lambda: gc.set_threshold(*thresholds))
     is_xdist_worker = hasattr(config, "workerinput")
@@ -98,13 +99,13 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    count = item.config.stash[_GC_TESTS] + 1
-    # Bound each collection's compiler graphs so the charged test stays cheap.
-    if count % 150 == 0:
-        gc.collect(2 if count == 300 else 0)
-    if count == 300:
-        count = 0
-    item.config.stash[_GC_TESTS] = count
+    # Allocation pressure varies greatly between lexer cases and REPL histories.
+    # Collect only at test boundaries, before cyclic compiler graphs accumulate.
+    if gc.get_count()[0] < 25_000:
+        return
+    count = item.config.stash[_GC_COLLECTIONS] + 1
+    gc.collect(2 if count == 30 else 0)
+    item.config.stash[_GC_COLLECTIONS] = 0 if count == 30 else count
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -358,6 +359,7 @@ def isolate_host_environment(
     workspace shell exports, drop every inherited ``GIT_*`` variable (``GIT_DIR``,
     ``GIT_CONFIG_*``, ...) that would redirect or reconfigure git, and drop inherited
     proxy settings so HTTP clients can initialize before their fake transport takes over.
+    Drop shell startup overrides so subprocesses cannot source the host's rc files.
 
     Tests that need a populated home build one and pass it explicitly, as
     ``home=`` or in an ``env`` mapping.  The home lives outside the test's own
@@ -374,7 +376,7 @@ def isolate_host_environment(
     for name, value in GIT_IDENTITY.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", _git_ceiling_directories(tmp_path_factory))
-    for name in _HOST_CONTEXT_VARIABLES:
+    for name in (*_HOST_CONTEXT_VARIABLES, "BASH_ENV", "ENV", "ZDOTDIR"):
         monkeypatch.delenv(name, raising=False)
     for name in tuple(os.environ):
         if name.lower().endswith("_proxy"):

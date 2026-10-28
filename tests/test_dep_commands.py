@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -13,11 +15,13 @@ from agnette.agm.project.dependency_checkout import (
     derive_dep_name,
     main_dep_repo,
 )
-from agnette.vcs.git import WorktreeInfo, default_branch_from_remote, default_branch_from_repo
+from agnette.vcs.git import default_branch_from_remote, default_branch_from_repo
 from tests._git_helpers import (
     add_linked_worktree,
     clone_local_remote,
+    commit_file,
     git_output,
+    git_rev,
     git_run,
     init_repo,
 )
@@ -120,10 +124,10 @@ class TestDefaultBranchFromRemote:
     # Kept as a behavioral fake: git always prints the target alongside a
     # ``ref:`` line, so a truncated one cannot be produced by a real remote.
     def test_exits_when_ref_line_has_no_parts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "agnette.vcs.git.ls_remote_head",
-            lambda repo_url, env=None: "ref:\n",
-        )
+        def truncated_remote_head(repo_url: str, *, env: dict[str, str] | None = None) -> str:
+            return "ref:\n"
+
+        monkeypatch.setattr("agnette.vcs.git.ls_remote_head", truncated_remote_head)
         with pytest.raises(SystemExit):
             default_branch_from_remote("https://github.com/org/repo")
 
@@ -446,246 +450,215 @@ class TestDepRemoveRun:
 
 
 class TestDepSwitchRun:
-    def _setup_dep(self, tmp_path: Path) -> tuple[Path, Path, Path]:
+    def _setup_dep(self, tmp_path: Path, env: dict[str, str]) -> tuple[Path, Path, Path]:
         project_dir = tmp_path / "project"
-        deps_dir = project_dir / "deps"
-        dep_dir = deps_dir / "mylib"
-        repo_path = dep_dir / "repo"
-        repo_path.mkdir(parents=True)
+        init_repo(project_dir / "repo", env)
+        config_dir = init_repo(project_dir / "config", env)
+        commit_file(
+            config_dir,
+            env,
+            name="config.toml",
+            content='[deps]\nmylib = "repo"\nother = "kept"\n[project]\nname = "sample"\n',
+        )
+        dep_dir = project_dir / "deps" / "mylib"
+        _source, repo_path = clone_local_remote(
+            tmp_path, env, clone_name=str(dep_dir / "repo"), default_branch="develop"
+        )
         return project_dir, dep_dir, repo_path
 
-    def test_switches_to_existing_checkout_updates_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def _assert_config(
+        self,
+        project_dir: Path,
+        env: dict[str, str],
+        checkout: str,
+        *,
+        workspace: str | None = None,
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
+        config_dir = project_dir / "config"
+        config_path = "config.toml" if workspace is None else f"{workspace}/config.toml"
+        content = (config_dir / config_path).read_text(encoding="utf-8")
+        assert cast(dict[str, object], tomllib.loads(content)) == {
+            "deps": {"mylib": checkout, "other": "kept"},
+            "project": {"name": "sample"},
+        }
+        assert git_output(config_dir, ["show", f"HEAD:{config_path}"], env) == content.strip()
+        assert git_output(config_dir, ["status", "--porcelain"], env) == ""
 
-        existing_wt = dep_dir / "feature"
-        existing_wt.mkdir()
-        worktrees = [
-            WorktreeInfo(path=repo_path, branch="main"),
-            WorktreeInfo(path=existing_wt, branch="feature"),
-        ]
-
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
-
-        config_updates: list[dict[str, str]] = []
-
-        def fake_update_config(
-            *, project_dir: Path, dep_name: str, dep_branch: str, config_branch: str
-        ) -> None:
-            config_updates.append(
-                {"dep_name": dep_name, "dep_branch": dep_branch, "config_branch": config_branch}
+    @pytest.mark.parametrize("checkout", ["feature", "group/feature"])
+    @pytest.mark.parametrize("workspace", [None, "topic"])
+    def test_switches_to_existing_checkout_updates_only_current_workspace_config(
+        self,
+        tmp_path: Path,
+        env: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        checkout: str,
+        workspace: str | None,
+    ) -> None:
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
+        existing_wt = add_linked_worktree(repo_path, dep_dir / checkout, env, branch="feature")
+        config_dir = project_dir / "config"
+        original_config = (config_dir / "config.toml").read_text(encoding="utf-8")
+        cwd = project_dir / "repo"
+        if workspace is not None:
+            cwd = add_linked_worktree(
+                cwd, project_dir / "worktrees" / workspace, env, branch=workspace
             )
-
-        monkeypatch.setattr(dep_switch, "update_dependency_config", fake_update_config)
-
-        args = DepSwitchArgs(dep="mylib", branch="feature", create_branch=False)
-        dep_switch.run(args)
-
-        assert len(config_updates) == 1
-        assert config_updates[0]["dep_name"] == "mylib"
-        assert config_updates[0]["dep_branch"] == "feature"
-
-    def test_switches_to_nested_checkout_matched_by_branch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
-
-        existing_wt = dep_dir / "group" / "feature"
-        existing_wt.mkdir(parents=True)
-        worktrees = [
-            WorktreeInfo(path=repo_path, branch="main"),
-            WorktreeInfo(path=existing_wt, branch="feature"),
-        ]
-
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
-
-        config_updates: list[str] = []
-        monkeypatch.setattr(
-            dep_switch,
-            "update_dependency_config",
-            lambda **kw: config_updates.append(kw["dep_branch"]),
-        )
+            (config_dir / workspace).mkdir()
+            commit_file(config_dir, env, name=f"{workspace}/config.toml", content=original_config)
+        before_worktrees = _worktree_paths(repo_path, env)
+        before_head = git_rev(existing_wt, env)
+        monkeypatch.chdir(cwd)
 
         dep_switch.run(DepSwitchArgs(dep="mylib", branch="feature", create_branch=False))
 
-        assert config_updates == ["group/feature"]
+        self._assert_config(project_dir, env, checkout, workspace=workspace)
+        assert _worktree_paths(repo_path, env) == before_worktrees
+        assert git_rev(existing_wt, env) == before_head
+        if workspace is not None:
+            assert (config_dir / "config.toml").read_text(encoding="utf-8") == original_config
 
     def test_existing_checkout_path_takes_priority_over_branch_match(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, env: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
-
-        branch_match = dep_dir / "branch-checkout"
-        path_match = dep_dir / "feature"
-        branch_match.mkdir()
-        path_match.mkdir()
-        worktrees = [
-            WorktreeInfo(path=repo_path, branch="main"),
-            WorktreeInfo(path=branch_match, branch="feature"),
-            WorktreeInfo(path=path_match, branch="other-branch"),
-        ]
-
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
-
-        config_updates: list[str] = []
-        monkeypatch.setattr(
-            dep_switch,
-            "update_dependency_config",
-            lambda **kw: config_updates.append(kw["dep_branch"]),
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
+        branch_match = add_linked_worktree(
+            repo_path, dep_dir / "branch-checkout", env, branch="feature"
         )
+        path_match = add_linked_worktree(repo_path, dep_dir / "feature", env, branch="other-branch")
+        monkeypatch.chdir(project_dir)
 
         dep_switch.run(DepSwitchArgs(dep="mylib", branch="feature", create_branch=False))
 
-        assert config_updates == ["feature"]
+        self._assert_config(project_dir, env, "feature")
+        assert git_output(path_match, ["branch", "--show-current"], env) == "other-branch"
+        assert git_output(branch_match, ["branch", "--show-current"], env) == "feature"
 
-    def test_ignores_non_checkout_worktrees_before_creating_target(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("location", ["dep-root", "outside"])
+    def test_rejects_a_branch_checked_out_outside_the_dependency_checkouts(
+        self,
+        tmp_path: Path,
+        env: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        location: str,
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        worktrees = [
-            WorktreeInfo(path=repo_path, branch="main"),
-            WorktreeInfo(path=dep_dir, branch="feature"),
-            WorktreeInfo(path=outside, branch="feature"),
-        ]
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
+        if location == "dep-root":
+            relocated = tmp_path / "relocated"
+            repo_path.rename(relocated)
+            dep_dir.rmdir()
+            worktree = add_linked_worktree(relocated, dep_dir, env, branch="feature")
+            relocated.rename(repo_path)
+            git_run(repo_path, ["worktree", "repair"], env)
+        else:
+            worktree = add_linked_worktree(repo_path, tmp_path / "outside", env, branch="feature")
+        before_worktrees = _worktree_paths(repo_path, env)
+        config_head = git_rev(project_dir / "config", env)
+        monkeypatch.chdir(project_dir)
 
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
-        monkeypatch.setattr(dep_switch.git_helpers, "fetch", lambda p: None)
-        monkeypatch.setattr(dep_switch, "update_dependency_config", lambda **kw: None)
+        with pytest.raises(SystemExit) as raised:
+            dep_switch.run(
+                DepSwitchArgs(dep="mylib", branch="feature", create_branch=False, no_fetch=True)
+            )
 
-        added: list[Path] = []
-
-        def fake_worktree_add(repo: Path, path: Path, branch: str, **kwargs: object) -> None:
-            added.append(path)
-
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_add", fake_worktree_add)
-
-        dep_switch.run(DepSwitchArgs(dep="mylib", branch="feature", create_branch=False))
-
-        assert added == [dep_dir / "feature"]
+        assert raised.value.code != 0
+        self._assert_config(project_dir, env, "repo")
+        assert git_rev(project_dir / "config", env) == config_head
+        assert _worktree_paths(repo_path, env) == before_worktrees
+        assert not (dep_dir / "feature").exists()
+        assert (worktree / "README.md").is_file()
 
     def test_exits_when_dep_dir_missing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, env: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
+        project_dir, _dep_dir, _repo_path = self._setup_dep(tmp_path, env)
+        config_head = git_rev(project_dir / "config", env)
+        monkeypatch.chdir(project_dir)
 
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
+        with pytest.raises(SystemExit) as raised:
+            dep_switch.run(DepSwitchArgs(dep="nonexistent", branch="feature", create_branch=False))
 
-        args = DepSwitchArgs(dep="nonexistent", branch="feature", create_branch=False)
-        with pytest.raises(SystemExit):
-            dep_switch.run(args)
+        assert raised.value.code == 1
+        assert not (project_dir / "deps" / "nonexistent").exists()
+        self._assert_config(project_dir, env, "repo")
+        assert git_rev(project_dir / "config", env) == config_head
 
     def test_exits_when_target_dir_already_exists(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, env: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
-
-        # No matching checkout in worktrees
-        worktrees = [WorktreeInfo(path=repo_path, branch="main")]
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-
-        # Create the target directory so "exists" returns True
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
         target = dep_dir / "new-branch"
         target.mkdir()
+        marker = target / "keep.txt"
+        marker.write_text("not a checkout\n", encoding="utf-8")
+        config_head = git_rev(project_dir / "config", env)
+        monkeypatch.chdir(project_dir)
 
-        args = DepSwitchArgs(dep="mylib", branch="new-branch", create_branch=False)
-        with pytest.raises(SystemExit):
-            dep_switch.run(args)
+        with pytest.raises(SystemExit) as raised:
+            dep_switch.run(DepSwitchArgs(dep="mylib", branch="new-branch", create_branch=False))
 
+        assert raised.value.code == 1
+        assert marker.read_text(encoding="utf-8") == "not a checkout\n"
+        assert _worktree_paths(repo_path, env) == {repo_path.resolve()}
+        self._assert_config(project_dir, env, "repo")
+        assert git_rev(project_dir / "config", env) == config_head
+
+    @pytest.mark.parametrize("no_fetch", [True, False])
     def test_adds_worktree_for_existing_remote_branch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        env: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        no_fetch: bool,
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
+        source = tmp_path / "source"
+        git_run(source, ["checkout", "-qb", "feature"], env)
+        commit_file(source, env, name="feature.txt", content="cached version\n")
+        git_run(repo_path, ["fetch", "-q"], env)
+        cached_head = git_rev(source, env)
+        commit_file(source, env, name="feature.txt", content="new remote version\n")
+        remote_head = git_rev(source, env)
+        monkeypatch.chdir(project_dir)
 
-        worktrees = [WorktreeInfo(path=repo_path, branch="main")]
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
+        dep_switch.run(
+            DepSwitchArgs(dep="mylib", branch="feature", create_branch=False, no_fetch=no_fetch)
+        )
 
-        fetched: list[Path] = []
-        monkeypatch.setattr(dep_switch.git_helpers, "fetch", lambda p: fetched.append(p))
-
-        worktree_add_calls: list[dict[str, object]] = []
-
-        def fake_worktree_add(repo: Path, path: Path, branch: str, **kwargs: object) -> None:
-            worktree_add_calls.append({"path": path, "branch": branch, **kwargs})
-
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_add", fake_worktree_add)
-
-        config_updates: list[dict[str, str]] = []
-
-        def fake_update_config(
-            *, project_dir: Path, dep_name: str, dep_branch: str, config_branch: str
-        ) -> None:
-            config_updates.append({"dep_branch": dep_branch})
-
-        monkeypatch.setattr(dep_switch, "update_dependency_config", fake_update_config)
-
-        args = DepSwitchArgs(dep="mylib", branch="feature", create_branch=False, no_fetch=True)
-        dep_switch.run(args)
-
-        assert fetched == []
-        assert len(worktree_add_calls) == 1
-        assert worktree_add_calls[0]["branch"] == "feature"
-        assert worktree_add_calls[0]["path"] == dep_dir / "feature"
-        assert config_updates[0]["dep_branch"] == "feature"
+        worktree = dep_dir / "feature"
+        assert git_rev(worktree, env) == (cached_head if no_fetch else remote_head)
+        assert (worktree / "feature.txt").read_text(encoding="utf-8") == (
+            "cached version\n" if no_fetch else "new remote version\n"
+        )
+        assert git_output(worktree, ["branch", "--show-current"], env) == "feature"
+        assert _worktree_paths(repo_path, env) == {repo_path.resolve(), worktree.resolve()}
+        self._assert_config(project_dir, env, "feature")
 
     @pytest.mark.parametrize("no_fetch", [True, False])
     def test_creates_new_branch_from_default(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_fetch: bool
+        self,
+        tmp_path: Path,
+        env: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        no_fetch: bool,
     ) -> None:
-        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path)
+        project_dir, dep_dir, repo_path = self._setup_dep(tmp_path, env)
+        default_head = git_rev(repo_path, env)
+        git_run(repo_path, ["checkout", "-qb", "unrelated"], env)
+        commit_file(repo_path, env, name="unrelated.txt")
+        commit_file(tmp_path / "source", env, name="remote-only.txt")
+        remote_head = git_rev(tmp_path / "source", env)
+        monkeypatch.chdir(project_dir)
 
-        worktrees = [WorktreeInfo(path=repo_path, branch="main")]
-        monkeypatch.setattr(dep_switch, "require_current_project_dir", lambda: project_dir)
-        monkeypatch.setattr(dep_switch, "project_deps_dir", lambda pd: project_dir / "deps")
-        monkeypatch.setattr(dep_switch, "main_dep_repo", lambda d: repo_path)
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_list", lambda p: worktrees)
-        monkeypatch.setattr(dep_switch, "current_config_branch", lambda pd: "main")
-        monkeypatch.setattr(dep_switch.git_helpers, "default_branch_from_repo", lambda p: "main")
+        dep_switch.run(
+            DepSwitchArgs(dep="mylib", branch="new/feat", create_branch=True, no_fetch=no_fetch)
+        )
 
-        fetched: list[Path] = []
-        monkeypatch.setattr(dep_switch.git_helpers, "fetch", lambda p: fetched.append(p))
-
-        worktree_add_calls: list[dict[str, object]] = []
-
-        def fake_worktree_add(repo: Path, path: Path, branch: str, **kwargs: object) -> None:
-            worktree_add_calls.append({"path": path, "branch": branch, **kwargs})
-
-        monkeypatch.setattr(dep_switch.git_helpers, "worktree_add", fake_worktree_add)
-        monkeypatch.setattr(dep_switch, "update_dependency_config", lambda **_kw: None)
-
-        args = DepSwitchArgs(dep="mylib", branch="new-feat", create_branch=True, no_fetch=no_fetch)
-        dep_switch.run(args)
-
-        assert fetched == ([] if no_fetch else [repo_path])
-        assert len(worktree_add_calls) == 1
-        call = worktree_add_calls[0]
-        assert call["branch"] == "new-feat"
-        assert call.get("create") is True
-        assert call.get("start_point") == "main"
+        worktree = dep_dir / "new" / "feat"
+        assert git_rev(worktree, env) == default_head
+        assert git_output(worktree, ["branch", "--show-current"], env) == "new/feat"
+        assert not (worktree / "unrelated.txt").exists()
+        assert git_rev(repo_path, env, "origin/develop") == (
+            default_head if no_fetch else remote_head
+        )
+        assert _worktree_paths(repo_path, env) == {repo_path.resolve(), worktree.resolve()}
+        self._assert_config(project_dir, env, "new/feat")

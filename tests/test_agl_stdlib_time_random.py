@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime, tzinfo
 from decimal import Decimal
 from pathlib import Path
 from threading import Barrier
 from types import ModuleType, SimpleNamespace
 from typing import Protocol, cast
+from uuid import UUID
 
 import pytest
 
@@ -41,6 +43,14 @@ _NO_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_en
 
 
 class _TimeCompanion(Protocol):
+    def now(self) -> Decimal: ...
+
+    def now_iso(self) -> str: ...
+
+    def monotonic(self) -> Decimal: ...
+
+    def sleep(self, seconds: Decimal) -> None: ...
+
     def parse_iso(self, raw: str) -> Decimal: ...
 
     def format_iso(self, epoch: Decimal) -> str: ...
@@ -51,6 +61,8 @@ class _TimeCompanion(Protocol):
 
 
 class _RandomCompanion(Protocol):
+    def uuid(self) -> str: ...
+
     def seed(self, value: int) -> None: ...
 
     def below(self, upper: int) -> int: ...
@@ -97,6 +109,68 @@ def _companion(
         },
     )
     return active_registry.load_companion(module_id, _STDLIB_ROOT / "src" / f"{name}.py")
+
+
+def test_time_clocks_use_distinct_nanosecond_sources_without_float_rounding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    companion = cast(_TimeCompanion, _companion(_TIME_MODULE, "time"))
+    monkeypatch.setattr(
+        companion,
+        "time",
+        SimpleNamespace(
+            time_ns=lambda: 1_704_164_645_123_456_789,
+            monotonic_ns=lambda: 987_654_321_012_345,
+        ),
+    )
+
+    assert companion.now() == Decimal("1704164645.123456789")
+    assert companion.monotonic() == Decimal("987654.321012345")
+
+
+def test_time_now_iso_preserves_the_current_utc_instant(monkeypatch: pytest.MonkeyPatch) -> None:
+    companion = cast(_TimeCompanion, _companion(_TIME_MODULE, "time"))
+    instant = datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=UTC)
+
+    def now(tz: tzinfo | None = None) -> datetime:
+        return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(companion, "datetime", SimpleNamespace(now=now))
+
+    assert companion.now_iso() == "2024-01-02T03:04:05.123456+00:00"
+
+
+def test_time_sleep_forwards_each_requested_duration_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    companion = cast(_TimeCompanion, _companion(_TIME_MODULE, "time"))
+    durations: list[float] = []
+    monkeypatch.setattr(companion, "time", SimpleNamespace(sleep=durations.append))
+
+    for seconds in (Decimal(0), Decimal("0.125"), Decimal("2.5")):
+        assert companion.sleep(seconds) is None
+
+    assert durations == [0.0, 0.125, 2.5]
+    assert all(isinstance(seconds, float) for seconds in durations)
+
+
+def test_random_uuid_propagates_fresh_entropy_source_values_despite_reseeding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    companion = cast(_RandomCompanion, _companion(_RANDOM_MODULE, "random"))
+    expected = (
+        "12345678-1234-4abc-8def-123456789abc",
+        "87654321-4321-4fed-9cba-cba987654321",
+    )
+    generated = iter(UUID(value) for value in expected)
+    monkeypatch.setattr(companion, "uuid_module", SimpleNamespace(uuid4=lambda: next(generated)))
+
+    companion.seed(713)
+    first = companion.uuid()
+    companion.seed(713)
+    second = companion.uuid()
+
+    assert (first, second) == expected
 
 
 def test_time_round_trips_fixed_utc_iso_and_strptime_values() -> None:

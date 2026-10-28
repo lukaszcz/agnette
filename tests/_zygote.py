@@ -4,7 +4,7 @@ A *zygote* is a single-threaded server process that imports what a family of
 short-lived child processes would otherwise import for themselves, then forks one
 child per request. A child is an ordinary OS process: it takes over the file
 descriptors the client passed (``SCM_RIGHTS``), and its exit status is the real one.
-A zygote never runs a request itself, so a child inherits import-time state only.
+A zygote never runs a request itself, so a child inherits preload state only.
 
 One zygote serves one xdist worker, which asks it for one child at a time. The worker
 cannot see a child the zygote reaped in its own :func:`os.times`, so the zygote
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import array
 import contextlib
+import functools
 import gc
 import os
 import pickle
@@ -43,6 +44,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType, FunctionType
 from typing import Any, NoReturn
 
 # Set to "1" to run every launcher's requests as cold processes instead.
@@ -137,6 +139,83 @@ def recv_with_fds(conn: socket.socket) -> tuple[bytes, list[int]]:
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
+
+
+def preload_stdlib() -> None:
+    """Fill immutable compiler caches without creating a host or running AgL code."""
+    from agnette.agl import PipelineDriver
+    from agnette.agl.modules.roots import RootSet
+
+    stdlib = Path(__file__).resolve().parents[1] / "packages" / "stdlib"
+    imports = "".join(
+        f"import std/{path.stem}\n"
+        for path in sorted((stdlib / "src").glob("*.agl"))
+        if path.stem != "prelude"
+    )
+    prepared = PipelineDriver.prepare_program(
+        imports + "program def main() -> unit = ()\n",
+        roots=RootSet(roots=frozenset(), stdlib_roots=frozenset({stdlib})),
+    )
+    PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None).check_prepared(prepared)
+
+
+def preload_coverage(*, warm: bool = True) -> None:
+    """Share source-only coverage metadata, never collectors or recorded arcs.
+
+    Sysmon's 20-file source-map LRU thrashes across the compiler. Retain the
+    checkout's source and bytecode maps across forks. These are read-only
+    analysis results, not observed branches; collectors and their arc sets
+    remain entirely child-local.
+    """
+    if os.environ.get("COVERAGE_CORE") != "sysmon":
+        return
+    from coverage import sysmon
+    from coverage.bytecode import TBranchTrails
+
+    root = Path(__file__).resolve().parents[1]
+    sources = {
+        str(path)
+        for directory in (root / "src", root / "packages" / "stdlib" / "src")
+        for path in directory.rglob("*.py")
+    }
+    original_multiline_map = sysmon.get_multiline_map
+    cached_multiline_map = functools.lru_cache(maxsize=1024)(original_multiline_map)
+
+    def get_multiline_map(filename: str) -> dict[int, int]:
+        # Only checkout sources are immutable; temporary companions can be edited.
+        if filename in sources:
+            return cached_multiline_map(filename)
+        return original_multiline_map(filename)
+
+    sysmon.get_multiline_map = get_multiline_map
+    sysmon.bytes_to_lines = functools.lru_cache(maxsize=16384)(sysmon.bytes_to_lines)
+    sysmon.always_jumps = functools.lru_cache(maxsize=16384)(sysmon.always_jumps)
+    original_trails = sysmon.branch_trails
+    retained: dict[CodeType, tuple[Mapping[int, int], TBranchTrails]] = {}
+
+    def branch_trails(code: CodeType, multiline_map: Mapping[int, int]) -> TBranchTrails:
+        previous = retained.get(code)
+        if previous is not None and previous[0] is multiline_map:
+            return previous[1]
+        trails = original_trails(code, multiline_map)
+        if len(retained) < 16384:
+            retained[code] = (multiline_map, trails)
+        return trails
+
+    sysmon.branch_trails = branch_trails
+    if not warm:
+        return
+    pending = [obj.__code__ for obj in gc.get_objects() if isinstance(obj, FunctionType)]
+    seen: set[CodeType] = set()
+    while pending:
+        code = pending.pop()
+        if code in seen or code.co_filename not in sources:
+            continue
+        seen.add(code)
+        pending.extend(item for item in code.co_consts if isinstance(item, CodeType))
+        sysmon.bytes_to_lines(code)
+        sysmon.always_jumps(code)
+        branch_trails(code, sysmon.get_multiline_map(code.co_filename))
 
 
 def serve(
@@ -246,6 +325,30 @@ def kill_process(pid: int) -> None:
     """SIGKILL *pid*, which may already be gone."""
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGKILL)
+
+
+def kill_process_tree(pid: int) -> None:
+    """Kill a child, its descendants and their sessions.
+
+    Snapshot descendants before killing their parents: AgM subprocesses may
+    start sessions of their own and become reparented when the CLI dies.
+    Already detached, reparented processes require stronger OS containment.
+    """
+    known = {pid}
+    while True:
+        processes = live_processes()
+        while (
+            added := {
+                child for child, parent, session in processes if parent in known or session in known
+            }
+            - known
+        ):
+            known.update(added)
+        remaining = known.intersection(child for child, _, _ in processes)
+        if not remaining:
+            return
+        for child in remaining:
+            kill_process(child)
 
 
 def live_processes() -> list[tuple[int, int, int]]:
@@ -399,7 +502,11 @@ class Launcher:
         """
         before = _reaped_cpu_seconds()
         self._process.terminate()
-        self._process.wait()
+        try:
+            self._process.wait(timeout=_PROMPT_REPLY)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait()
         charge(before - _reaped_cpu_seconds())
 
 

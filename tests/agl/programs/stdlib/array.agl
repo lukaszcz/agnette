@@ -7,6 +7,10 @@ record Entry
 
 def by-order(left: int, right: int) -> int = left - right
 
+def visit(seen: array[int], value: int) -> bool =
+  seen.push(value)
+  value == 2
+
 program def main(mode: int) -> unit =
   case mode of
     | 1 =>
@@ -134,6 +138,52 @@ program def main(mode: int) -> unit =
         print(array::map-some(absent, fn(x: int) => x + 1))
         let words: array[Option[text]] = [Some("ab")]
         print(array::map-some(words, fn(x: text) => x.size()))
+    | 15 =>
+        var values = [0, 20, 30]
+        print(values.first())
+        print(values.last())
+        print(values.first?())
+        print(values.last?())
+        print([10, 20, 0].last?())
+        print(values)
+        print(values.remove-at(-3))
+        print(values)
+    | 16 =>
+        let values = [1, 2, 2, 3]
+        print(values.contains(9))
+        print(values.any(fn(value: int) => value > 9))
+        print(values.all(fn(value: int) => value < 3))
+        print(values.count(fn(value: int) => value > 9))
+        print(values.find(fn(value: int) => value > 9))
+        print(values.find-index(fn(value: int) => value > 9))
+        let seen: array[int] = []
+        print(values.any(fn(value: int) => visit(seen, value)))
+        print(seen)
+        seen.clear()
+        print(values.all(fn(value: int) => visit(seen, value)))
+        print(seen)
+        seen.clear()
+        print(values.find(fn(value: int) => visit(seen, value)))
+        print(seen)
+        seen.clear()
+        print(values.find-index(fn(value: int) => visit(seen, value)))
+        print(seen)
+    | 17 =>
+        let empty: array[int] = []
+        let _ = empty.last()
+        ()
+    | 18 =>
+        let values = [10, 20]
+        let _ = values.remove-at(2)
+        ()
+    | 19 =>
+        let values = [10, 20]
+        let _ = values.remove-at(-3)
+        ()
+    | 20 =>
+        let empty: array[int] = []
+        let _ = empty.remove-at(0)
+        ()
     | _ =>
         let by-key = fn(left: Entry, right: Entry) => left.key - right.key
         let entries = [

@@ -37,13 +37,13 @@ import pytest
 
 from agnette.agm.project.workspace_shell import _sanitize_session_key
 from agnette.packages.record import write_record
-from tests import _agm_zygote
+from tests import _agm_zygote, _zygote
 from tests._agl_helpers import (
     write_file_program,
     write_sandbox_home,
     write_transparent_sandbox_shims,
 )
-from tests._command_coverage import record_invocation
+from tests._command_coverage import EVIDENCE_FD_ENV, invocation_evidence
 from tests._external_agent_clis import EXTERNAL_AGENT_CLIS
 from tests._git_helpers import clone_with_fork_remote
 from tests._help_helpers import assert_lists_execution_options, execution_options_is_last
@@ -379,7 +379,10 @@ def _agm_install(
         f"'''exec' {shlex.quote(sys.executable)} -I \"$0\" \"$@\"\n"
         "' '''\n"
         "import sys\n"
-        f"sys.path.insert(0, {str(repo_root / 'src')!r})\n"
+        f"sys.path[:0] = [{str(repo_root / 'src')!r}, {str(repo_root)!r}]\n"
+        "from tests._command_coverage import install_dispatch_observer\n"
+        f"sys.path.remove({str(repo_root)!r})\n"
+        "install_dispatch_observer()\n"
         "from agnette.agm.cli import main\n"
         "sys.exit(main())\n",
         encoding="utf-8",
@@ -410,27 +413,6 @@ def _agm_install(
     _AGM_INSTALL["bin_dir"] = bin_dir
     _AGM_INSTALL["bin"] = agm_bin
     _AGM_INSTALL["guard_dir"] = guard_dir
-
-    # Warm the AgL parser cache once, up front.  The AgL grammar is compiled into
-    # LALR tables on the first parse and cached to a shared temp file keyed by
-    # grammar hash and Python version; building the tables costs ~1s.  Doing it
-    # here (session setup) means the first exec/repl command in every test hits a
-    # warm cache instead of a cold rebuild — otherwise a parallel run has the
-    # whole first wave of AgL tests rebuild the tables at once.  Best-effort: the
-    # cache is a pure optimization, so any failure is ignored.
-    warm_home = tmp_path_factory.mktemp("agm-cache-warm")
-    subprocess.run(
-        [str(agm_bin), "exec", "-c", "print 1"],
-        capture_output=True,
-        env=_agm_env(
-            {
-                "PATH": _ORIGINAL_PATH,
-                "HOME": str(warm_home),
-                "AGM_STDLIB": str(repo_root / "packages" / "stdlib"),
-            }
-        ),
-        check=False,
-    )
 
     if os.environ.get(_agm_zygote.DISABLE_ENV):
         yield
@@ -498,6 +480,7 @@ def run_agm(
     check: bool = True,
     input: str | None = None,
     executable: Path | None = None,
+    cold: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run an ``agm`` CLI command as a separate process, named by the checkout entry point.
 
@@ -506,34 +489,54 @@ def run_agm(
     install prefix AgM resolves for itself.
 
     The process comes from the session's preforking launcher when there is one
-    (:mod:`tests._agm_zygote`), which only changes where it was started from;
-    everything the command can observe, its own argv included, is the same.
+    (:mod:`tests._agm_zygote`). Pass ``cold=True`` to exercise interpreter startup,
+    including import-path isolation, rather than inheriting preloaded modules.
 
     Every invocation is recorded for the e2e command-coverage gate (see
     :mod:`tests._command_coverage`), which is why this must stay the single way
     e2e tests reach the binary.
     """
-    record_invocation(args)
     argv = _agm_argv(args) if executable is None else [str(executable), *args]
     full_env = _agm_env(env)
-    if _AGM_LAUNCHER is None:
-        # Output goes to files, as with the launcher: pipes would also wait for any process
-        # the command leaves behind, which holds their write ends.
-        with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
-            status = subprocess.run(
-                argv, stdout=out, stderr=err, text=True, env=full_env, cwd=cwd, input=input
-            ).returncode
-            out.seek(0)
-            err.seek(0)
-            completed = subprocess.CompletedProcess(argv, status, out.read(), err.read())
+    with invocation_evidence() as evidence:
+        if cold or _AGM_LAUNCHER is None:
+            full_env[EVIDENCE_FD_ENV] = str(evidence.fileno())
+            # Files avoid waiting for descendants that inherit pipe write ends.
+            with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+                with subprocess.Popen(
+                    argv,
+                    stdin=subprocess.PIPE if input is not None else None,
+                    stdout=out,
+                    stderr=err,
+                    text=True,
+                    env=full_env,
+                    cwd=cwd,
+                    pass_fds=(evidence.fileno(),),
+                    start_new_session=True,
+                ) as child:
+                    try:
+                        child.communicate(input, timeout=_agm_zygote.COMMAND_TIMEOUT)
+                    except subprocess.TimeoutExpired:
+                        _zygote.kill_process_tree(child.pid)
+                        child.communicate()
+                        out.seek(0)
+                        err.seek(0)
+                        raise subprocess.TimeoutExpired(
+                            argv, _agm_zygote.COMMAND_TIMEOUT, out.read(), err.read()
+                        ) from None
+                out.seek(0)
+                err.seek(0)
+                completed = subprocess.CompletedProcess(
+                    argv, child.returncode, out.read(), err.read()
+                )
+        else:
+            working_dir = str(cwd) if cwd is not None else os.getcwd()
+            completed = _AGM_LAUNCHER.run(
+                argv, full_env, working_dir, input, dispatch_fd=evidence.fileno()
+            )
         if check:
             completed.check_returncode()
         return completed
-    working_dir = str(cwd) if cwd is not None else os.getcwd()
-    completed = _AGM_LAUNCHER.run(argv, full_env, working_dir, input)
-    if check:
-        completed.check_returncode()
-    return completed
 
 
 def _install_agm_at_prefix(prefix: Path) -> Path:
@@ -7964,24 +7967,41 @@ class TestEdgeCases:
         )
         assert result.returncode != 0
 
-    def test_malformed_json_settings(self, tmp_path: Path, env: dict[str, str]) -> None:
-        """Malformed JSON in sandbox settings causes a JSON parse error."""
-        TestSandbox._make_fake_srt(tmp_path / "bin", env)
+    @pytest.mark.parametrize("explicit", [False, True], ids=["discovered", "explicit"])
+    def test_malformed_json_settings(
+        self, tmp_path: Path, env: dict[str, str], explicit: bool
+    ) -> None:
+        """Invalid settings fail cleanly before either sandbox or command execution."""
+        srt_ran = tmp_path / "srt-ran"
+        command_ran = tmp_path / "command-ran"
+        for command, marker in (("srt", srt_ran), ("probe-command", command_ran)):
+            _install_fake_command(
+                tmp_path / "bin",
+                env,
+                command_name=command,
+                script=f"touch {shlex.quote(str(marker))}\n",
+            )
 
         work = tmp_path / "work"
         work.mkdir()
         sandbox_dir = work / ".sandbox"
         sandbox_dir.mkdir()
-        (sandbox_dir / "echo.json").write_text("{invalid json")
+        settings = sandbox_dir / "probe-command.json"
+        settings.write_text("{invalid json")
+        flags = ["-f", str(settings)] if explicit else []
 
         result = run_agm(
-            ["run", "echo", "hi"],
+            ["run", "--no-pty", *flags, "probe-command"],
             env=env,
-            cwd=str(work),
+            cwd=work,
             check=False,
         )
-        # The merge step emits a JSON decode traceback on stderr.
-        assert "json" in result.stderr.lower()
+
+        assert result.returncode != 0
+        assert result.stderr.strip()
+        assert "Traceback" not in result.stdout + result.stderr
+        assert not srt_ran.exists()
+        assert not command_ran.exists()
 
     def test_worktree_already_exists(self, tmp_path: Path, env: dict[str, str]) -> None:
         """An existing branch workspace is reused by ``wt new``."""
@@ -8717,17 +8737,19 @@ class TestExecCommand:
         self, tmp_path: Path, env: dict[str, str]
     ) -> None:
         ambient = tmp_path / "ambient"
-        package = ambient / "agm"
+        package = ambient / "agnette"
         package.mkdir(parents=True)
-        (package / "__init__.py").write_text('raise RuntimeError("ambient AgM imported")\n')
+        (package / "__init__.py").write_text('raise RuntimeError("ambient Agnette imported")\n')
         env["PYTHONPATH"] = str(ambient)
         write_installed_package(Path(env["HOME"]), "std")
         program = tmp_path / "main.agl"
         program.write_text("import std/math\nprogram def main() -> unit =\n  print((2).pow(3))\n")
 
-        result = run_agm(["exec", str(program)], env=env, cwd=tmp_path)
+        result = run_agm(["exec", str(program)], env=env, cwd=tmp_path, cold=True)
 
+        assert result.returncode == 0
         assert result.stdout.strip() == "8"
+        assert "Traceback" not in result.stderr
 
     def test_executes_program_file_and_prints_output(
         self, tmp_path: Path, env: dict[str, str]

@@ -18,6 +18,7 @@ Coverage:
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -317,8 +318,9 @@ class TestUnitType:
 
     def test_frozen(self) -> None:
         u = UnitType()
-        with pytest.raises(Exception):
+        with pytest.raises((AttributeError, TypeError)):
             setattr(u, "kind", "x")
+        assert u.kind == "unit"
 
 
 # ---------------------------------------------------------------------------
@@ -817,8 +819,9 @@ class TestTypeVarType:
 
     def test_frozen(self) -> None:
         tv = TypeVarType("T")
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             setattr(tv, "name", "U")
+        assert tv.name == "T"
 
     def test_not_comparable_left(self) -> None:
         assert comparable_types(TypeVarType("T"), IntType(), _EMPTY_TABLE, bounds={}) is False

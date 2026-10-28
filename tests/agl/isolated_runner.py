@@ -452,19 +452,16 @@ def _preload() -> None:
     of every ``std`` module fill the process-global parsed-module and artifact caches, with
     self-validation on, as in a run: a compilation that reuses a cached module trusts that it
     was validated. The caches are immutable and keyed by module identity and source, and hold
-    no runtime state (``agnette/agl/artifact_cache.py``). Nothing is lowered or run.
+    no runtime state (``agnette/agl/artifact_cache.py``). Lowering fills the immutable
+    IR cache too; nothing is run. Coverage source maps contain no measured arcs.
     """
-    from agnette.agl import PipelineDriver
     from agnette.agl.self_validation import set_self_validation_enabled
-    from tests._agl_helpers import REPO_STDLIB_ROOT, agl_roots, prepare_inline_code
 
     set_self_validation_enabled(True)
     for name in _PRELOADED:
         importlib.import_module(name)
-    names = sorted(path.stem for path in (REPO_STDLIB_ROOT / "src").glob("*.agl"))
-    source = "".join(f"import std/{name}\n" for name in names if name != "prelude")
-    prepared = prepare_inline_code(source + "print 1", roots=agl_roots())
-    PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None).discover_programs(prepared)
+    _zygote.preload_stdlib()
+    _zygote.preload_coverage()
 
 
 def _child(request: tuple[str, dict[str, str]], fds: list[int]) -> NoReturn:

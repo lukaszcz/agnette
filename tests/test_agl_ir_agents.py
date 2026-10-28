@@ -993,7 +993,9 @@ def testparse_contract_output_ambiguous_multi_value() -> None:
     # Two bare JSON values → _extract_json_text returns _AMBIGUOUS_MULTI_VALUE.
     result = parse_contract_output("1 2", contract, effective_strict=False)
     assert not result.ok
-    assert "Ambiguous" in result.error_msg or "multiple" in result.error_msg
+    assert result.value is None
+    assert result.errors == ()
+    assert result.normalized_raw is None
 
 
 def testparse_contract_output_lenient_no_json_found() -> None:
@@ -1028,7 +1030,9 @@ def testparse_contract_output_strict_parse_failure() -> None:
     )
     result = parse_contract_output("not json!", contract, effective_strict=True)
     assert not result.ok
-    assert "Strict JSON" in result.error_msg
+    assert result.value is None
+    assert result.errors == ()
+    assert result.normalized_raw is None
 
 
 def test_parse_agent_output_required_field_error() -> None:
@@ -1185,7 +1189,8 @@ def test_make_validation_error_non_error_object() -> None:
     decode = ScalarDecode(ScalarKind.INT)
     ve = _make_validation_error("plain string error", decode)
     assert ve.category == "wrong_type"
-    assert "plain string error" in ve.message
+    assert ve.path == "$"
+    assert ve.field is None
 
 
 def test_enum_instance_not_dict_bad_case() -> None:
@@ -1855,7 +1860,7 @@ def test_validate_contract_request_recursive_decode_unknown_defs_key() -> None:
         sources={src_id: SourceFile(display_name="<test>", normalized_text="test")},
         contracts={cid: req},
     )
-    with pytest.raises(InvalidIrError, match=r"unknown \$defs key"):
+    with pytest.raises(InvalidIrError, match=r"\bTree\b"):
         validate_ir(prog, deep=True)
 
 
@@ -1918,7 +1923,9 @@ def test_parse_lenient_json_parse_failure_after_repair() -> None:
     # Strict mode parse failure.
     result = parse_contract_output("this is not json at all!!", contract, effective_strict=True)
     assert not result.ok
-    assert "Strict JSON" in result.error_msg
+    assert result.value is None
+    assert result.errors == ()
+    assert result.normalized_raw is None
 
 
 def test_parse_value_conversion_failure() -> None:
@@ -2149,10 +2156,9 @@ def test_enum_required_field_loop_partial_coverage() -> None:
     assert any(e.category in ("missing_field", "bad_case") for e in result.errors)
 
 
-def test_parse_lenient_extracted_json_fails_decode() -> None:
-    """parse_contract_output lenient: extracted JSON text fails json.loads."""
-    from unittest.mock import patch
-
+@pytest.mark.parametrize("raw", ["```json\nNaN\n```", "1e99999999999999999999"])
+def test_parse_lenient_extracted_json_fails_strict_parsing(raw: str) -> None:
+    """Recovered JSON syntax still rejects non-standard constants and unrepresentable numbers."""
     from agnette.agl.ir.contracts import JsonContractRequest, ScalarDecode, ScalarKind
     from agnette.agl.runtime.codec import parse_contract_output
 
@@ -2164,56 +2170,45 @@ def test_parse_lenient_extracted_json_fails_decode() -> None:
         structured_exec=False,
         format_instructions="",
     )
-    # Patch _extract_json_text in codec to return a non-ambiguous broken string.
-    with patch("agnette.agl.runtime.codec._extract_json_text", return_value="{broken: !}"):
-        result = parse_contract_output("irrelevant", contract, effective_strict=False)
+    result = parse_contract_output(raw, contract, effective_strict=False)
     assert not result.ok
-    assert "JSON parse failed" in result.error_msg
+    assert result.value is None
+    assert result.errors == ()
+    assert result.normalized_raw is None
 
 
 def test_make_validation_error_required_non_array() -> None:
-    """_make_validation_error: required validator with non-array required → field=None."""
-    from unittest.mock import MagicMock
-
+    """Malformed schema errors have no missing-field identifier."""
     from jsonschema import ValidationError as JsError
 
     from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
     from agnette.agl.runtime.codec import _make_validation_error
 
     decode = ScalarDecode(ScalarKind.INT)
-    fake_error = MagicMock(spec=JsError)
-    fake_error.validator = "required"
-    fake_error.validator_value = "not-a-list"  # not a list → name stays None
-    fake_error.instance = {"some": "dict"}
-    fake_error.message = "something required"
-    fake_error.path = []
-
-    ve = _make_validation_error(fake_error, decode)
+    # A valid schema cannot emit this error; exercise the defensive adapter directly.
+    error = JsError(
+        "required", validator="required", validator_value="not-a-list", instance={"some": "dict"}
+    )
+    ve = _make_validation_error(error, decode)
     assert ve.category == "missing_field"
-    assert ve.field is None  # name was never set (loop never ran)
+    assert ve.path == "$"
+    assert ve.field is None
 
 
 def test_make_validation_error_required_all_present() -> None:
-    """_make_validation_error: required validator where all fields ARE present → field=None."""
-    from unittest.mock import MagicMock
-
+    """Inconsistent required-field errors have no missing-field identifier."""
     from jsonschema import ValidationError as JsError
 
     from agnette.agl.ir.contracts import ScalarDecode, ScalarKind
     from agnette.agl.runtime.codec import _make_validation_error
 
     decode = ScalarDecode(ScalarKind.INT)
-    # Mock a required error where required=["x"] but instance already has "x".
-    fake_error = MagicMock(spec=JsError)
-    fake_error.validator = "required"
-    fake_error.validator_value = ["x"]
-    fake_error.instance = {"x": 1}  # x IS present → loop completes without break
-    fake_error.message = "required property"
-    fake_error.path = []
-
-    ve = _make_validation_error(fake_error, decode)
+    # A validator cannot report a missing field when every required field is present.
+    error = JsError("required", validator="required", validator_value=["x"], instance={"x": 1})
+    ve = _make_validation_error(error, decode)
     assert ve.category == "missing_field"
-    assert ve.field is None  # missing was never set (break never happened)
+    assert ve.path == "$"
+    assert ve.field is None
 
 
 def test_classify_enum_sub_error_type_only_fallback() -> None:
@@ -2292,105 +2287,33 @@ def test_classify_enum_sub_error_type_only_fallback() -> None:
     assert any(e.category == "bad_case" for e in result.errors)
 
 
-def test_classify_enum_failure_nullary_case_all_fields_present() -> None:
-    """_classify_enum_failure: known nullary case with no missing/extra fields → fallback."""
-    from unittest.mock import MagicMock
+@pytest.mark.parametrize(
+    ("member", "response"),
+    [
+        pytest.param("Err", '"Unknown"', id="plain-enum-unknown-member"),
+        pytest.param("Err(msg: text)", '{"$case": "Err", "msg": 42}', id="wrong-payload-type"),
+    ],
+)
+def test_enum_invalid_response_reports_bad_case(member: str, response: str) -> None:
+    """Plain-enum failures and known tags with invalid payload expose structured errors."""
+    source = f"""\
+enum Status
+  | Ok
+  | {member}
 
-    from jsonschema import ValidationError as JsError
-
-    from agnette.agl.ir.contracts import EnumDecode, VariantDecode
-    from agnette.agl.ir.ids import NominalId
-    from agnette.agl.runtime.codec import _classify_enum_failure
-
-    nominal = NominalId(1)
-    decode = EnumDecode(
-        nominal=nominal,
-        display_name="Status",
-        name="Status",
-        host_agent=False,
-        variants=(
-            VariantDecode(
-                name="Err",
-                json_name="Err",
-                nominal=NominalId(999),
-                display_name="Err",
-                fields=(),
-                alias=None,
-            ),
-        ),
-    )
-    # instance has only "$case" → no missing or extra fields in the nullary "Err" variant.
-    main_error = MagicMock(spec=JsError)
-    main_error.validator = "oneOf"
-    main_error.instance = {"$case": "Err"}
-    main_error.absolute_path = []
-    main_error.relative_schema_path = []
-    main_error.path = []
-
-    ve = _classify_enum_failure(main_error, "$", decode)
-    # All variant fields accounted for → defensive fallback returns bad_case.
-    assert ve.category == "bad_case"
-
-
-def test_classify_enum_failure_known_case_all_payload_present() -> None:
-    """_classify_enum_failure: known case with all payload fields present → defensive fallback."""
-    from unittest.mock import MagicMock
-
-    from jsonschema import ValidationError as JsError
-
-    from agnette.agl.ir.contracts import (
-        EnumDecode,
-        FieldDecode,
-        ScalarDecode,
-        ScalarKind,
-        VariantDecode,
-    )
-    from agnette.agl.ir.ids import NominalId
-    from agnette.agl.runtime.codec import _classify_enum_failure
-
-    nominal = NominalId(1)
-    decode = EnumDecode(
-        nominal=nominal,
-        display_name="Status",
-        name="Status",
-        host_agent=False,
-        variants=(
-            VariantDecode(
-                name="Ok",
-                json_name="Ok",
-                nominal=NominalId(999),
-                display_name="Ok",
-                fields=(),
-                alias=None,
-            ),
-            VariantDecode(
-                name="Err",
-                json_name="Err",
-                nominal=NominalId(999),
-                display_name="Err",
-                fields=(
-                    FieldDecode(
-                        "msg",
-                        "msg",
-                        ScalarDecode(ScalarKind.TEXT),
-                        zone=ParamZone.STANDARD,
-                        alias=None,
-                    ),
-                ),
-                alias=None,
-            ),
-        ),
-    )
-    # "msg" IS present — no missing, no extra → defensive fallback.
-    main_error = MagicMock(spec=JsError)
-    main_error.validator = "oneOf"
-    main_error.instance = {"$case": "Err", "msg": "hello"}
-    main_error.absolute_path = []
-    main_error.relative_schema_path = []
-    main_error.path = []
-
-    ve = _classify_enum_failure(main_error, "$", decode)
-    assert ve.category == "bad_case"
+let status: Status = ask("Check.", agent = AgentCommand("checker"), parse-error-retries = 0)
+status
+"""
+    error = evaluate_ir_raises_with_agents(source, scripts={"checker": [response]})
+    assert error.type_name == "AgentParseError"
+    assert error.line == 5
+    errors = error.fields["validation-errors"]
+    assert isinstance(errors, list)
+    assert len(errors) == 1
+    assert isinstance(errors[0], dict)
+    assert errors[0]["category"] == "bad_case"
+    assert errors[0]["path"] == "$"
+    assert errors[0]["field"] is None
 
 
 def test_enum_declared_case_tag_rejected_when_renamed() -> None:
@@ -2418,8 +2341,10 @@ status
     assert isinstance(errors_val, list)
     first_err = errors_val[0]
     assert isinstance(first_err, dict)
-    msg = first_err.get("message", "")
-    assert "ERR" in msg
+    assert first_err["category"] == "bad_case"
+    assert first_err["path"] == "$"
+    assert first_err["field"] == "$case"
+    assert "ERR" in first_err["message"]
 
 
 def test_enum_missing_renamed_field_reports_json_key() -> None:
@@ -2448,25 +2373,18 @@ status
     assert isinstance(errors_val, list)
     first_err = errors_val[0]
     assert isinstance(first_err, dict)
-    msg = first_err.get("message", "")
-    assert "msg-text" in msg
-    assert first_err.get("field") == "msg-text"
+    assert first_err["category"] == "missing_field"
+    assert first_err["path"] == "$"
+    assert first_err["field"] == "msg-text"
 
 
 # ---------------------------------------------------------------------------
-# Enum oneOf validation-error message tests
-#
-# These tests verify that when ask() exhausts all attempts due to enum errors,
-# the IR pipeline produces AgentParseError with the expected validation_errors
-# (category, message, field) content.
+# Enum validation errors exposed by AgentParseError
 # ---------------------------------------------------------------------------
 
 
 def test_enum_unknown_case_exhausted() -> None:
-    """Enum ask exhausted: unknown $case → AgentParseError with expected validation_errors.
-
-    Verifies the exact message content for the unknown-$case shape.
-    """
+    """Unknown tags report the rejected identifier and available variants."""
     source = """\
 enum Status
   | Ok
@@ -2486,20 +2404,15 @@ status
     assert len(errors_val) >= 1
     first_err = errors_val[0]
     assert isinstance(first_err, dict)
-    msg = first_err.get("message", "")
-    # The message identifies the bad case and lists the valid variants.
-    assert 'Unknown "$case"' in msg
-    assert "Bogus" in msg
-    assert "Status" in msg
-    assert "Ok" in msg
-    assert "Err" in msg
+    assert first_err["category"] == "bad_case"
+    assert first_err["path"] == "$"
+    assert first_err["field"] == "$case"
+    for identifier in ("Bogus", "Status", "Ok", "Err"):
+        assert identifier in first_err["message"]
 
 
 def test_enum_missing_field_exhausted() -> None:
-    """Enum ask exhausted: known $case but missing field → AgentParseError.
-
-    Verifies the expected validation_errors message and field content for the missing-field shape.
-    """
+    """A missing payload field is identified in the structured validation error."""
     source = """\
 enum Status
   | Ok
@@ -2520,31 +2433,13 @@ status
     assert len(errors_val) >= 1
     first_err = errors_val[0]
     assert isinstance(first_err, dict)
-    msg = first_err.get("message", "")
-    # IR reference message: "Enum variant 'Err' is missing field 'msg'."
-    assert "Err" in msg
-    assert "msg" in msg
-    assert "missing" in msg.lower()
-    # field attribute must name the missing field.
-    assert first_err.get("field") == "msg"
-
-    # Verify the same validation_errors fields are consistent.
-    ir_errors_val = ir_exc.fields.get("validation-errors")
-    assert isinstance(ir_errors_val, list)
-    ir_first = ir_errors_val[0]
-    assert isinstance(ir_first, dict)
-    assert ir_first.get("message") == msg, (
-        f"Message mismatch:\n  reference: {ir_first.get('message')!r}\n  actual: {msg!r}"
-    )
-    assert ir_first.get("field") == first_err.get("field")
+    assert first_err["category"] == "missing_field"
+    assert first_err["path"] == "$"
+    assert first_err["field"] == "msg"
 
 
 def test_enum_unexpected_field_exhausted() -> None:
-    """Enum ask exhausted: known $case but unexpected field → AgentParseError.
-
-    Verifies the expected validation_errors message and field content for the
-    unexpected-field shape.  The IR sets field=key for unknown_field records (not None).
-    """
+    """An unexpected payload field is identified in the structured validation error."""
     source = """\
 enum Status
   | Ok
@@ -2565,20 +2460,6 @@ status
     assert len(errors_val) >= 1
     first_err = errors_val[0]
     assert isinstance(first_err, dict)
-    msg = first_err.get("message", "")
-    # IR reference message: "Enum variant 'Ok' has an unexpected field 'extra_field'."
-    assert "Ok" in msg
-    assert "extra_field" in msg
-    assert "unexpected" in msg.lower()
-    # IR reference sets field=key (the unexpected field name).
-    assert first_err.get("field") == "extra_field"
-
-    # Verify the same validation_errors fields are consistent.
-    ir_errors_val = ir_exc.fields.get("validation-errors")
-    assert isinstance(ir_errors_val, list)
-    ir_first = ir_errors_val[0]
-    assert isinstance(ir_first, dict)
-    assert ir_first.get("message") == msg, (
-        f"Message mismatch:\n  reference: {ir_first.get('message')!r}\n  actual: {msg!r}"
-    )
-    assert ir_first.get("field") == first_err.get("field")
+    assert first_err["category"] == "unknown_field"
+    assert first_err["path"] == "$"
+    assert first_err["field"] == "extra_field"

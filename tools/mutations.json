@@ -4,7 +4,7 @@
     "path": "src/agnette/core/env.py",
     "line": 26,
     "column": 11,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -22,7 +22,7 @@
     "path": "src/agnette/core/env.py",
     "line": 31,
     "column": 16,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -40,7 +40,7 @@
     "path": "src/agnette/core/env.py",
     "line": 41,
     "column": 11,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -56,9 +56,9 @@
   {
     "id": "M004",
     "path": "src/agnette/core/env.py",
-    "line": 46,
+    "line": 45,
     "column": 30,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -74,9 +74,9 @@
   {
     "id": "M005",
     "path": "src/agnette/core/env.py",
-    "line": 81,
+    "line": 80,
     "column": 11,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -92,9 +92,9 @@
   {
     "id": "M006",
     "path": "src/agnette/core/env.py",
-    "line": 137,
+    "line": 136,
     "column": 8,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -110,9 +110,9 @@
   {
     "id": "M007",
     "path": "src/agnette/core/env.py",
-    "line": 149,
+    "line": 148,
     "column": 17,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -128,9 +128,9 @@
   {
     "id": "M008",
     "path": "src/agnette/core/env.py",
-    "line": 153,
+    "line": 152,
     "column": 43,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -146,9 +146,9 @@
   {
     "id": "M009",
     "path": "src/agnette/core/env.py",
-    "line": 175,
+    "line": 174,
     "column": 8,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -164,9 +164,9 @@
   {
     "id": "M010",
     "path": "src/agnette/core/env.py",
-    "line": 187,
+    "line": 186,
     "column": 28,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -182,9 +182,9 @@
   {
     "id": "M011",
     "path": "src/agnette/core/env.py",
-    "line": 200,
+    "line": 199,
     "column": 12,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -200,9 +200,9 @@
   {
     "id": "M012",
     "path": "src/agnette/core/env.py",
-    "line": 214,
+    "line": 211,
     "column": 41,
-    "source_sha256": "e9e79cb5f7d2c773e5438b44f899b1b836b4495d3f85c1dc577cab742e78d6c7",
+    "source_sha256": "100a06aade8bb194ca12749f4e5d595b930cd9f9dabf376b0e6b35959313cc1f",
     "tests": [
       "tests/test_env_utils.py",
       "tests/test_core_utils.py",
@@ -218,9 +218,9 @@
   {
     "id": "M013",
     "path": "src/agnette/core/fs.py",
-    "line": 100,
+    "line": 90,
     "column": 11,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -235,9 +235,9 @@
   {
     "id": "M014",
     "path": "src/agnette/core/fs.py",
-    "line": 114,
+    "line": 104,
     "column": 11,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -252,9 +252,9 @@
   {
     "id": "M015",
     "path": "src/agnette/core/fs.py",
-    "line": 114,
+    "line": 104,
     "column": 11,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -269,9 +269,9 @@
   {
     "id": "M016",
     "path": "src/agnette/core/fs.py",
-    "line": 121,
+    "line": 111,
     "column": 11,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -286,9 +286,9 @@
   {
     "id": "M017",
     "path": "src/agnette/core/fs.py",
-    "line": 121,
+    "line": 111,
     "column": 23,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -303,26 +303,26 @@
   {
     "id": "M018",
     "path": "src/agnette/core/fs.py",
-    "line": 172,
+    "line": 150,
     "column": 30,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
     ],
     "module": "agnette.core.fs",
     "function": "write_text_atomic",
-    "before": "content.encode(encoding)",
-    "after": "content.encode(\"utf-8\")",
+    "before": "content.encode()",
+    "after": "content.encode('ascii')",
     "mode": "eval",
-    "reason": "Ignore requested atomic text encoding"
+    "reason": "Unicode writes must use UTF-8"
   },
   {
     "id": "M019",
     "path": "src/agnette/core/fs.py",
-    "line": 199,
+    "line": 177,
     "column": 42,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -337,9 +337,9 @@
   {
     "id": "M020",
     "path": "src/agnette/core/fs.py",
-    "line": 202,
+    "line": 180,
     "column": 29,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -354,9 +354,9 @@
   {
     "id": "M021",
     "path": "src/agnette/core/fs.py",
-    "line": 205,
+    "line": 183,
     "column": 8,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -371,9 +371,9 @@
   {
     "id": "M022",
     "path": "src/agnette/core/fs.py",
-    "line": 191,
+    "line": 169,
     "column": 8,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -388,9 +388,9 @@
   {
     "id": "M023",
     "path": "src/agnette/core/fs.py",
-    "line": 280,
+    "line": 274,
     "column": 8,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -405,9 +405,9 @@
   {
     "id": "M024",
     "path": "src/agnette/core/fs.py",
-    "line": 269,
+    "line": 264,
     "column": 7,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -422,9 +422,9 @@
   {
     "id": "M025",
     "path": "src/agnette/core/fs.py",
-    "line": 273,
+    "line": 268,
     "column": 11,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -439,9 +439,9 @@
   {
     "id": "M026",
     "path": "src/agnette/core/fs.py",
-    "line": 248,
+    "line": 245,
     "column": 8,
-    "source_sha256": "5545de3e370a7de4ac96ce01abbff8ac083e360e59d4fe05742b241041f6949f",
+    "source_sha256": "6dcb87d8865398e64fa0edf27c9dd0b0047a167f26388ae0cedbcdc842535052",
     "tests": [
       "tests/test_core_fs.py",
       "tests/test_core_utils.py"
@@ -456,9 +456,9 @@
   {
     "id": "M027",
     "path": "src/agnette/util/graph.py",
-    "line": 61,
+    "line": 62,
     "column": 15,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -472,9 +472,9 @@
   {
     "id": "M028",
     "path": "src/agnette/util/graph.py",
-    "line": 66,
+    "line": 67,
     "column": 11,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -488,9 +488,9 @@
   {
     "id": "M029",
     "path": "src/agnette/util/graph.py",
-    "line": 59,
+    "line": 60,
     "column": 22,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -504,9 +504,9 @@
   {
     "id": "M030",
     "path": "src/agnette/util/graph.py",
-    "line": 68,
+    "line": 69,
     "column": 21,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -520,9 +520,9 @@
   {
     "id": "M031",
     "path": "src/agnette/util/graph.py",
-    "line": 130,
+    "line": 146,
     "column": 21,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -536,9 +536,9 @@
   {
     "id": "M032",
     "path": "src/agnette/util/graph.py",
-    "line": 131,
+    "line": 147,
     "column": 36,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -552,9 +552,9 @@
   {
     "id": "M033",
     "path": "src/agnette/util/graph.py",
-    "line": 141,
+    "line": 157,
     "column": 12,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -568,9 +568,9 @@
   {
     "id": "M034",
     "path": "src/agnette/util/graph.py",
-    "line": 205,
+    "line": 221,
     "column": 15,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -584,9 +584,9 @@
   {
     "id": "M035",
     "path": "src/agnette/util/graph.py",
-    "line": 211,
+    "line": 227,
     "column": 16,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -600,9 +600,9 @@
   {
     "id": "M036",
     "path": "src/agnette/util/graph.py",
-    "line": 213,
+    "line": 229,
     "column": 7,
-    "source_sha256": "d6a4edfae58b2bc95254cb42b9f2cf65aca19abafaf38bc03f3baad568745d11",
+    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -616,9 +616,9 @@
   {
     "id": "M037",
     "path": "src/agnette/util/ident.py",
-    "line": 19,
+    "line": 18,
     "column": 11,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -632,9 +632,9 @@
   {
     "id": "M038",
     "path": "src/agnette/util/ident.py",
-    "line": 19,
+    "line": 18,
     "column": 34,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -648,9 +648,9 @@
   {
     "id": "M039",
     "path": "src/agnette/util/ident.py",
-    "line": 19,
+    "line": 18,
     "column": 11,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -664,9 +664,9 @@
   {
     "id": "M040",
     "path": "src/agnette/util/ident.py",
-    "line": 26,
+    "line": 25,
     "column": 32,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -680,9 +680,9 @@
   {
     "id": "M041",
     "path": "src/agnette/util/ident.py",
-    "line": 27,
+    "line": 26,
     "column": 20,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -696,9 +696,9 @@
   {
     "id": "M042",
     "path": "src/agnette/util/ident.py",
-    "line": 27,
+    "line": 26,
     "column": 20,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -712,9 +712,9 @@
   {
     "id": "M043",
     "path": "src/agnette/util/ident.py",
-    "line": 27,
+    "line": 26,
     "column": 20,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -728,9 +728,9 @@
   {
     "id": "M044",
     "path": "src/agnette/util/ident.py",
-    "line": 27,
+    "line": 26,
     "column": 20,
-    "source_sha256": "ec72602e42d05fefe2b6c2ef8a208125abe722ba3db5af493511531e99b984d6",
+    "source_sha256": "1c50118e945a690e64dfb74c26164894b146fb1a97a977c2b864f6049e1a7a5d",
     "tests": [
       "tests/test_util_ident.py"
     ],
@@ -746,7 +746,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 60,
     "column": 8,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -762,7 +762,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 65,
     "column": 15,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -778,7 +778,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 103,
     "column": 13,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -794,7 +794,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 120,
     "column": 32,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -810,7 +810,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 113,
     "column": 16,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -827,7 +827,7 @@
     "path": "src/agnette/util/interp.py",
     "line": 92,
     "column": 12,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -841,9 +841,9 @@
   {
     "id": "M051",
     "path": "src/agnette/util/interp.py",
-    "line": 156,
+    "line": 153,
     "column": 12,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -857,9 +857,9 @@
   {
     "id": "M052",
     "path": "src/agnette/util/interp.py",
-    "line": 166,
+    "line": 163,
     "column": 27,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -873,9 +873,9 @@
   {
     "id": "M053",
     "path": "src/agnette/util/interp.py",
-    "line": 177,
+    "line": 174,
     "column": 17,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -889,9 +889,9 @@
   {
     "id": "M054",
     "path": "src/agnette/util/interp.py",
-    "line": 160,
+    "line": 157,
     "column": 71,
-    "source_sha256": "8bd27039afa4a902bb70070c62e27f4b1179702bd39d213f610185fdbe7c5069",
+    "source_sha256": "f9db7ed776119ebce928a592968eb4da2cfcb0f1c2b0252ac6b0f6c91b67133b",
     "tests": [
       "tests/test_util_interp.py"
     ],
@@ -901,5 +901,697 @@
     "after": "0",
     "mode": "eval",
     "reason": "Lose missing-variable error offset"
+  },
+  {
+    "id": "ARRAY_FIRST",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 37,
+    "column": 4,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "return _element_at(values, 0)",
+    "after": "return _element_at(values, -1) if values else _element_at(values, 0)",
+    "mode": "exec",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Return the wrong endpoint from first"
+  },
+  {
+    "id": "ARRAY_LAST",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 45,
+    "column": 4,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "return _element_at(values, -1)",
+    "after": "return _element_at(values, 0) if values else _element_at(values, -1)",
+    "mode": "exec",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Return first instead of last on nonempty arrays"
+  },
+  {
+    "id": "ARRAY_FIRST_OPTION",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 41,
+    "column": 18,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "values[0] if values else None",
+    "after": "values[-1] if values else None",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Choose the wrong present optional first value"
+  },
+  {
+    "id": "ARRAY_LAST_OPTION",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 49,
+    "column": 18,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "values[-1] if values else None",
+    "after": "values[0] if values else None",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Choose the wrong present optional last value"
+  },
+  {
+    "id": "ARRAY_CONTAINS",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 90,
+    "column": 11,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "value in values",
+    "after": "True",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Report absent values as contained"
+  },
+  {
+    "id": "ARRAY_ANY",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 153,
+    "column": 11,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "builtins.any(predicate(value) for value in values)",
+    "after": "bool(values)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Ignore predicates on nonempty arrays"
+  },
+  {
+    "id": "ARRAY_ALL",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 157,
+    "column": 11,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "builtins.all(predicate(value) for value in values)",
+    "after": "True",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Ignore failing predicates"
+  },
+  {
+    "id": "ARRAY_FIND_MISS",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 164,
+    "column": 4,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "return option_none()",
+    "after": "return option_some(values[0]) if values else option_none()",
+    "mode": "exec",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Invent a match when a nonempty array has none"
+  },
+  {
+    "id": "ARRAY_FIND_INDEX_MISS",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 171,
+    "column": 4,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "return option_none()",
+    "after": "return option_some(0) if values else option_none()",
+    "mode": "exec",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Invent an index when a nonempty array has no match"
+  },
+  {
+    "id": "ARRAY_INDEX_ERRORS",
+    "path": "packages/stdlib/src/array.py",
+    "module": "agm_agl_extern_companion__std_array__0",
+    "loader": "companion",
+    "line": 27,
+    "column": 7,
+    "source_sha256": "963cae1ec14e5ae051d8e9b5c51be5c8ee26a694dccdc72f97c5ce11b51fa4c2",
+    "before": "not -length <= index < length",
+    "after": "index == 0 and length == 0",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_array.py", "tests/test_agl_e2e.py", "-k", "stdlib/array or test_agl_stdlib_array"],
+    "reason": "Leak Python index failures for last and remove-at"
+  },
+  {
+    "id": "TIME_NOW",
+    "path": "packages/stdlib/src/time.py",
+    "module": "agm_agl_extern_companion__std_time__0",
+    "loader": "companion",
+    "line": 38,
+    "column": 37,
+    "source_sha256": "e359a8f2e871df6c03b196a8384fd7cc213114e801eb61979ad561dee686636e",
+    "before": "time.time_ns()",
+    "after": "time.monotonic_ns()",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Use the elapsed clock for Unix timestamps"
+  },
+  {
+    "id": "TIME_MONOTONIC",
+    "path": "packages/stdlib/src/time.py",
+    "module": "agm_agl_extern_companion__std_time__0",
+    "loader": "companion",
+    "line": 48,
+    "column": 37,
+    "source_sha256": "e359a8f2e871df6c03b196a8384fd7cc213114e801eb61979ad561dee686636e",
+    "before": "time.monotonic_ns()",
+    "after": "time.time_ns()",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Use wall time for the monotonic clock"
+  },
+  {
+    "id": "TIME_PRECISION",
+    "path": "packages/stdlib/src/time.py",
+    "module": "agm_agl_extern_companion__std_time__0",
+    "loader": "companion",
+    "line": 20,
+    "column": 11,
+    "source_sha256": "e359a8f2e871df6c03b196a8384fd7cc213114e801eb61979ad561dee686636e",
+    "before": "Decimal(nanoseconds) / _NANOSECONDS_PER_SECOND",
+    "after": "Decimal(float(nanoseconds) / 1000000000)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Lose clock nanoseconds through float conversion"
+  },
+  {
+    "id": "TIME_NOW_ISO",
+    "path": "packages/stdlib/src/time.py",
+    "module": "agm_agl_extern_companion__std_time__0",
+    "loader": "companion",
+    "line": 43,
+    "column": 11,
+    "source_sha256": "e359a8f2e871df6c03b196a8384fd7cc213114e801eb61979ad561dee686636e",
+    "before": "datetime.now(UTC).isoformat()",
+    "after": "datetime.now().isoformat()",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Drop the UTC timezone from now-iso"
+  },
+  {
+    "id": "TIME_SLEEP",
+    "path": "packages/stdlib/src/time.py",
+    "module": "agm_agl_extern_companion__std_time__0",
+    "loader": "companion",
+    "line": 53,
+    "column": 4,
+    "source_sha256": "e359a8f2e871df6c03b196a8384fd7cc213114e801eb61979ad561dee686636e",
+    "before": "time.sleep(float(seconds))",
+    "after": "time.sleep(0)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Discard the requested sleep duration"
+  },
+  {
+    "id": "RANDOM_UUID",
+    "path": "packages/stdlib/src/random.py",
+    "module": "agm_agl_extern_companion__std_random__0",
+    "loader": "companion",
+    "line": 71,
+    "column": 11,
+    "source_sha256": "fe18725a7571dcf41edc007b961c8b52c93a5449b7c0f4ddf799821a5acb6963",
+    "before": "str(uuid_module.uuid4())",
+    "after": "'00000000-0000-4000-8000-000000000000'",
+    "mode": "eval",
+    "tests": ["tests/test_agl_stdlib_time_random.py"],
+    "reason": "Return a valid-looking UUID instead of the entropy source result"
+  },
+  {
+    "id": "REPL_ECHO_UNIT_OFF",
+    "path": "src/agnette/agl/repl/meta.py",
+    "module": "agnette.agl.repl.meta",
+    "line": 204,
+    "column": 8,
+    "source_sha256": "d0ba92a583c779d07f431d040829c7d657c67d5e0de6f015c3303dadefe2310f",
+    "before": "ctx.echo_unit = value",
+    "after": "ctx.echo_unit = True",
+    "mode": "exec",
+    "tests": ["tests/test_agl_repl_loop.py"],
+    "reason": "Ignore echo-unit off after enabling unit echoes"
+  },
+  {
+    "id": "CONFIG_LAYER_PRECEDENCE",
+    "path": "src/agnette/config/general.py",
+    "module": "agnette.config.general",
+    "line": 67,
+    "column": 21,
+    "source_sha256": "d0d4406bcc8309aee21dcbd2b2cd898a036c02d9415e4331176cba8800f99750",
+    "before": "_merge_config(merged, layer)",
+    "after": "_merge_config(layer, merged)",
+    "mode": "eval",
+    "tests": ["tests/test_config_utils.py"],
+    "reason": "Let earlier config layers override later invocation settings"
+  },
+  {
+    "id": "CONFIG_NESTED_MERGE",
+    "path": "src/agnette/config/general.py",
+    "module": "agnette.config.general",
+    "line": 80,
+    "column": 26,
+    "source_sha256": "d0d4406bcc8309aee21dcbd2b2cd898a036c02d9415e4331176cba8800f99750",
+    "before": "_merge_config(toml_dict(existing), toml_dict(value))",
+    "after": "toml_dict(value)",
+    "mode": "eval",
+    "tests": ["tests/test_config_utils.py"],
+    "reason": "Discard inherited nested keys when a later table overrides one setting"
+  },
+  {
+    "id": "CONFIG_COMMAND_OVERRIDE",
+    "path": "src/agnette/config/general.py",
+    "module": "agnette.config.general",
+    "line": 113,
+    "column": 15,
+    "source_sha256": "d0d4406bcc8309aee21dcbd2b2cd898a036c02d9415e4331176cba8800f99750",
+    "before": "self.overrides.get(command_name, self.default)",
+    "after": "self.default",
+    "mode": "eval",
+    "tests": ["tests/test_config_utils.py"],
+    "reason": "Ignore command-specific run settings"
+  },
+  {
+    "id": "CONFIG_GIT_COMMIT_SCOPE",
+    "path": "src/agnette/agm/project/config_git.py",
+    "module": "agnette.agm.project.config_git",
+    "line": 104,
+    "column": 8,
+    "source_sha256": "14aaa92bbd2e64526f887429cde8fa7a32dd1e6df9b98964196e4d190bb5810d",
+    "before": "commit_cmd += [\"--\", *commit_pathspec]",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_config_git.py"],
+    "reason": "Sweep unrelated staged changes into a scoped config commit"
+  },
+  {
+    "id": "CONFIG_GIT_STAGE_NEW",
+    "path": "src/agnette/agm/project/config_git.py",
+    "module": "agnette.agm.project.config_git",
+    "line": 30,
+    "column": 10,
+    "source_sha256": "14aaa92bbd2e64526f887429cde8fa7a32dd1e6df9b98964196e4d190bb5810d",
+    "before": "[\"git\", \"-C\", str(config_git_root), \"add\", \"-A\", \"--\", *relative_paths]",
+    "after": "[\"git\", \"-C\", str(config_git_root), \"add\", \"-u\", \"--\", *relative_paths]",
+    "mode": "eval",
+    "tests": ["tests/test_config_git.py"],
+    "reason": "Fail to stage new files inside explicit config paths"
+  },
+  {
+    "id": "CONFIG_GIT_DISCOVER_NEW",
+    "path": "src/agnette/agm/project/config_git.py",
+    "module": "agnette.agm.project.config_git",
+    "line": 88,
+    "column": 28,
+    "source_sha256": "14aaa92bbd2e64526f887429cde8fa7a32dd1e6df9b98964196e4d190bb5810d",
+    "before": "sorted(path for path in rglob(config_dir, \"config.toml\") if path.is_file())",
+    "after": "[]",
+    "mode": "eval",
+    "tests": ["tests/test_config_git.py"],
+    "reason": "Omit new config.toml files from automatic config commits"
+  },
+  {
+    "id": "DEP_ENV_LAYER_ORDER",
+    "path": "src/agnette/agm/project/dependency_env.py",
+    "module": "agnette.agm.project.dependency_env",
+    "line": 82,
+    "column": 23,
+    "source_sha256": "ff53670c9b193a1f33b7ecb5dce40256f4f221a3fa69e7593cadebd7d23ed872",
+    "before": "config_files",
+    "after": "reversed(config_files)",
+    "mode": "eval",
+    "tests": ["tests/test_dependency_env.py"],
+    "reason": "Let project dependency choices override workspace choices"
+  },
+  {
+    "id": "DEP_PRESERVE_EXISTING",
+    "path": "src/agnette/agm/project/dependency_env.py",
+    "module": "agnette.agm.project.dependency_env",
+    "line": 302,
+    "column": 11,
+    "source_sha256": "ff53670c9b193a1f33b7ecb5dce40256f4f221a3fa69e7593cadebd7d23ed872",
+    "before": "existing_deps.get(dep_name)",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_dependency_env.py"],
+    "reason": "Overwrite an existing workspace dependency when inheriting missing entries"
+  },
+  {
+    "id": "DEP_SWITCH_CHECKOUT_NAME",
+    "path": "src/agnette/agm/commands/dep/switch.py",
+    "module": "agnette.agm.commands.dep.switch",
+    "line": 66,
+    "column": 12,
+    "source_sha256": "f0e1ce70544951b6e524fc5df1cc34d6b0bb033979da0100880b3b51a0ccbf74",
+    "before": "dep_branch=checkout_name",
+    "after": "dep_branch=args.branch",
+    "mode": "keyword",
+    "tests": ["tests/test_dep_commands.py::TestDepSwitchRun"],
+    "reason": "Record branch spelling instead of the actual existing checkout path"
+  },
+  {
+    "id": "DEP_SWITCH_FETCH",
+    "path": "src/agnette/agm/commands/dep/switch.py",
+    "module": "agnette.agm.commands.dep.switch",
+    "line": 82,
+    "column": 7,
+    "source_sha256": "f0e1ce70544951b6e524fc5df1cc34d6b0bb033979da0100880b3b51a0ccbf74",
+    "before": "not args.no_fetch",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_dep_commands.py::TestDepSwitchRun"],
+    "reason": "Never refresh remote refs when switching a dependency"
+  },
+  {
+    "id": "PKG_ROLLBACK_CREATED",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 324,
+    "column": 12,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "_rollback_created_trees(state)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Leave newly published dependency trees after a failed install"
+  },
+  {
+    "id": "PKG_ROLLBACK_REPLACEMENT",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 1385,
+    "column": 8,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "_rollback_managed_refresh(destination, staging, previous)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Fail to restore the previous package tree after failed reinstall activation"
+  },
+  {
+    "id": "PKG_UNINSTALL_RESTORE",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 507,
+    "column": 12,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "tombstone.replace(root)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Lose the active package tree when uninstall activation publication fails"
+  },
+  {
+    "id": "PKG_PROVENANCE_RESTORE",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 1327,
+    "column": 8,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "_restore_package_provenance(provenance)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Leave sidecars published by an activation that failed"
+  },
+  {
+    "id": "PKG_STAGING_CLEANUP",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 757,
+    "column": 20,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "fs.rmtree(staging)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Leak staged payload when directory publication fails"
+  },
+  {
+    "id": "PKG_EXISTING_CONTENT_HASH",
+    "path": "src/agnette/packages/install.py",
+    "module": "agnette.packages.install",
+    "line": 1169,
+    "column": 11,
+    "source_sha256": "51bff588fd0290b14120e324b690b2b0acaf43a66046067bcd97ee3a49578275",
+    "before": "content_hash(entries) != package_hash",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_packages_install.py", "-k", "directory_install_rolls_back_new_dependency or failed_reinstall_restores or uninstall_reports_activation_write_failure or failed_activation_does_not_leave_package_provenance or directory_install_cleans_staging_when_atomic_publication_fails or install_rejects_changed_directory_content or install_resolves_path_dependencies_before_activation"],
+    "reason": "Accept changed source content under an already installed package identity"
+  },
+  {
+    "id": "PKG_DEP_MINIMUM_INCLUSIVE",
+    "path": "src/agnette/packages/activation.py",
+    "module": "agnette.packages.activation",
+    "line": 1265,
+    "column": 15,
+    "source_sha256": "daebd21c872762200c5933e2dc5c089460e1deeba587d8007543ecbfe78b92e6",
+    "before": "dependency.manifest.version < requirement.version",
+    "after": "dependency.manifest.version <= requirement.version",
+    "mode": "eval",
+    "tests": ["tests/test_packages_activation.py::test_final_root_selection_uses_development_package_for_active_requirements", "tests/test_packages_activation.py::test_editable_package_uses_its_live_manifest_for_requirement_checks"],
+    "reason": "Reject a dependency exactly at its declared minimum version"
+  },
+  {
+    "id": "SANDBOX_CODEX_PROMPT_OPTIONS",
+    "path": "src/agnette/sandbox/prepare.py",
+    "module": "agnette.sandbox.prepare",
+    "line": 350,
+    "column": 18,
+    "source_sha256": "9a617fcdb6a4cedc43bd342b774b927b28a952b8662b82ce73cebef815d3eda0",
+    "before": "command[1 : command.index(\"--\")] if \"--\" in command else command[1:]",
+    "after": "command[1:]",
+    "mode": "eval",
+    "tests": ["tests/test_sandbox_prepare.py"],
+    "reason": "Let a prompt containing --no-daemon disable Codex daemon isolation"
+  },
+  {
+    "id": "SANDBOX_LIMIT_DEFAULT",
+    "path": "src/agnette/sandbox/prepare.py",
+    "module": "agnette.sandbox.prepare",
+    "line": 225,
+    "column": 15,
+    "source_sha256": "9a617fcdb6a4cedc43bd342b774b927b28a952b8662b82ce73cebef815d3eda0",
+    "before": "configured or default",
+    "after": "default",
+    "mode": "eval",
+    "tests": ["tests/test_sandbox_prepare.py"],
+    "reason": "Ignore configured memory and swap limits when the default sentinel is requested"
+  },
+  {
+    "id": "SANDBOX_PTY_RELAY",
+    "path": "src/agnette/sandbox/prepare.py",
+    "module": "agnette.sandbox.prepare",
+    "line": 357,
+    "column": 18,
+    "source_sha256": "9a617fcdb6a4cedc43bd342b774b927b28a952b8662b82ce73cebef815d3eda0",
+    "before": "[sys.executable, \"-m\", \"agnette.sandbox.pty\", \"--\"] if request.pty else []",
+    "after": "[]",
+    "mode": "eval",
+    "tests": ["tests/test_sandbox_prepare.py"],
+    "reason": "Omit the requested controlling-terminal relay"
+  },
+  {
+    "id": "SANDBOX_BACKEND_ENV",
+    "path": "src/agnette/sandbox/prepare.py",
+    "module": "agnette.sandbox.prepare",
+    "line": 370,
+    "column": 8,
+    "source_sha256": "9a617fcdb6a4cedc43bd342b774b927b28a952b8662b82ce73cebef815d3eda0",
+    "before": "env = active_backend.prepare_env(request, env)",
+    "after": "pass",
+    "mode": "exec",
+    "tests": ["tests/test_sandbox_prepare.py"],
+    "reason": "Discard environment changes required by the sandbox backend"
+  },
+  {
+    "id": "SANDBOX_DRY_RUN_SETTINGS",
+    "path": "src/agnette/sandbox/prepare.py",
+    "module": "agnette.sandbox.prepare",
+    "line": 362,
+    "column": 11,
+    "source_sha256": "9a617fcdb6a4cedc43bd342b774b927b28a952b8662b82ce73cebef815d3eda0",
+    "before": "resolve_settings",
+    "after": "True",
+    "mode": "eval",
+    "tests": ["tests/test_sandbox_prepare.py"],
+    "reason": "Read and materialize sandbox settings during dry-run preparation"
+  },
+  {
+    "id": "RUN_NO_LIMIT_FLAG",
+    "path": "src/agnette/agm/commands/run.py",
+    "module": "agnette.agm.commands.run",
+    "line": 46,
+    "column": 7,
+    "source_sha256": "461c981e27255d007438029bb8c189d2da167b3e80b490adf30969a66e0614b1",
+    "before": "no_limit",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_run_command.py"],
+    "reason": "Ignore --no-memory-limit and --no-swap-limit"
+  },
+  {
+    "id": "RUN_EXPLICIT_LIMIT",
+    "path": "src/agnette/agm/commands/run.py",
+    "module": "agnette.agm.commands.run",
+    "line": 49,
+    "column": 8,
+    "source_sha256": "461c981e27255d007438029bb8c189d2da167b3e80b490adf30969a66e0614b1",
+    "before": "return flag_value",
+    "after": "return Default",
+    "mode": "exec",
+    "tests": ["tests/test_run_command.py"],
+    "reason": "Ignore an explicit memory or swap value"
+  },
+  {
+    "id": "RUN_NO_PATCH_FLAG",
+    "path": "src/agnette/agm/commands/run.py",
+    "module": "agnette.agm.commands.run",
+    "line": 160,
+    "column": 8,
+    "source_sha256": "461c981e27255d007438029bb8c189d2da167b3e80b490adf30969a66e0614b1",
+    "before": "patch=not args.no_patch",
+    "after": "patch=True",
+    "mode": "keyword",
+    "tests": ["tests/test_run_command.py"],
+    "reason": "Ignore --no-patch when constructing sandbox settings"
+  },
+  {
+    "id": "RUN_NO_PTY_FLAG",
+    "path": "src/agnette/agm/commands/run.py",
+    "module": "agnette.agm.commands.run",
+    "line": 148,
+    "column": 20,
+    "source_sha256": "461c981e27255d007438029bb8c189d2da167b3e80b490adf30969a66e0614b1",
+    "before": "configured_pty if args.pty is None else args.pty",
+    "after": "configured_pty",
+    "mode": "eval",
+    "tests": ["tests/test_run_command.py"],
+    "reason": "Ignore an explicit PTY flag override"
+  },
+  {
+    "id": "AGL_AND_SHORT_CIRCUIT",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "line": 1559,
+    "column": 23,
+    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "before": "not lhs_val.value",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Evaluate the right operand of false conjunctions"
+  },
+  {
+    "id": "AGL_OR_SHORT_CIRCUIT",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "line": 1566,
+    "column": 23,
+    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "before": "lhs_val.value",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Evaluate the right operand of true disjunctions"
+  },
+  {
+    "id": "AGL_CATCH_SUBTYPE",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "line": 1738,
+    "column": 31,
+    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "before": "nominal_conforms(self._program.nominals, pending.exc.nominal, (handler.nominal,))",
+    "after": "False",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Catch only exact exception types, not descendants"
+  },
+  {
+    "id": "AGL_DECIMAL_NEGATION",
+    "path": "src/agnette/agl/eval/arith.py",
+    "module": "agnette.agl.eval.arith",
+    "line": 169,
+    "column": 32,
+    "source_sha256": "52d6b88d44908570b14173f4d99582ebda3749c1dc1b5b9c7ead2d5913610ef8",
+    "before": "value.value.copy_negate()",
+    "after": "-value.value",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Round decimal negation through the ambient precision context"
+  },
+  {
+    "id": "AGL_MIXED_ARITHMETIC",
+    "path": "src/agnette/agl/lower/lowerer.py",
+    "module": "agnette.agl.lower.lowerer",
+    "line": 2168,
+    "column": 11,
+    "source_sha256": "9719c90094aa104136962b67af797728e3dcc8a0be1b28a971a0b42504e923ad",
+    "before": "isinstance(lhs.type, DecimalType) or isinstance(rhs.type, DecimalType)",
+    "after": "isinstance(lhs.type, DecimalType) and isinstance(rhs.type, DecimalType)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Fail to widen mixed int/decimal arithmetic"
+  },
+  {
+    "id": "AGL_IF_ELSE_RESULT",
+    "path": "src/agnette/agl/lower/lowerer.py",
+    "module": "agnette.agl.lower.lowerer",
+    "line": 3240,
+    "column": 12,
+    "source_sha256": "9719c90094aa104136962b67af797728e3dcc8a0be1b28a971a0b42504e923ad",
+    "before": "has_else=has_else",
+    "after": "has_else=False",
+    "mode": "keyword",
+    "tests": ["tests/test_agl_ir_control_flow.py::test_if_with_else_taken_true", "tests/test_agl_ir_control_flow.py::test_if_with_else_taken_false", "tests/test_agl_ir_control_flow.py::test_if_with_else_text_values"],
+    "reason": "Discard the value of an if/else expression"
+  },
+  {
+    "id": "AGL_EQUALITY_LOWERING",
+    "path": "src/agnette/agl/lower/lowerer.py",
+    "module": "agnette.agl.lower.lowerer",
+    "line": 2203,
+    "column": 15,
+    "source_sha256": "9719c90094aa104136962b67af797728e3dcc8a0be1b28a971a0b42504e923ad",
+    "before": "CmpOp.EQ if op is BinOp.EQ else CmpOp.NEQ",
+    "after": "CmpOp.EQ",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_operators.py", "tests/test_agl_ir_control_flow.py"],
+    "reason": "Compile inequality as equality"
+  },
+  {
+    "id": "REPL_EXCEPTION_WRONG_BASE",
+    "path": "src/agnette/agl/repl/type_display.py",
+    "module": "agnette.agl.repl.type_display",
+    "line": 106,
+    "column": 34,
+    "source_sha256": "a59b2127c1a3789323bb7df7b2a2beda119f38a27a8c4bde9b990300b69709b0",
+    "before": "base_spelling(base_type)",
+    "after": "base_spelling(typ)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_repl_exception_base_cost.py"],
+    "reason": "Display an exception as extending itself instead of its actual base"
+  },
+  {
+    "id": "REPL_EXCEPTION_OMIT_BASE",
+    "path": "src/agnette/agl/repl/type_display.py",
+    "module": "agnette.agl.repl.type_display",
+    "line": 106,
+    "column": 22,
+    "source_sha256": "a59b2127c1a3789323bb7df7b2a2beda119f38a27a8c4bde9b990300b69709b0",
+    "before": "f' extends {base_spelling(base_type)}'",
+    "after": "''",
+    "mode": "eval",
+    "tests": ["tests/test_agl_repl_exception_base_cost.py"],
+    "reason": "Omit an exception's base from its displayed declaration"
   }
 ]

@@ -107,6 +107,58 @@
       "expect": {"stdout": "[2, 3]\n[]\n[2]\n", "calls": {}}
     },
     {
+      "name": "distinct_endpoints_preserve_zero_and_do_not_mutate",
+      "params": {"mode": 15},
+      "expect": {
+        "stdout": "0\n30\nOption::Some(value = 0)\nOption::Some(value = 30)\nOption::Some(value = 0)\n[0, 20, 30]\n0\n[20, 30]\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "predicates_report_misses_and_stop_at_the_first_decisive_element",
+      "params": {"mode": 16},
+      "expect": {
+        "stdout": "false\nfalse\nfalse\n0\nOption::None\nOption::None\ntrue\n[1, 2]\nfalse\n[1]\nOption::Some(value = 2)\n[1, 2]\nOption::Some(value = 1)\n[1, 2]\n",
+        "calls": {}
+      }
+    },
+    {
+      "name": "empty_last_raises_a_typed_index_error",
+      "params": {"mode": 17},
+      "expect": {
+        "stdout": "",
+        "raises": {"type": "IndexError", "fields": {"index": -1, "length": 0}},
+        "calls": {}
+      }
+    },
+    {
+      "name": "remove_at_rejects_the_exclusive_upper_boundary",
+      "params": {"mode": 18},
+      "expect": {
+        "stdout": "",
+        "raises": {"type": "IndexError", "fields": {"index": 2, "length": 2}},
+        "calls": {}
+      }
+    },
+    {
+      "name": "remove_at_rejects_below_the_negative_lower_boundary",
+      "params": {"mode": 19},
+      "expect": {
+        "stdout": "",
+        "raises": {"type": "IndexError", "fields": {"index": -3, "length": 2}},
+        "calls": {}
+      }
+    },
+    {
+      "name": "remove_at_rejects_an_empty_receiver",
+      "params": {"mode": 20},
+      "expect": {
+        "stdout": "",
+        "raises": {"type": "IndexError", "fields": {"index": 0, "length": 0}},
+        "calls": {}
+      }
+    },
+    {
       "name": "sort_and_sort_in_place_are_stable_for_equal_keys",
       "params": {"mode": 13},
       "expect": {

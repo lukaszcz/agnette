@@ -3,6 +3,10 @@ focus_tmux_session, kill_tmux_session, close_tmux_session."""
 
 from __future__ import annotations
 
+import json
+import shlex
+import subprocess
+import sys
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -333,15 +337,48 @@ class TestQueueCommandInSession:
             return 0
 
         monkeypatch.setattr(session_module, "run_foreground", fake_foreground)
+        marker = tmp_path / "injected"
+        arguments = [
+            "hello world",
+            "single'quote",
+            'double"quote',
+            "",
+            "line one\nline two",
+            "$HOME",
+            f"$(touch {marker})",
+            f"`touch {marker}`",
+            f"; touch {marker}",
+            f"> {marker}",
+            "*?[a-z]",
+            "left | right && next & last",
+        ]
+        command = [
+            sys.executable,
+            "-I",
+            "-c",
+            "import json, sys; print(json.dumps(sys.argv[1:]))",
+            *arguments,
+        ]
         queue_command_in_session(
             session_name="s1",
-            command=["echo", "hello world"],
+            command=command,
             cwd=tmp_path,
             env={},
         )
-        # The send-keys arg should contain the quoted command
-        combined = " ".join(calls[0])
-        assert "hello" in combined
+
+        assert calls == [["tmux", "send-keys", "-t", "s1:^.{top-left}", shlex.join(command), "C-m"]]
+        shell_command = calls[0][4]
+        assert shlex.split(shell_command) == command
+        result = subprocess.run(
+            ["/bin/sh", "-c", shell_command],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == arguments
+        assert not marker.exists()
 
 
 # ===========================================================================

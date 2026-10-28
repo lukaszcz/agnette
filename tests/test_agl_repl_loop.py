@@ -150,14 +150,38 @@ def test_set_echo_unit_on_makes_unit_entries_echo() -> None:
     assert "u : unit = ()" in written
 
 
-def test_set_echo_unit_off_suppresses_after_being_on() -> None:
+def test_set_echo_unit_off_suppresses_after_being_on(capsys: pytest.CaptureFixture[str]) -> None:
     session = ReplSession()
     written: list[str] = []
-    reader = _scripted_reader([":set echo-unit on", ":set echo-unit off", "()", ":quit"])
+    changes: list[tuple[str, str | bool]] = []
+    reader = _scripted_reader(
+        [
+            ":set echo-unit on",
+            "()",
+            "let before = ()",
+            ":set echo-unit off",
+            "()",
+            'print "still runs"',
+            "let after = ()",
+            "7",
+            ":quit",
+        ]
+    )
 
-    run_repl_loop(session, reader=reader, writer=written.append)
+    run_repl_loop(
+        session,
+        reader=reader,
+        writer=written.append,
+        on_setting_change=lambda key, value: changes.append((key, value)),
+    )
 
-    assert not any(": unit = ()" in line for line in written)
+    assert written.count("()") == 1
+    assert "before : unit = ()" in written
+    assert "after : unit = ()" not in written
+    assert "7" in written
+    assert capsys.readouterr().out == "still runs\n"
+    assert any(name == "after" for name, _type, _value in session.bindings())
+    assert changes == [("echo-unit", True), ("echo-unit", False)]
 
 
 def test_entry_evaluation_and_rendering() -> None:

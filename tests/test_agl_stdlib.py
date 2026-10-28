@@ -57,7 +57,7 @@ def test_core_stdlib_is_bare_by_default() -> None:
 
 
 def test_no_stdlib_disables_default_open_import() -> None:
-    with pytest.raises(AglScopeError, match="'Some' is not defined"):
+    with pytest.raises(AglScopeError, match=r"\bSome\b"):
         resolve_inline_entry("let x = Some(value = 1)\nx\n", default_stdlib=False)
 
 
@@ -65,7 +65,7 @@ def test_no_stdlib_reports_bare_print_as_undefined() -> None:
     """A bare built-in call has no reachable declaration once the standard
     library is switched off — it is an ordinary undefined-name error, not a
     silently-accepted host dispatch."""
-    with pytest.raises(AglScopeError, match="'print' is not defined"):
+    with pytest.raises(AglScopeError, match=r"\bprint\b"):
         resolve_inline_entry('print("hi")\n', default_stdlib=False)
 
 
@@ -82,12 +82,12 @@ def test_std_os_module_resolves_without_the_default_standard_library() -> None:
 
 
 def test_unknown_builtin_function_is_rejected() -> None:
-    with pytest.raises(AglTypeError, match="Unknown builtin function 'mystery'"):
+    with pytest.raises(AglTypeError, match=r"\bmystery\b"):
         _check("builtin def mystery() -> unit\n()\n")
 
 
 def test_builtin_function_signature_must_match() -> None:
-    with pytest.raises(AglTypeError, match="Builtin function 'print' has an invalid signature"):
+    with pytest.raises(AglTypeError, match=r"\bprint\b"):
         _check("builtin def print(value: text) -> text\n()\n")
 
 
@@ -300,18 +300,23 @@ def test_exec_with_default_parse_options_runs_like_exec_without_them(
     assert capsys.readouterr().out == "7\n"
 
 
-def test_builtin_function_signature_mismatches_are_rejected() -> None:
-    cases = [
-        "builtin def print[T](value: T, extra: int) -> unit\n()\n",
-        "builtin def print[T](item: T) -> unit\n()\n",
-        "builtin def ask-request(prompt: text) -> ExecResult\n()\n",
-        "builtin def exec(command: int) -> ExecResult\n()\n",
-        "builtin def copy(value: int) -> int\n()\n",
-        "builtin def shallow-copy[T](value: T) -> unit\n()\n",
-    ]
-    for source in cases:
-        with pytest.raises(AglTypeError, match="Builtin function '.*' has an invalid signature"):
-            _check(source)
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("print", "builtin def print[T](value: T, extra: int) -> unit\n()\n"),
+        ("print", "builtin def print[T](item: T) -> unit\n()\n"),
+        ("ask-request", "builtin def ask-request(prompt: text) -> ExecResult\n()\n"),
+        ("exec", "builtin def exec(command: int) -> ExecResult\n()\n"),
+        ("copy", "builtin def copy(value: int) -> int\n()\n"),
+        ("shallow-copy", "builtin def shallow-copy[T](value: T) -> unit\n()\n"),
+    ],
+)
+def test_builtin_function_signature_mismatches_are_rejected(name: str, source: str) -> None:
+    with pytest.raises(AglTypeError) as exc:
+        _check(source)
+    assert exc.value.span is not None
+    assert exc.value.span.start_line == 1
+    assert name in str(exc.value)
 
 
 def _ps(name: str, t: Type, has_default: bool = False) -> ParamSpec:
@@ -431,17 +436,17 @@ def test_std_optional_declares_the_builtin_optional_and_is_in_the_prelude() -> N
 
 
 def test_unknown_builtin_type_is_rejected() -> None:
-    with pytest.raises(AglTypeError, match="Unknown builtin type 'Mystery'"):
+    with pytest.raises(AglTypeError, match=r"\bMystery\b"):
         _check("builtin record Mystery\n  value: int\n()\n")
 
 
 def test_builtin_type_alias_target_must_be_text() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'path' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bpath\b"):
         _check("builtin type path = int\n()\n", default_stdlib=False)
 
 
 def test_builtin_type_alias_must_not_be_generic() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'path' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bpath\b"):
         _check("builtin type path[T] = text\n()\n", default_stdlib=False)
 
 
@@ -462,25 +467,25 @@ def test_url_type_alias_is_bare_visible_through_the_prelude() -> None:
 
 
 def test_url_type_alias_is_undefined_without_the_standard_library() -> None:
-    with pytest.raises(AglTypeError, match="Unknown type 'url'"):
+    with pytest.raises(AglTypeError, match=r"\burl\b"):
         _check('let value: url = "https://example.org"\n()\n', default_stdlib=False)
 
 
 def test_url_record_type_is_reachable_only_through_a_qualified_route() -> None:
-    with pytest.raises(AglTypeError, match="Unknown type 'Url'"):
+    with pytest.raises(AglTypeError, match=r"\bUrl\b"):
         _check("def f(value: Url) -> unit = ()\n()\n")
     _check("import std/url\ndef f(value: url::Url) -> unit = ()\n()\n")
 
 
 def test_builtin_type_shape_must_match() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'ExecResult' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bExecResult\b"):
         _check("builtin record ExecResult\n  stdout: text\n()\n")
 
 
 def test_builtin_record_shape_must_match_field_default_presence() -> None:
     """A ``builtin`` declaration adding a default the host contract does not
     have is a structural mismatch, distinct from a field type/name mismatch."""
-    with pytest.raises(AglTypeError, match="Builtin type 'SessionStats' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bSessionStats\b"):
         _check(
             "builtin record SessionStats\n"
             "  input-tokens: int\n"
@@ -500,13 +505,13 @@ _SESSION_FIELDS = (
 def test_builtin_session_must_be_opaque() -> None:
     """``Session`` is host-minted: a ``builtin`` declaration must carry ``@opaque``."""
     declare = "builtin record Session\n" + _SESSION_FIELDS + "()\n"
-    with pytest.raises(AglTypeError, match="Builtin type 'Session' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bSession\b"):
         _check(declare, default_stdlib=False)
     _check("@opaque\n" + declare, default_stdlib=False)
 
 
 def test_builtin_record_must_not_be_opaque_unless_the_host_contract_is() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'SessionStats' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bSessionStats\b"):
         _check(
             "@opaque\nbuiltin record SessionStats\n"
             "  input-tokens: int\n"
@@ -536,7 +541,7 @@ def test_builtin_enum_member_shape_must_match_field_default_presence(
     command: str, claude: str
 ) -> None:
     """An enum member's field default presence is part of the host contract."""
-    with pytest.raises(AglTypeError, match="Builtin type 'Agent' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bAgent\b"):
         _check(
             "builtin enum Agent\n"
             f"  | {command}\n"
@@ -567,7 +572,7 @@ def test_std_core_source_builtin_shape_is_not_masked_by_seed(
 
 
 def test_builtin_option_shape_must_match() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'Option' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bOption\b"):
         _check("builtin\nenum Option[T] =\n  | None\n  | Some(value: T, extra: int)\n()\n")
 
 
@@ -585,15 +590,17 @@ def test_builtin_shape_error_names_the_declaration_in_any_cache_state(
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     clear_parsed_module_cache()
     bad_option = "builtin\nenum Option[T] =\n  | None\n  | Some(value: T, extra: int)\n()\n"
-    with pytest.raises(AglTypeError, match="Builtin type 'Option' has an invalid definition"):
-        _check(bad_option)
-    _check("let x: Option[int] = Some(value = 1)\nprint(x)\n")
-    with pytest.raises(AglTypeError, match="Builtin type 'Option' has an invalid definition"):
-        _check(bad_option)
+    for warm_cache in (False, True):
+        if warm_cache:
+            _check("let x: Option[int] = Some(value = 1)\nprint(x)\n")
+        with pytest.raises(AglTypeError, match=r"\bOption\b") as exc:
+            _check(bad_option)
+        assert exc.value.span is not None
+        assert exc.value.span.start_line == 1
 
 
 def test_builtin_optional_must_reference_option_members() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'Optional' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bOptional\b"):
         _check(
             "builtin enum Option[T]\n"
             "  | None\n"
@@ -615,7 +622,7 @@ def test_builtin_optional_must_reference_option_members() -> None:
 
 
 def test_builtin_agent_sandbox_must_reference_the_builtin_sandbox_record() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'AgentSandbox' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bAgentSandbox\b"):
         _check(
             "scope Fake\n"
             "  record Sandbox\n"
@@ -630,7 +637,7 @@ def test_builtin_agent_sandbox_must_reference_the_builtin_sandbox_record() -> No
 
 
 def test_builtin_exception_shape_must_match() -> None:
-    with pytest.raises(AglTypeError, match="Builtin type 'ExecError' has an invalid definition"):
+    with pytest.raises(AglTypeError, match=r"\bExecError\b"):
         _check(
             "builtin\n"
             "exception Exception\n"
@@ -643,7 +650,7 @@ def test_builtin_exception_shape_must_match() -> None:
 
 
 def test_exception_base_must_be_exception_type() -> None:
-    with pytest.raises(AglTypeError, match="extends unknown exception 'NotAnException'"):
+    with pytest.raises(AglTypeError, match=r"\bNotAnException\b"):
         _check(
             "record NotAnException\n"
             "  message: text\n"
@@ -658,8 +665,11 @@ def test_implicit_exception_base_bypasses_lexical_shadowing() -> None:
 
 
 def test_exception_fields_cannot_duplicate_inherited_fields() -> None:
-    with pytest.raises(AglTypeError, match="Duplicate field 'message' in exception 'Bad'"):
+    with pytest.raises(AglTypeError, match=r"\bBad\b") as exc:
         _check("exception Bad extends Exception\n  message: text\n()\n")
+    assert "message" in str(exc.value)
+    assert exc.value.span is not None
+    assert exc.value.span.start_line == 2
 
 
 def test_exception_in_field_type_is_built_before_record() -> None:
@@ -685,7 +695,7 @@ def test_exception_extends_concrete_exception_inherits_field_kinds() -> None:
 
 
 def test_exception_in_applied_field_type_is_built_before_rejection() -> None:
-    with pytest.raises(AglTypeError, match="Type 'Local' does not take type arguments"):
+    with pytest.raises(AglTypeError, match=r"\bLocal\b"):
         _check(
             "exception Local extends Exception\n"
             "  code: int\n"
@@ -700,11 +710,13 @@ def test_exception_extends_cycle_is_uninhabitable(field_type: str) -> None:
     # A extends B and B extends A: an `extends` cycle gives neither side
     # independent evidence to become inhabited, so both stay uninhabited —
     # the same inhabitation fixpoint that rejects field recursion.
-    with pytest.raises(AglTypeError, match="uninhabitable"):
+    with pytest.raises(AglTypeError) as exc:
         _check(
             f"exception A extends B\n  a: {field_type}\n"
             f"exception B extends A\n  b: {field_type}\n()\n"
         )
+    assert exc.value.span is not None
+    assert exc.value.span.start_line in (1, 3)
 
 
 def test_lowerer_skips_builtin_function_definitions() -> None:
@@ -798,8 +810,10 @@ def test_builtin_exception_own_fields_are_standard_zone(
 def test_builtin_exception_inherited_message_stays_named_only() -> None:
     """``Exception``'s ``message`` keeps the named-only zone every builtin
     exception inherits, so it can never be passed positionally."""
-    with pytest.raises(AglTypeError, match="named-only"):
+    with pytest.raises(AglTypeError) as exc:
         _check('IndexError("m", 1, 2)\n')
+    assert exc.value.span is not None
+    assert exc.value.span.start_line == 1
 
 
 def test_source_defined_exception_extends_base_with_message() -> None:

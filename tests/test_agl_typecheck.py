@@ -25,6 +25,7 @@ from typing import cast
 import pytest
 
 from agnette.agl.constraints import ConstraintKind
+from agnette.agl.diagnostics import AglError
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
 from agnette.agl.parser.parser import parse_program
 from agnette.agl.scope.program import ResolvedProgram
@@ -220,9 +221,9 @@ def reject_type(source: str, *, default_stdlib: bool = True) -> AglTypeError | A
     return exc_info.value
 
 
-def reject_any(source: str, *, default_stdlib: bool = True) -> Exception:
-    """Assert that the source is rejected with any kind of error."""
-    with pytest.raises(Exception) as exc_info:
+def reject_any(source: str, *, default_stdlib: bool = True) -> AglError:
+    """Assert a language diagnostic, never an unrelated implementation exception."""
+    with pytest.raises(AglError) as exc_info:
         resolve_and_check_repl_entry(source, default_stdlib=default_stdlib)
     return exc_info.value
 

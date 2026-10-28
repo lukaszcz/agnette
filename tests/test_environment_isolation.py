@@ -10,6 +10,7 @@ project directory or a workspace shell must not inherit either.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,6 +19,7 @@ import httpx2
 import pytest
 
 from agnette.agm.project.layout import discover_current_project_dir
+from agnette.agm.project.workspace_shell import ensure_workspace_shell
 from agnette.config.context import current_config_context
 from agnette.config.home import agm_home_dir
 from agnette.packages.activation import load_activation_index
@@ -86,6 +88,47 @@ def test_project_and_shell_variables_are_not_inherited() -> None:
         assert name not in os.environ
     assert not any(name.startswith("AGM_") for name in os.environ if name != "AGM_STDLIB")
     assert not any(name.startswith("TYPESAFE_") for name in os.environ)
+
+
+@pytest.mark.parametrize(
+    ("shell_name", "flags"),
+    [("bash", "-c"), ("sh", "-ic"), ("zsh", "-ic")],
+)
+def test_workspace_shell_does_not_source_inherited_startup_files(
+    shell_name: str,
+    flags: str,
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shell = shutil.which(shell_name)
+    if shell is None:
+        pytest.skip(f"{shell_name} not available")
+    hostile = tmp_path / "hostile"
+    hostile.mkdir()
+    marker = tmp_path / "startup-ran"
+    startup = f'printf polluted > "{marker}"\n'
+    for name in ("startup.sh", ".zshenv", ".zshrc"):
+        (hostile / name).write_text(startup)
+    monkeypatch.setenv("BASH_ENV", str(hostile / "startup.sh"))
+    monkeypatch.setenv("ENV", str(hostile / "startup.sh"))
+    monkeypatch.setenv("ZDOTDIR", str(hostile))
+    isolate_host_environment.__wrapped__(None, tmp_path_factory, monkeypatch)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    wrapper = ensure_workspace_shell("isolation", env={**os.environ, "SHELL": shell})
+    result = subprocess.run(
+        [str(wrapper), flags, "printf 'isolated\\n'"],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "isolated\n"
+    assert not marker.exists()
 
 
 def test_proxy_variables_are_not_inherited() -> None:

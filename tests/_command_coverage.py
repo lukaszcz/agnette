@@ -16,11 +16,13 @@ Both halves of that comparison are derived, never written down:
   than the Click tree also keeps package-registered commands (resolved
   dynamically at invocation time) out of the set: they are not AgM's own
   surface.
-* The invoked set is recorded at runtime by ``tests.test_e2e.run_agm``, the one
-  helper every e2e test uses to spawn the binary.  Recording the *actual* argv
-  means a command counts as covered only when it really ran — not when a call
-  merely appears in the source of a skipped, dead or dynamically-parameterized
-  test.
+* ``tests.test_e2e.run_agm`` collects dispatch evidence from each child through
+  a private descriptor. A test-only profiler observes a registered leaf reaching
+  its command-layer ``run`` function, after CLI validation. Help flags, bare
+  groups and parser failures therefore provide no evidence. The real ``help``
+  leaf implements its behavior in its callback and counts on callback entry.
+  Local monitoring revokes evidence if deferred CLI parsing rejects arguments
+  or requests program help. No application changes or argv re-parsing are involved.
 
 Group spellings that are pure aliases (``wsp`` for ``workspace``, ``wt`` for
 ``worktree`` — see ``agnette.command_catalog.COMMAND_ALIASES``) are folded onto
@@ -41,8 +43,13 @@ The gate only fires on a full-suite run; see :func:`gate_enabled`.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Sequence
+import sys
+import tempfile
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import CodeType, FrameType, FunctionType
+from typing import BinaryIO
 
 import pytest
 import typer
@@ -55,6 +62,9 @@ from agnette.command_catalog import COMMAND_ALIASES
 GATE_ENV = "AGM_TEST_COMMAND_COVERAGE"
 
 _WORKEROUTPUT_KEY = "agm_command_coverage"
+
+# Only the staged test entry point reads this; production knows nothing about it.
+EVIDENCE_FD_ENV = "AGM_TEST_COMMAND_COVERAGE_FD"
 
 # Leaf commands that cannot be driven end-to-end, with the reason each is out.
 EXCLUDED_COMMANDS: dict[tuple[str, ...], str] = {}
@@ -96,10 +106,12 @@ def group_alias_map(root: typer.Typer = app) -> dict[str, str]:
     }
 
 
-def _walk(node: typer.Typer, prefix: tuple[str, ...]) -> Iterable[tuple[str, ...]]:
-    """Yield every leaf-command path reachable from the Typer app *node*."""
+def _walk(
+    node: typer.Typer, prefix: tuple[str, ...]
+) -> Iterable[tuple[tuple[str, ...], typer.models.CommandInfo]]:
+    """Yield every registered leaf and its path."""
     for info in node.registered_commands:
-        yield (*prefix, _command_name(info))
+        yield (*prefix, _command_name(info)), info
     for group in node.registered_groups:
         if group.typer_instance is not None:
             yield from _walk(group.typer_instance, (*prefix, group.name or ""))
@@ -108,7 +120,7 @@ def _walk(node: typer.Typer, prefix: tuple[str, ...]) -> Iterable[tuple[str, ...
 def leaf_commands(root: typer.Typer = app) -> frozenset[tuple[str, ...]]:
     """Return every canonical leaf-command path AgM registers."""
     aliases = group_alias_map(root)
-    return frozenset((aliases.get(path[0], path[0]), *path[1:]) for path in _walk(root, ()) if path)
+    return frozenset((aliases.get(path[0], path[0]), *path[1:]) for path, _info in _walk(root, ()))
 
 
 # ---------------------------------------------------------------------------
@@ -116,46 +128,104 @@ def leaf_commands(root: typer.Typer = app) -> frozenset[tuple[str, ...]]:
 # ---------------------------------------------------------------------------
 
 
-def _command_tree(root: typer.Typer = app) -> dict[str, object]:
-    """Return the command tree as nested dicts; ``None`` marks a leaf."""
-    tree: dict[str, object] = {}
-    for info in root.registered_commands:
-        tree[_command_name(info)] = None
-    for group in root.registered_groups:
-        if group.typer_instance is not None:
-            tree[group.name or ""] = _command_tree(group.typer_instance)
-    return tree
+def _watch_rejections(fd: int) -> None:
+    """Revoke dispatch evidence on deferred argument errors or program help.
 
-
-def resolve_leaf_path(args: Sequence[str], root: typer.Typer = app) -> tuple[str, ...] | None:
-    """Return the canonical leaf command *args* invokes, or ``None``.
-
-    Options (and, by construction, AgM's global options — all of them flags) are
-    skipped; the walk descends through group names and stops at the first token
-    that is not one.  Argv that names no registered leaf — a package-registered
-    command, a bare group, a usage error — resolves to ``None``.
+    Command-layer adapters can still parse program flags or validate values.
+    Local code events avoid profiling the entire AgL execution that follows.
     """
-    aliases = group_alias_map(root)
-    node = _command_tree(root)
-    path: list[str] = []
-    for token in args:
-        if token.startswith("-"):
-            continue
-        if token not in node:
-            return None
-        path.append(token)
-        child = node[token]
-        if child is None:
-            return (aliases.get(path[0], path[0]), *path[1:])
-        node = child
-    return None
+    from agnette.agm.cli_support.program_options import CommandUsageError, ProgramHelpRequested
+    from agnette.agm.parser import exit_with_usage_error
+
+    codes = (
+        CommandUsageError.__init__.__code__,
+        ProgramHelpRequested.__init__.__code__,
+        exit_with_usage_error.__code__,
+    )
+    tool = next(index for index in range(5, -1, -1) if sys.monitoring.get_tool(index) is None)
+    sys.monitoring.use_tool_id(tool, "agm-command-coverage")
+
+    def reject(code: CodeType, offset: int) -> None:
+        del code, offset
+        for watched in codes:
+            sys.monitoring.set_local_events(tool, watched, 0)
+        sys.monitoring.free_tool_id(tool)
+        os.ftruncate(fd, 0)
+        os.close(fd)
+
+    sys.monitoring.register_callback(tool, sys.monitoring.events.PY_START, reject)
+    for code in codes:
+        sys.monitoring.set_local_events(tool, code, sys.monitoring.events.PY_START)
 
 
-def record_invocation(args: Sequence[str]) -> None:
-    """Record the leaf command *args* invokes, if it names one."""
-    path = resolve_leaf_path(args)
-    if path is not None:
-        _invoked.add(path)
+def install_dispatch_observer(fd: int | None = None) -> None:
+    """Write one canonical leaf to *fd* when this child actually dispatches.
+
+    Cold staged entry points obtain the descriptor from the environment; forked
+    children receive it directly. Neither environment nor descriptor survives
+    an exec, so commands AgM launches cannot supply evidence for their caller.
+    General profiling stops at dispatch; only deferred rejection sites remain
+    monitored. Domain failures still count: dispatch, not success, is the gate.
+    """
+    inherited = os.environ.pop(EVIDENCE_FD_ENV, None)
+    if fd is None:
+        if inherited is None:
+            return
+        fd = int(inherited)
+    os.set_inheritable(fd, False)
+    aliases = group_alias_map()
+    callbacks: dict[CodeType, tuple[str, ...]] = {
+        info.callback.__code__: (aliases.get(path[0], path[0]), *path[1:])
+        for path, info in _walk(app, ())
+        if isinstance(info.callback, FunctionType)
+    }
+    previous = sys.getprofile()
+
+    def observe(frame: FrameType, event: str, arg: object) -> None:
+        if previous is not None:
+            previous(frame, event, arg)
+        if event != "call":
+            return
+        path = callbacks.get(frame.f_code)
+        if path != ("help",):
+            module = frame.f_globals.get("__name__", "")
+            if frame.f_code.co_name != "run" or not module.startswith("agnette.agm.commands."):
+                return
+            caller = frame.f_back
+            path = None
+            while caller is not None:
+                path = callbacks.get(caller.f_code)
+                if path is not None:
+                    break
+                caller = caller.f_back
+        if path is not None:
+            sys.setprofile(previous)
+            os.write(fd, (" ".join(path) + "\n").encode())
+            if path == ("help",):
+                os.close(fd)
+            else:
+                _watch_rejections(fd)
+
+    sys.setprofile(observe)
+
+
+def record_invocation(evidence: str) -> None:
+    """Record only registered leaves witnessed by a child's observer."""
+    surface = leaf_commands()
+    _invoked.update(
+        path for line in evidence.splitlines() if (path := tuple(line.split(" "))) in surface
+    )
+
+
+@contextmanager
+def invocation_evidence() -> Iterator[BinaryIO]:
+    """Collect one child's evidence, including when its invocation raises."""
+    with tempfile.TemporaryFile() as evidence:
+        try:
+            yield evidence
+        finally:
+            evidence.seek(0)
+            record_invocation(evidence.read().decode())
 
 
 def recorded_commands() -> frozenset[tuple[str, ...]]:

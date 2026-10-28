@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import Field, asdict, dataclass, field, fields
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
-from types import CodeType, ModuleType
+from types import ModuleType
 from typing import Literal, TypedDict, cast
 
 import pytest
@@ -181,17 +181,20 @@ def install_mutation(spec: Mutation, patch: pytest.MonkeyPatch) -> None:
     if spec.module in sys.modules:
         raise ValueError("Mutation worker loaded after target import")
     filename = str(ROOT / spec.path)
-    original_get_code = SourceFileLoader.get_code
+    original_exec_module = SourceFileLoader.exec_module
 
-    def get_code(loader: SourceFileLoader, fullname: str) -> CodeType | None:
-        if fullname != spec.module:
-            return original_get_code(loader, fullname)
+    def exec_module(loader: SourceFileLoader, module: ModuleType) -> None:
+        # Companions have dynamic module names and a source-authoritative loader
+        # overriding get_code; intercept execution by canonical source path.
+        if Path(loader.path).resolve() != Path(filename):
+            original_exec_module(loader, module)
+            return
         code = compile(mutated_tree(spec), filename, "exec")
         STATE.injected = True
-        return code
+        exec(code, cast(dict[str, object], module.__dict__))
 
     patch.setattr(builtins, MARKER, mark_reached, raising=False)
-    patch.setattr(SourceFileLoader, "get_code", get_code)
+    patch.setattr(SourceFileLoader, "exec_module", exec_module)
 
 
 def pytest_collectreport(report: pytest.CollectReport) -> None:
