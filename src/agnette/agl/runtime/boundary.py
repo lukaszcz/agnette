@@ -223,7 +223,7 @@ def active_contract_encoder(encoder: "_ContractEncoder") -> ScopedVar["_Contract
 #: descriptors for its extent, and so does a companion import. A value built
 #: outside either has no nominal recorded in this empty view, so looking up
 #: its nominal to render it raises ``KeyError`` -- matching
-#: :class:`agnette.agl.runtime.ExternRuntimeState`'s own detached fallback, which
+#: :class:`agnette.agl.runtime.externs.ExternRuntimeState`'s own detached fallback, which
 #: is likewise for direct companion use outside evaluation.
 _DETACHED_DESCRIPTORS = ValueDescriptors(nominals={}, functions={}, exception_field_encodes={})
 

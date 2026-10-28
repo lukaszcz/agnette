@@ -33,7 +33,7 @@ its counted owning enums' (:meth:`TypeTable.owning_enums_for_selection`).
 because their record/enum/exception arms consult the table's declaration-level
 property flags instead of walking embedded fields; ``semantics.types`` cannot
 import this module without a circular import. Those flags are one fixpoint per
-:class:`~agnette.agl.semantics.analyses.DataProperty`
+:class:`~agnette.agl.semantics.type_table.DataProperty`
 (``semantics.analyses.compute_declaration_flags``, cycle-safe by
 construction), cached on :class:`TypeTable` and invalidated whenever the
 table's declarations change. ``EQ`` backs ``=``/``!=`` (``comparable_types``);
@@ -1785,7 +1785,7 @@ class TypeTable:
     ) -> bool:
         """Return ``True`` if *handle* satisfies *kind* (cycle-safe; see :func:`satisfies`).
 
-        *kind* maps onto its :class:`~agnette.agl.semantics.analyses.DataProperty`
+        *kind* maps onto its :class:`~agnette.agl.semantics.type_table.DataProperty`
         (:func:`_constraint_kind_to_data_property`); see
         :meth:`_nominal_satisfies_property` for the shared declaration-flag walk.
         """
@@ -2643,7 +2643,7 @@ def is_extern_keyable(t: Type, table: TypeTable) -> bool:
     callback's arguments), and a free type variable passes (an extern
     signature's own type parameters are not erased). The only obstacle is a
     ``dict`` whose key is not ``Hashable`` anywhere
-    (:class:`~agnette.agl.semantics.analyses.DataProperty.EXTERN_KEYABLE`): a
+    (:attr:`~agnette.agl.semantics.type_table.DataProperty.EXTERN_KEYABLE`): a
     companion inserts keys into parameter dicts and returns dicts whose keys
     are inserted. A ``dict``'s key is checked directly
     (:func:`dict_key_is_hashable_assuming_type_vars`) and only its value
