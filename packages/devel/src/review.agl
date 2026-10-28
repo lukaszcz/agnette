@@ -117,7 +117,7 @@ def refine-tests-prompt() -> text =
 def Agent::refine-tests(self, interactive: bool) -> unit =
   self.ask-or-chat(refine-tests-prompt(), interactive)
 
-let default-aspects = "correctness, maintainability, efficency, adherence to relevant AGENTS.md files"
+let default-aspects = "correctness, maintainability, efficiency, adherence to relevant AGENTS.md files"
 
 @command("devel review")
 @doc("""
