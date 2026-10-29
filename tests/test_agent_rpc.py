@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -37,7 +38,7 @@ from tests._agl_helpers import (
 from tests._proc_helpers import reap_child
 
 _STUB = r"""#!{python}
-import json, os, sys, time
+import fcntl, json, os, sys, time
 from pathlib import Path
 root = Path(os.environ["PI_RPC_STUB_ROOT"])
 settings = json.loads((root / "script.json").read_text())
@@ -46,6 +47,7 @@ argv = sys.argv[1:]
 session = argv[argv.index("--session-id") + 1] if "--session-id" in argv else "root"
 def record(name, value):
     with (root / name).open("a") as out:
+        fcntl.flock(out, fcntl.LOCK_EX)
         out.write(json.dumps(value) + "\n")
         out.flush()
 record(
@@ -159,13 +161,14 @@ class RpcStub:
 
     def records(self, name: str) -> list[dict[str, object]]:
         path = self.root / name
-        return (
-            []
-            if not path.exists()
-            else [
-                cast(dict[str, object], json.loads(line)) for line in path.read_text().splitlines()
+        if not path.exists():
+            return []
+        with path.open() as source:
+            # Read only after the stub has flushed its complete JSONL record.
+            fcntl.flock(source, fcntl.LOCK_SH)
+            return [
+                cast(dict[str, object], json.loads(line)) for line in source.read().splitlines()
             ]
-        )
 
     def wait_for(self, name: str, count: int = 1) -> list[dict[str, object]]:
         deadline = monotonic() + 5
@@ -1019,12 +1022,19 @@ def test_process_death_between_asks_makes_later_operations_lifecycle_errors(
     backend.close()
 
 
+@pytest.mark.parametrize("payload_size", [0, 64_000], ids=["small-env", "large-env"])
 def test_close_and_close_all_terminate_children(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload_size: int
 ) -> None:
+    payload = "x" * payload_size
+    monkeypatch.setenv("RPC_TEST_PAYLOAD", payload)
     stub = RpcStub(tmp_path, monkeypatch)
     backend = open_backend()
-    pid = stub.wait_for("starts.jsonl")[0]["pid"]
+    started = stub.wait_for("starts.jsonl")[0]
+    environment = started["env"]
+    assert isinstance(environment, dict)
+    assert environment["RPC_TEST_PAYLOAD"] == payload
+    pid = started["pid"]
     assert isinstance(pid, int)
     backend.close()
     backend.close()
