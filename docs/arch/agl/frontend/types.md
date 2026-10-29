@@ -7,7 +7,7 @@ The semantic type model lives in `semantics/` and is consumed by `typecheck/`. B
 Record, enum, and exception types are handles: identity is the declaration (`decl_id`) plus type arguments, never structure or path. All shape lookup — fields, enum membership, exception hierarchy, methods — goes through the shared `TypeTable` (`semantics/type_table.py`), keyed by declaration identity.
 
 - Handles resolve regardless of build order, so recursive declarations (mutual, generic, cross-module) need no acyclicity rule.
-- A later declaration can take a path's name without invalidating earlier handles, which lets the REPL supersede declarations ([repl.md](../repl.md)).
+- A later declaration can take a path's name without invalidating earlier handles, which lets the REPL supersede declarations ([repl.md](../repl.md)); entry checks fork isolated tables with reusable analyses, excluding compile-local shell publications.
 - Named types and qualified owners are read from scope's `owner_declarations`, never re-resolved ([scope.md](scope.md#declarations-and-aliases)).
 - An inline member's type-parameter arity may depend on other members', across modules and in any order, so all modules' member shells narrow together to a fixpoint before any dependent body resolves (`reconcile_inline_member_arities`, `typecheck/builder.py`).
 - An enum is a closed nominal union of member record declarations; widening (member → enum, enum → superset enum) is directed and does not propagate through containers.
@@ -21,13 +21,13 @@ Record, enum, and exception types are handles: identity is the declaration (`dec
 
 Recursive types make some questions global; `semantics/analyses.py` answers them over the whole table as cached declaration-graph analyses:
 
-- **Inhabitation** — a declaration that can never produce a finite value is rejected.
+- **Inhabitation** — a declaration that can never produce a finite value is rejected. A bounded cache shares immutable results across tables using value snapshots of declaration identities, definitions, and live exception-child topology.
 - **Data properties** — `Eq`, `Hashable`, JSON convertibility, and extern keyability share one parameterised fixpoint, seeded with the opaque declarations as non-data (extern keyability excepted); key-sensitive properties propagate through declarations' key parameters.
 - **Finite-schema closure** — whether a type admits a finite JSON schema, required wherever a schema is needed (agent and `exec` outputs, fallible casts, parameters, extern signatures). `as json` encode planning consults it ([execution/runtime.md](../execution/runtime.md)).
 
 ## The Typecheck Pass
 
-The checker selects the concrete behavior the evaluator relies on and publishes it in checked-program side tables, so lowering never re-infers:
+The checker selects the concrete behavior the evaluator relies on and publishes it in checked-program side tables, so lowering never re-infers. `declaration_validation.py` retains bounded source inventories; collision checks still use each invocation's current type and session context.
 
 - **Member selection** — one field/method rule for selection and assignment targets; method candidates form one flat level — a record's own plus its owning enums', an exception's own plus its ancestors'; `method_selections` is consumed by lowering unchanged.
 - **Built-ins** — dispatched from scope's classification; `ask`/`exec` take result types from context, with documented defaults applied only after the inference region closes. A built-in's named options come from its resolved `builtin def`, validated against the canonical signatures in `typecheck/checker.py`. Output contracts (schema and format metadata) are computed here.

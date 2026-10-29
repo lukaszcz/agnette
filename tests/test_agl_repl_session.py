@@ -9305,6 +9305,43 @@ class TestImports:
         assert ordinary.ok, ordinary.diagnostics
         assert _int(ordinary.value) == 2
 
+    def test_interrupted_import_can_be_edited_retried_and_reimported_after_reset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.eval.ir_interpreter import IrInterpreter
+        from agnette.agl.ir.nodes import IrExpr
+
+        library = tmp_path / "worker.agl"
+        library.write_text(
+            "record Old\n  value: int = 1\ndef answer() -> int = Old().value\nlet pending = 0\n"
+        )
+        session = ReplSession(cwd=tmp_path)
+        assert session.open() == ()
+        worker = ModuleId(("worker",))
+        original = IrInterpreter._eval_and_record_initializer
+
+        def interrupt(interp: IrInterpreter, module_id: ModuleId, node: IrExpr) -> None:
+            if module_id == worker:
+                raise KeyboardInterrupt
+            original(interp, module_id, node)
+
+        try:
+            with monkeypatch.context() as interrupted:
+                interrupted.setattr(IrInterpreter, "_eval_and_record_initializer", interrupt)
+                assert not session.eval_entry("import worker").ok
+            assert worker not in session._link_image._linked_modules
+            library.write_text("record Box\n  value: int = 42\ndef answer() -> int = Box().value\n")
+            source = "import worker\nworker::answer()"
+            retried = session.eval_entry(source)
+            assert retried.ok, retried.diagnostics
+            assert retried.value == IntValue(42)
+            session.reset()
+            reimported = session.eval_entry(source)
+            assert reimported.ok, reimported.diagnostics
+            assert reimported.value == IntValue(42)
+        finally:
+            session.close()
+
     def test_mutated_imported_module_state_survives_a_later_reimport(self, tmp_path: Path) -> None:
         # An imported module is linked into the persistent image once. A later
         # entry -- whether it imports something else or names the same module
@@ -11129,7 +11166,10 @@ class TestSessionOpen:
 
         assert build_count == 1
 
-    def test_open_rejects_new_root_ambiguity_after_a_cached_bootstrap(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("change_cwd", [False, True])
+    def test_open_rejects_new_root_ambiguity_after_a_cached_bootstrap(
+        self, tmp_path: Path, change_cwd: bool
+    ) -> None:
         """A cached image cannot bypass fresh module resolution ambiguity checks."""
         stdlib = tmp_path / "stdlib"
         workspace = tmp_path / "workspace"
@@ -11138,6 +11178,9 @@ class TestSessionOpen:
 
         assert ReplSession(stdlib_root=stdlib, cwd=workspace).open() == ()
 
+        if change_cwd:
+            workspace = tmp_path / "other-workspace"
+            workspace.mkdir()
         duplicate = workspace / "std" / "prelude.agl"
         duplicate.parent.mkdir()
         duplicate.write_text("", encoding="utf-8")
@@ -11147,8 +11190,9 @@ class TestSessionOpen:
         assert "std/prelude" in diagnostics[0].message
         assert "ambiguous" in diagnostics[0].message.lower()
 
+    @pytest.mark.parametrize("change_cwd", [False, True])
     def test_open_rechecks_wildcard_root_discovery_after_a_cached_bootstrap(
-        self, tmp_path: Path
+        self, tmp_path: Path, change_cwd: bool
     ) -> None:
         """A cached wildcard expansion cannot omit newly matching modules."""
         from agnette.agl.modules.ids import ModuleId
@@ -11165,6 +11209,9 @@ class TestSessionOpen:
         assert ReplSession(stdlib_root=stdlib, cwd=workspace).open() == ()
         assert ReplSession(stdlib_root=stdlib, cwd=workspace).open() == ()
 
+        if change_cwd:
+            workspace = tmp_path / "other-workspace"
+            workspace.mkdir()
         (extra / "two.agl").write_text("let two: int = 2\n", encoding="utf-8")
         refreshed = ReplSession(stdlib_root=stdlib, cwd=workspace)
         assert refreshed.open() == ()

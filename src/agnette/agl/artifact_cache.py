@@ -111,9 +111,25 @@ def _same_sources(retained: Sources, current: Sources) -> bool:
     return retained.identities == current.identities
 
 
-# What one compilation's retainable modules were derived from, computed once by
-# the pass that both consults and refreshes the retained artifacts.
+# What one graph's retainable modules were derived from, shared by every pass.
 RetainedSources = Mapping["ModuleId", Sources]
+
+
+class _SourceGroups(Mapping[ModuleId, Sources]):
+    """A graph's source sets and their immutable disk-artifact grouping."""
+
+    def __init__(self, sources: dict[ModuleId, Sources]) -> None:
+        self._sources = sources
+        self.groups = _groups(sources)
+
+    def __getitem__(self, key: ModuleId) -> Sources:
+        return self._sources[key]
+
+    def __iter__(self) -> Iterator[ModuleId]:
+        return iter(self._sources)
+
+    def __len__(self) -> int:
+        return len(self._sources)
 
 
 _DECLARATIONS: _ArtifactStore["_ModuleTables", ModuleId] = _ArtifactStore(persist=False)
@@ -145,22 +161,33 @@ def retain_lowered_module(key: bytes, module: LoweredModule) -> None:
     _LOWERED.put(key, _EMPTY_SOURCES, module)
 
 
-def retained_module_sources(graph: ModuleGraph) -> dict[ModuleId, Sources]:
+def retained_module_sources(graph: ModuleGraph) -> RetainedSources:
     """Return, per retainable module, everything its artifacts could read.
 
     A module's own artifacts depend on it and every module reachable from it
     through the graph's dependency edges, whose exports decide what its imports
     name -- the graph's own dependency closures, computed once per graph.
 
-    A pass derives this once and uses it twice -- to look up what is
-    retained, and to refresh it with what the pass produced.
+    Source identities and disk-artifact groups are shared across passes and
+    cycle members. The memo belongs to the graph, so replacing a graph resets it.
     """
+    if graph._retained_sources is not None:
+        return graph._retained_sources
     closures = graph.dependency_closures()
-    return {
-        module_id: Sources(closures[module_id])
-        for module_id, loaded in graph.modules.items()
-        if loaded.path is not None and module_id != graph.entry_id
-    }
+    by_closure: dict[int, Sources] = {}
+    sources: dict[ModuleId, Sources] = {}
+    for module_id, loaded in graph.modules.items():
+        if loaded.path is None or module_id == graph.entry_id:
+            continue
+        closure = closures[module_id]
+        shared = by_closure.get(id(closure))
+        if shared is None:
+            shared = Sources(closure)
+            by_closure[id(closure)] = shared
+        sources[module_id] = shared
+    retained = _SourceGroups(sources)
+    object.__setattr__(graph, "_retained_sources", retained)
+    return retained
 
 
 def retained_module_declarations(module: LoadedModule) -> _ModuleTables | None:
@@ -275,12 +302,18 @@ def retain_module_headers(
 
 def retained_match_sites(
     retainable: RetainedSources,
+    *,
+    owners: Mapping[ModuleId, CheckedModule] | None = None,
 ) -> dict[ModuleId, CachedModuleSites]:
     from agnette.agl.matchcompile import CachedModuleSites
     from agnette.agl.typecheck.env import CheckedModule
 
     served = _served(_SITES, retainable, CachedModuleSites)
     for mid, sites in served.items():
+        # A session's exact checked owner takes precedence over a different
+        # process-global object for the same sources; do not undo its identity hit.
+        if owners is not None and sites.owner is owners.get(mid):
+            continue
         checked = _CHECKED.get(mid, retainable[mid])
         # A stale or bare-image `checked` just misses `compile_program_matches`'s
         # `cached.owner is checked_module` identity gate -- never a wrong reuse.
@@ -408,9 +441,16 @@ def _anchors(kind: str, sources: Sources, retainable: RetainedSources) -> tuple[
 
 
 def _groups(retainable: RetainedSources) -> tuple[tuple[ModuleId, ...], ...]:
+    if isinstance(retainable, _SourceGroups):
+        return retainable.groups
     groups: dict[tuple[ModuleId, ...], list[ModuleId]] = {}
+    by_sources: dict[Sources, list[ModuleId]] = {}
     for mid, sources in retainable.items():
-        groups.setdefault(tuple(m.module_id for m in sources), []).append(mid)
+        group = by_sources.get(sources)
+        if group is None:
+            group = groups.setdefault(tuple(m.module_id for m in sources), [])
+            by_sources[sources] = group
+        group.append(mid)
     return tuple(tuple(group) for group in groups.values())
 
 

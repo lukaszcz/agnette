@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial
@@ -22,18 +23,65 @@ from agnette.agl.syntax.nodes import (
     ExceptionDef,
     FuncDef,
     Item,
+    Program,
     RecordDef,
     TypeAlias,
     scope_names,
-    static_function_items,
     static_items,
-    static_type_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.typecheck.env import AglTypeError
 
 SessionBuiltinDeclarations = Mapping[tuple[str, ...], tuple[ModuleId, tuple[str, ...]]]
 """A REPL session's builtin identities from earlier, still-live entries, keyed by scoped name."""
+
+
+@dataclass(frozen=True, slots=True)
+class _DeclarationInventory:
+    """Immutable source facts, never receiver classifications or validation results."""
+
+    program: Program
+    types: tuple[tuple[RecordDef | EnumDef | ExceptionDef, tuple[str, ...]], ...]
+    functions: tuple[FuncDef, ...]
+    builtins: tuple[tuple[tuple[str, ...], str, SourceSpan], ...]
+    scoped_names: frozenset[tuple[str, ...]]
+
+
+# AST equality excludes spans and node ids. Retaining each key's program makes
+# object identity safe, while the bound limits source retention in long-lived hosts.
+_INVENTORY_CAPACITY = 512
+_INVENTORIES: OrderedDict[int, _DeclarationInventory] = OrderedDict()
+
+
+def _declaration_inventory(program: Program) -> _DeclarationInventory:
+    """Walk each retained source once; all contextual checks still run per call."""
+    key = id(program)
+    cached = _INVENTORIES.pop(key, None)
+    if cached is not None:
+        _INVENTORIES[key] = cached
+        return cached
+    types: list[tuple[RecordDef | EnumDef | ExceptionDef, tuple[str, ...]]] = []
+    functions: list[FuncDef] = []
+    builtins: list[tuple[tuple[str, ...], str, SourceSpan]] = []
+    scoped_names: set[tuple[str, ...]] = set()
+    for item in static_items(program.body.items):
+        if not is_bare_declaration(item):
+            continue
+        path = scope_names(item.scope_path)
+        scoped_names.add((*path, item.name))
+        if isinstance(item, FuncDef):
+            functions.append(item)
+        elif not isinstance(item, TypeAlias):
+            types.append((item, path))
+        if item.is_builtin:
+            builtins.append((path, item.name, item.span))
+    inventory = _DeclarationInventory(
+        program, tuple(types), tuple(functions), tuple(builtins), frozenset(scoped_names)
+    )
+    _INVENTORIES[key] = inventory
+    if len(_INVENTORIES) > _INVENTORY_CAPACITY:
+        _INVENTORIES.popitem(last=False)
+    return inventory
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,10 +153,8 @@ def _member_declarations(
     index = _MemberIndex()
     owner_ids: dict[tuple[ModuleId, tuple[str, ...]], DeclId] = {}
     for module_id, resolved in modules.items():
-        for item in static_type_items(resolved.program.body.items):
-            if isinstance(item, TypeAlias):
-                continue
-            declared_path = scope_names(item.scope_path)
+        inventory = _declaration_inventory(resolved.program)
+        for item, declared_path in inventory.types:
             decl_owner_id = type_table.named(module_id, item.name, declared_path).decl_node_id
             owner_ids[module_id, (*declared_path, item.name)] = decl_owner_id
             index.declared.add(decl_owner_id)
@@ -124,7 +170,7 @@ def _member_declarations(
                     same_named.append(
                         _MemberDeclaration("field", source_field.span, module_id, "source")
                     )
-        for function in static_function_items(resolved.program.body.items):
+        for function in inventory.functions:
             owner_path = resolved.receiver_owner_for(module_id, function)
             if owner_path is None or owner_path.builtin is not None:
                 continue
@@ -425,10 +471,10 @@ def _builtin_bare_declarations(
     found: list[tuple[ModuleId, tuple[str, ...], str, SourceSpan]] = []
     for module_id in sorted(modules, key=partial(_module_visit_order, entry_id=entry_id)):
         resolved = modules[module_id]
-        for item in static_items(resolved.program.body.items):
-            if is_builtin_bare_declaration(item):
-                path = scope_names(item.scope_path)
-                found.append((module_id, path, item.name, item.span))
+        found.extend(
+            (module_id, path, name, span)
+            for path, name, span in _declaration_inventory(resolved.program).builtins
+        )
     return found
 
 
@@ -440,11 +486,7 @@ def _entry_declared_scoped_names(resolved: ModuleResolution) -> frozenset[tuple[
     ``session_builtins`` below), whether or not either declaration is a
     ``builtin`` one.
     """
-    return frozenset(
-        name
-        for item in static_items(resolved.program.body.items)
-        if (name := bare_declaration_scoped_name(item)) is not None
-    )
+    return _declaration_inventory(resolved.program).scoped_names
 
 
 def validate_builtin_declaration_uniqueness(

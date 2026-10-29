@@ -790,8 +790,9 @@ class ReplSession:
         """Return a cache key only for a pristine, default-stdlib session.
 
         A bootstrap cache is safe only before an entry can contribute session
-        state, and when module roots agree — typed engine seeds never touch
-        the compiled module graph, so they do not disqualify reuse. A param-seed
+        state. Library mounts must agree; loose roots are re-resolved against
+        the image before reuse. Typed engine seeds never touch the compiled
+        module graph, so they do not disqualify reuse. A param-seed
         resolver does (so ``agm repl``, which always passes one, never uses the
         cached image). The cached type environment is
         sealed; later entry checks seed from it without mutating it.
@@ -809,7 +810,7 @@ class ReplSession:
                 for package in roots.packages
             )
         )
-        return (roots.roots, roots.stdlib_roots, packages)
+        return (roots.stdlib_roots, packages)
 
     @staticmethod
     def _bootstrap_loader_inputs_match(snapshot: _BootstrapSnapshot) -> bool:
@@ -2041,14 +2042,11 @@ class ReplSession:
             program, next_node_id, source_text=text, spaced_qualifiers=spaced_qualifiers
         )
         checked = checked_program.modules[checked_program.entry_id]
-        from agnette.agl.matchcompile import (
-            cached_module_sites,
-            compile_program_matches,
-            match_issue_error,
-        )
+        from agnette.agl.matchcompile import match_issue_error
+        from agnette.agl.pipeline import compile_retained_matches
 
-        match_result = compile_program_matches(
-            checked_program, cached_module_sites(self._last_match_compilation)
+        match_result = compile_retained_matches(
+            checked_program, resolved_program.graph, self._last_match_compilation
         )
         if match_result.compiled is None:
             raise match_issue_error(match_result.issues[0], resolved_program.speller)

@@ -673,6 +673,90 @@ class TypeTable:
         # declaration ever registered there, superseded ones included.
         self._inline_member_names: dict[tuple[ModuleId, tuple[str, ...]], dict[str, None]] = {}
 
+    def fork(self) -> TypeTable:
+        """Copy declaration state and valid caches into an independent table.
+
+        Frozen definitions, handles, tuples and whole-table analysis results
+        are reusable. Mutable indexes, memo buckets and returned field/member
+        mappings are copied; method-site links must point into the new buckets.
+        Shell publications remain compile-local, as with :meth:`merge_from`.
+        """
+        result = TypeTable()
+        result._defs = self._defs.copy()
+        result._name_index = self._name_index.copy()
+        result._orphaned = self._orphaned.copy()
+        result._hashable_proofs = self._hashable_proofs.copy()
+        result._inline_members = {
+            key: members.copy() for key, members in self._inline_members.items()
+        }
+        result._inline_member_names = {
+            key: names.copy() for key, names in self._inline_member_names.items()
+        }
+        result._record_fields_cache = {
+            key: {handle: dict(fields) for handle, fields in bucket.items()}
+            for key, bucket in self._record_fields_cache.items()
+        }
+        result._enum_members_cache = {
+            key: bucket.copy() for key, bucket in self._enum_members_cache.items()
+        }
+        result._enum_member_names_cache = {
+            key: {handle: dict(names) for handle, names in bucket.items()}
+            for key, bucket in self._enum_member_names_cache.items()
+        }
+        result._enum_member_by_decl_cache = {
+            key: {handle: dict(members) for handle, members in bucket.items()}
+            for key, bucket in self._enum_member_by_decl_cache.items()
+        }
+        result._exception_fields_cache = {
+            key: dict(fields) for key, fields in self._exception_fields_cache.items()
+        }
+        result._exception_field_links_cache = self._exception_field_links_cache.copy()
+        result._exception_external_names_cache = {
+            key: dict(names) for key, names in self._exception_external_names_cache.items()
+        }
+        result._exception_field_kinds_cache = self._exception_field_kinds_cache.copy()
+        result._exception_field_has_default_cache = self._exception_field_has_default_cache.copy()
+
+        def copy_methods[K](
+            index: dict[K, dict[str, dict[DeclKey, MethodDef]]],
+        ) -> dict[K, dict[str, dict[DeclKey, MethodDef]]]:
+            copied = {
+                key: {name: candidates.copy() for name, candidates in methods.items()}
+                for key, methods in index.items()
+            }
+            for methods in copied.values():
+                for candidates in methods.values():
+                    for declaration_key in candidates:
+                        result._method_sites[declaration_key] = candidates
+            return copied
+
+        result._methods = copy_methods(self._methods)
+        result._builtin_methods = copy_methods(self._builtin_methods)
+        # Analyses publish frozen results with read-only mappings; invalidation
+        # replaces these values, never mutates them. Copy only the mutable memo.
+        result._declaration_flags_cache = self._declaration_flags_cache.copy()
+        result._finite_closure = self._finite_closure
+        result._opaque_ids = self._opaque_ids
+        result._standard_builtins = (
+            None if self._standard_builtins is None else self._standard_builtins.copy()
+        )
+        result._member_enum_owners = (
+            None if self._member_enum_owners is None else self._member_enum_owners.copy()
+        )
+        result._relevant_params = (
+            None if self._relevant_params is None else dict(self._relevant_params)
+        )
+        result._exception_children = (
+            None if self._exception_children is None else self._exception_children.copy()
+        )
+        nesting = self._exception_nesting
+        result._exception_nesting = (
+            None
+            if nesting is None
+            else ExceptionNesting(dict(nesting.pre), dict(nesting.end), dict(nesting.depth))
+        )
+        return result
+
     def register(self, typedef: TypeDef) -> None:
         """Register *typedef* under its own declaration identity.
 

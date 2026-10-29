@@ -404,6 +404,41 @@ class TestDependencyClosures:
             assert ids == sorted(ids, key=lambda mid: mid.segments)
         assert graph.dependency_closures() is closures
 
+    def test_cycle_members_share_one_materialized_dependency_closure(self, tmp_path: Path) -> None:
+        graph = self._diamond_with_a_cycle(tmp_path)
+        closures = graph.dependency_closures()
+        bottom = ModuleId.from_path("bottom")
+        right = ModuleId.from_path("right")
+
+        assert closures[bottom] is closures[right]
+        assert {module.module_id for module in closures[bottom]} == _closure_by_search(
+            graph, bottom
+        )
+
+    def test_replacing_a_cycle_member_refreshes_the_shared_closure(self, tmp_path: Path) -> None:
+        graph = self._diamond_with_a_cycle(tmp_path)
+        bottom = ModuleId.from_path("bottom")
+        right = ModuleId.from_path("right")
+        original = graph.dependency_closures()[bottom]
+        replacement = replace(graph.modules[bottom])
+        changed = replace(graph, modules={**graph.modules, bottom: replacement})
+        closures = changed.dependency_closures()
+
+        assert closures[bottom] is closures[right]
+        assert closures[bottom] is not original
+        assert (
+            next(module for module in closures[right] if module.module_id == bottom) is replacement
+        )
+        assert graph.dependency_closures()[bottom] is original
+
+    def test_modules_outside_the_scc_inventory_close_over_themselves(self, tmp_path: Path) -> None:
+        graph = self._diamond_with_a_cycle(tmp_path)
+        changed = replace(graph, sccs=())
+
+        assert changed.dependency_closures() == {
+            mid: (module,) for mid, module in graph.modules.items()
+        }
+
     def test_a_replaced_graph_closes_over_its_own_modules(self, tmp_path: Path) -> None:
         graph = self._diamond_with_a_cycle(tmp_path)
         bottom = ModuleId.from_path("bottom")

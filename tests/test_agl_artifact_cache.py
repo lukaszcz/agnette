@@ -1056,6 +1056,122 @@ def test_an_in_memory_reused_module_skips_closure_validation(
     assert second.modules[lib_id] is checked.modules[lib_id]
 
 
+def test_dependency_source_groups_are_shared_across_cycle_members_and_passes(
+    tmp_path: Path,
+) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path,
+        {
+            "entry": "import left\nimport right\n()",
+            "left": "import right\nimport leaf\n()",
+            "right": "import left\n()",
+            "leaf": "()",
+        },
+        default_stdlib=False,
+    )
+    left, right, leaf = (ModuleId.from_path(name) for name in ("left", "right", "leaf"))
+    retained = artifact_cache.retained_module_sources(graph)
+    groups = artifact_cache._groups(retained)
+
+    assert artifact_cache.retained_module_sources(graph) is retained
+    assert retained[left] is retained[right]
+    assert retained[leaf] is not retained[left]
+    assert retained[left].modules is graph.dependency_closures()[left]
+    assert retained[left].identities == tuple(id(module) for module in retained[left])
+    assert artifact_cache._groups(retained) is groups
+    assert groups == ((left, right), (leaf,))
+    # Public callers may also supply ordinary mappings with independently built source sets.
+    independent = {
+        mid: artifact_cache.Sources(sources.modules) for mid, sources in retained.items()
+    }
+    assert artifact_cache._groups(independent) == groups
+    assert graph.entry_id not in retained
+
+
+def test_shared_cycle_source_groups_restore_each_members_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    graph = make_file_graph_from_files(
+        tmp_path,
+        {
+            "entry": "import left",
+            "left": "import right\ndef left_value() -> int = 1",
+            "right": "import left\ndef right_value() -> int = 2",
+        },
+        default_stdlib=False,
+    )
+    retained = artifact_cache.retained_module_sources(graph)
+    resolved = resolve_program(graph)
+    checked = check_program(resolved)
+    members = {ModuleId.from_path(name) for name in ("left", "right")}
+    assert set(retained) == members
+    warm = artifact_cache.retained_checked_modules(retained)
+    assert set(warm) == members
+    assert all(module is checked.modules[mid] for mid, module in warm.items())
+
+    artifact_cache.clear_retained_artifacts()
+
+    restored_resolved = artifact_cache.retained_resolved_modules(retained)
+    restored_checked = artifact_cache.retained_checked_modules(retained)
+    assert set(restored_resolved) == set(restored_checked) == members
+    assert all(isinstance(module, CheckedModuleImage) for module in restored_checked.values())
+    for mid in members:
+        assert restored_resolved[mid].source is graph.modules[mid].program
+
+
+@pytest.mark.parametrize("change", ["module", "edges", "entry", "path"])
+def test_replaced_graphs_rebuild_dependency_source_groups(tmp_path: Path, change: str) -> None:
+    graph = make_file_graph_from_files(
+        tmp_path,
+        {"entry": "import helper\n()", "helper": "import leaf\n()", "leaf": "()"},
+        default_stdlib=False,
+    )
+    helper, leaf = (ModuleId.from_path(name) for name in ("helper", "leaf"))
+    retained = artifact_cache.retained_module_sources(graph)
+    store: artifact_cache._ArtifactStore[str, ModuleId] = artifact_cache._ArtifactStore(
+        persist=False
+    )
+    store.put(helper, retained[helper], "retained")
+    if change == "module":
+        changed = replace(graph, modules={**graph.modules, leaf: replace(graph.modules[leaf])})
+    elif change == "edges":
+        changed = replace(graph, adjacency={**graph.adjacency, helper: ()})
+    elif change == "entry":
+        changed = replace(graph, entry_id=helper)
+    else:
+        changed = replace(
+            graph, modules={**graph.modules, helper: replace(graph.modules[helper], path=None)}
+        )
+    current = artifact_cache.retained_module_sources(changed)
+
+    assert current is not retained
+    assert artifact_cache.retained_module_sources(changed) is current
+    assert artifact_cache.retained_module_sources(graph) is retained
+    if change in {"entry", "path"}:
+        assert helper not in current
+    else:
+        assert store.get(helper, current[helper]) is None
+    assert store.get(helper, retained[helper]) == "retained"
+    if change == "module":
+        assert (
+            next(module for module in current[helper] if module.module_id == leaf)
+            is changed.modules[leaf]
+        )
+    elif change == "edges":
+        assert current[helper].modules == (changed.modules[helper],)
+    assert {mid for group in artifact_cache._groups(current) for mid in group} == set(current)
+
+
+def test_empty_dependency_source_groups_are_reused(tmp_path: Path) -> None:
+    graph = make_file_graph_from_files(tmp_path, {"entry": "()"}, default_stdlib=False)
+    retained = artifact_cache.retained_module_sources(graph)
+
+    assert not retained
+    assert artifact_cache.retained_module_sources(graph) is retained
+    assert artifact_cache._groups(retained) == ()
+
+
 def test_source_sets_retain_the_objects_named_by_precomputed_identities(tmp_path: Path) -> None:
     graph = make_file_graph_from_files(
         tmp_path, {"entry": "import helper\n()", "helper": "()"}, default_stdlib=False
@@ -1179,6 +1295,46 @@ def test_replayed_module_headers_reproduce_a_from_source_preparation(
         != _normalize_env_value(vars(replayed.module_envs[mid]).get(name, "<missing>"))
     ]
     assert not diffs, f"replayed vs from-source header preparation diverged: {diffs}"
+
+
+def test_match_sites_preserve_the_matching_owner_over_a_different_global_owner(
+    tmp_path: Path,
+) -> None:
+    from agnette.agl.matchcompile import cached_module_sites
+
+    graph = make_inline_graph_from_files(
+        tmp_path,
+        {
+            "entry": "import lib::*\npick(1)\n",
+            "lib": "def pick(n: int) -> int = case n of | 1 => 2 | _ => 3\n",
+        },
+        default_stdlib=False,
+    )
+    original_checked = check_program(resolve_program(graph))
+    compiled = compile_program_matches(original_checked).compiled
+    assert compiled is not None
+    retainable = artifact_cache.retained_module_sources(graph)
+    cached = cached_module_sites(compiled)
+    lib_id = ModuleId.from_path("lib")
+    original_owner = original_checked.modules[lib_id]
+    assert cached[lib_id].sites
+    assert cached[lib_id].owner is original_owner
+    artifact_cache.retain_match_sites(retainable, cached)
+
+    # Rehydration can publish an equivalent checked module with a new identity.
+    global_owner = replace(original_owner)
+    assert global_owner == original_owner
+    assert global_owner is not original_owner
+    artifact_cache.retain_checked_modules(retainable, {lib_id: global_owner})
+    assert artifact_cache.retained_checked_modules(retainable)[lib_id] is global_owner
+
+    retained = artifact_cache.retained_match_sites(retainable, owners=original_checked.modules)
+
+    assert retained[lib_id].owner is original_owner
+    assert retained[lib_id] is cached[lib_id]
+    reused = compile_program_matches(original_checked, retained).compiled
+    assert reused is not None
+    assert lib_id in reused.reused_modules
 
 
 def test_persisted_match_sites_are_not_served_without_their_checked_module(

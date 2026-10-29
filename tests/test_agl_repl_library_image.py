@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from agnette.agl import PipelineDriver
 from agnette.agl.modules.ids import ModuleId
 from agnette.agl.repl import ReplSession
 from agnette.agl.scope.symbols import ModuleResolution
 from agnette.agl.semantics.values import IntValue, TextValue
 from agnette.agl.typecheck import program as typecheck_program
 from agnette.agl.typecheck.env import TypeEnvironment
+from tests._agl_helpers import agl_roots
 
 
 def _open_session(root: Path | None = None) -> ReplSession:
@@ -136,7 +138,20 @@ class TestImportedModules:
         assert result.ok, result.diagnostics
         assert result.value == IntValue(3)
 
-    def test_sessions_with_different_roots_use_their_own_module(self, tmp_path: Path) -> None:
+    def test_sessions_share_only_the_bootstrap_across_different_roots(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.modules import loader
+
+        builds = 0
+        original = loader.build_repl_graph
+
+        def counted(*args: object, **kwargs: object) -> object:
+            nonlocal builds
+            builds += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(loader, "build_repl_graph", counted)
         first = tmp_path / "first"
         first.mkdir()
         second = tmp_path / "second"
@@ -145,14 +160,68 @@ class TestImportedModules:
         (first / "shared.agl").write_text(body % (1, 2))
         (second / "shared.agl").write_text(body % (30, 40))
 
-        session = _open_session(first)
-        assert session.eval_entry("import shared::*\npick(0)").value == IntValue(1)
+        first_session = _open_session(first)
+        initial_builds = builds
+        second_session = _open_session(second)
+        assert builds == initial_builds
 
-        session = _open_session(second)
-        result = session.eval_entry("import shared::*\npick(0)")
-
+        first_result = first_session.eval_entry("import shared::*\npick(0)")
+        assert first_result.ok, first_result.diagnostics
+        assert first_result.value == IntValue(1)
+        result = second_session.eval_entry("import shared::*\npick(0)")
         assert result.ok, result.diagnostics
         assert result.value == IntValue(30)
+
+        assert first_session.eval_entry("let private_value = 7").ok
+        assert not second_session.eval_entry("private_value").ok
+        assert first_session.eval_entry("pick(1)").value == IntValue(2)
+        assert second_session.eval_entry("pick(1)").value == IntValue(40)
+
+    def test_fresh_sessions_reuse_bootstrap_matches_without_sharing_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agnette.agl.matchcompile import stage
+        from agnette.agl.typecheck.env import CheckedModule
+
+        module = tmp_path / "counter.agl"
+        source = (
+            "var count: int = 0\n"
+            "def pick(flag: bool) -> int =\n"
+            "  case flag of\n    | true => count\n    | false => 99\n"
+        )
+        module.write_text(source)
+        compilations = 0
+        original = stage._compile_owner_sites
+
+        def counted(owner: CheckedModule) -> object:
+            nonlocal compilations
+            if owner.module_id == ModuleId(("std", "prelude")):
+                compilations += 1
+            return original(owner)
+
+        monkeypatch.setattr(stage, "_compile_owner_sites", counted)
+        first = _open_session(tmp_path)
+        prepared = PipelineDriver.prepare_program(
+            "program def main() -> unit = ()", roots=agl_roots(tmp_path)
+        )
+        driver = PipelineDriver(get_sandbox_context=None, resolve_agent_spec=None)
+        assert driver.check_prepared(prepared).ok
+        assert first.eval_entry("import counter::*\ncount := 7\npick(true)").value == IntValue(7)
+        initial_compilations = compilations
+        second = _open_session(tmp_path)
+        result = second.eval_entry("import counter::*\npick(true)")
+        assert result.ok, result.diagnostics
+        assert result.value == IntValue(0)
+        assert compilations == initial_compilations
+
+        second.reset()
+        module.write_text(source.replace("=> 99", "=> 100"))
+        assert second.open() == ()
+        changed = second.eval_entry("import counter::*\npick(false)")
+        assert changed.ok, changed.diagnostics
+        assert changed.value == IntValue(100)
+        assert first.eval_entry("pick(true)").value == IntValue(7)
+        assert compilations == initial_compilations
 
     def test_a_reset_session_rereads_a_module_whose_file_changed(self, tmp_path: Path) -> None:
         """Reuse survives a reset only for modules the reopened session reloads."""

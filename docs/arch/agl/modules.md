@@ -23,14 +23,14 @@ Library naming conventions are documented for users in `docs/agl/reference/modul
 
 ## Graph Adjacency
 
-The graph keeps full import/export adjacency (used to narrow a program's linked modules) and source-authored adjacency without loader injections (used for a `program def`'s declaration closure), plus each module's transitive dependency closure.
+The graph keeps full import/export adjacency (used to narrow a program's linked modules) and source-authored adjacency without loader injections (used for a `program def`'s declaration closure). Sorted transitive dependency closures share one tuple per SCC; source-authored closures retain their walk order. Graph-local memos reset on graph replacement.
 
 ## Compilation Caches
 
 Imported modules are precompiled on demand and reused in memory and across processes; entry modules are compiled afresh.
 
-- **Stages.** Parsed syntax, declaration metadata, export surfaces, resolution, type/function interfaces, checked bodies (with their reference summaries), match sites, and lowered module IR are retained per module.
-- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies. In-memory source sets retain their modules alongside precomputed object identities; disk reuse remains content- and compiler-derived.
+- **Stages.** Parsed syntax, declaration metadata, export surfaces, resolution, type/function interfaces, checked bodies (with their reference summaries), match sites, and lowered module IR are retained per module. File and REPL hosts share match-site cache policy in `pipeline.py`; session-local checked modules retain their identity gate.
+- **Validation.** `artifact_cache.py` validates each stage against the module's source and transitive dependencies. Graph-local source sets and disk-artifact groups are shared across passes and SCC members; source sets retain their modules alongside precomputed object identities. Disk reuse remains content- and compiler-derived.
 - **Identity.** `modules/parsed_module_cache.py` assigns content-addressed node namespaces, so unchanged declarations keep identity across processes. AST-only callers (package command discovery) parse through the same cache.
 - **Checked bodies** persist as their own declarations, their reference summaries ([frontend/types.md](frontend/types.md#the-typecheck-pass)), and a journal of type-environment mutations, replayed on restore, never the whole-program environment. Only active recording windows allocate facts; replay retains the original journal entries.
 - **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companion imports, configuration values, initializer evaluation, and runtime state stay per invocation.

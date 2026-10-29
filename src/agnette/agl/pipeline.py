@@ -17,11 +17,6 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypedDict, TypeVar, cast
 
-from agnette.agl.artifact_cache import (
-    retain_match_sites,
-    retained_match_sites,
-    retained_module_sources,
-)
 from agnette.agl.diagnostics import (
     AglError,
     Diagnostic,
@@ -66,6 +61,7 @@ if TYPE_CHECKING:
     )
     from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey
     from agnette.agl.matchcompile import MatchCompiledProgram
+    from agnette.agl.matchcompile.stage import MatchCompilationResult
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.modules.loader import ModuleGraph
     from agnette.agl.modules.roots import RootSet
@@ -2028,6 +2024,30 @@ def _run_typecheck_program(
     return checked, ()
 
 
+def compile_retained_matches(
+    checked: CheckedProgram,
+    graph: ModuleGraph,
+    previous: MatchCompiledProgram | None = None,
+) -> MatchCompilationResult:
+    """Share library match sites across hosts, keeping entries and failures fresh."""
+    from agnette.agl.artifact_cache import (
+        retain_match_sites,
+        retained_match_sites,
+        retained_module_sources,
+    )
+    from agnette.agl.matchcompile import cached_module_sites, compile_program_matches
+
+    retainable = retained_module_sources(graph)
+    cached = retained_match_sites(retainable, owners=checked.modules)
+    for module_id, sites in cached_module_sites(previous).items():
+        if sites.owner is checked.modules.get(module_id):
+            cached[module_id] = sites
+    result = compile_program_matches(checked, cached)
+    if result.compiled is not None:
+        retain_match_sites(retainable, cached_module_sites(result.compiled))
+    return result
+
+
 def _run_matchcompile_program(
     checked: "CheckedProgram",
     resolved: "ResolvedProgram",
@@ -2038,17 +2058,11 @@ def _run_matchcompile_program(
     per module; each is carried over only while it still holds the very checked
     module this program carries.
     """
-    from agnette.agl.matchcompile import (
-        cached_module_sites,
-        compile_program_matches,
-        diagnostics_from_match_issues,
-    )
+    from agnette.agl.matchcompile import diagnostics_from_match_issues
 
-    retainable = retained_module_sources(resolved.graph)
-    result = compile_program_matches(checked, retained_match_sites(retainable))
+    result = compile_retained_matches(checked, resolved.graph)
     if result.compiled is None:
         return None, diagnostics_from_match_issues(result.issues, resolved.speller)
-    retain_match_sites(retainable, cached_module_sites(result.compiled))
     return result.compiled, ()
 
 

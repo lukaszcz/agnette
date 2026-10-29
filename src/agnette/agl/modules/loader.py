@@ -35,6 +35,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import agnette.agl.syntax as syntax
 from agnette.agl.lexer import spaced_qualifier_collector
@@ -68,6 +69,9 @@ from agnette.core import fs
 from agnette.packages.model import owning_package
 from agnette.util.graph import reachable_nodes
 from agnette.util.graph import sccs as _compute_sccs
+
+if TYPE_CHECKING:
+    from agnette.agl.artifact_cache import RetainedSources
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +186,11 @@ class ModuleGraph:
         default_factory=dict, compare=False, repr=False, init=False
     )
 
+    # Artifact source groups share this graph's lifetime and replacement rules.
+    _retained_sources: RetainedSources | None = field(
+        default=None, compare=False, repr=False, init=False
+    )
+
     def dependency_closures(self) -> Mapping[ModuleId, tuple[LoadedModule, ...]]:
         """Return each loaded module's transitive dependencies, itself included.
 
@@ -189,7 +198,7 @@ class ModuleGraph:
         two graphs list the same modules alike. Computed for the whole graph at
         once on first use: :attr:`sccs` lists components dependencies-first, so
         a component's outside neighbours already have their closures when it is
-        reached.
+        reached. Members of an SCC share one sorted, materialized tuple.
         """
         if not self._closures:
             reached: dict[ModuleId, frozenset[ModuleId]] = {
@@ -207,18 +216,19 @@ class ModuleGraph:
                 )
                 for member in component:
                     reached[member] = closure
-            self._closures.update(
-                (
-                    module_id,
-                    tuple(
+            materialized: dict[frozenset[ModuleId], tuple[LoadedModule, ...]] = {}
+            for module_id in self.modules:
+                reached_ids = reached[module_id]
+                loaded = materialized.get(reached_ids)
+                if loaded is None:
+                    loaded = tuple(
                         self.modules[reached_id]
                         for reached_id in sorted(
-                            reached[module_id] & self.modules.keys(), key=_mid_sort_key
+                            reached_ids & self.modules.keys(), key=_mid_sort_key
                         )
-                    ),
-                )
-                for module_id in self.modules
-            )
+                    )
+                    materialized[reached_ids] = loaded
+                self._closures[module_id] = loaded
         return self._closures
 
     def source_reachable_modules(self, module_id: ModuleId) -> tuple[ModuleId, ...]:

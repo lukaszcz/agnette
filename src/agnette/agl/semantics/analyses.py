@@ -87,12 +87,13 @@ per-concrete-type reachability query built on top of it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
+from functools import lru_cache
 from heapq import heappop, heappush
 from itertools import count
-from typing import assert_never
+from typing import assert_never, cast
 
 from agnette.agl.semantics.type_table import (
     DeclId,
@@ -149,11 +150,39 @@ def compute_uninhabited(table: TypeTable) -> frozenset[DeclId]:
     outside an ``array``/``dict``/function cannot change the answer, so it is
     fixed to inhabited in every key. There are finitely many keys, so the
     fixpoint terminates.
+
+    A bounded cache shares immutable results across equivalent tables. Its
+    value snapshots include declaration identities (excluded from TypeDef
+    equality) and live exception links (which orphaning can change without
+    changing definitions); no mutable table or solver state is retained.
     """
-    solver = _InhabitationSolver(table)
-    return frozenset(
-        decl_id for decl_id, typedef in table.defs.items() if not solver.solved(decl_id, typedef)
+    definitions = tuple(sorted(table.defs.items()))
+    children = tuple(
+        (decl_id, tuple(sorted(table.exception_children(decl_id))))
+        for decl_id, typedef in definitions
+        if typedef.kind == "exception"
     )
+    return _compute_uninhabited_cached(definitions, children)
+
+
+type _DefinitionSnapshot = tuple[tuple[DeclId, TypeDef], ...]
+type _ExceptionChildrenSnapshot = tuple[tuple[DeclId, tuple[DeclId, ...]], ...]
+
+
+def _solve_uninhabited(
+    definitions: _DefinitionSnapshot, children: _ExceptionChildrenSnapshot
+) -> frozenset[DeclId]:
+    defs = dict(definitions)
+    solver = _InhabitationSolver(defs, dict(children))
+    return frozenset(
+        decl_id for decl_id, typedef in defs.items() if not solver.solved(decl_id, typedef)
+    )
+
+
+_compute_uninhabited_cached = cast(
+    Callable[[_DefinitionSnapshot, _ExceptionChildrenSnapshot], frozenset[DeclId]],
+    lru_cache(maxsize=128)(_solve_uninhabited),
+)
 
 
 class _InhabitationSolver:
@@ -168,7 +197,7 @@ class _InhabitationSolver:
     """
 
     __slots__ = (
-        "_table",
+        "_exception_children",
         "_defs",
         "_relevant",
         "_rank",
@@ -186,13 +215,17 @@ class _InhabitationSolver:
     _current: InhabitationKey
     _current_rank: int
 
-    def __init__(self, table: TypeTable) -> None:
-        defs = table.defs
-        self._table = table
+    def __init__(
+        self,
+        defs: Mapping[DeclId, TypeDef],
+        exception_children: Mapping[DeclId, tuple[DeclId, ...]],
+    ) -> None:
+        self._exception_children = exception_children
         self._defs = defs
         self._relevant = compute_relevant_params(defs, through_containers=False)
         components = sccs(
-            _inhabitation_references(table), key=lambda decl_id: decl_id_sort_key(defs, decl_id)
+            _inhabitation_references(defs, exception_children),
+            key=lambda decl_id: decl_id_sort_key(defs, decl_id),
         )
         self._rank = {decl_id: rank for rank, comp in enumerate(components) for decl_id in comp}
         self._inhabited: set[InhabitationKey] = set()
@@ -259,7 +292,7 @@ class _InhabitationSolver:
     def _exception_inhabited(self, decl_id: DeclId, typedef: TypeDef) -> bool | None:
         if typedef.abstract:
             return _any_inhabited(
-                self._read((child_id, ())) for child_id in self._table.exception_children(decl_id)
+                self._read((child_id, ())) for child_id in self._exception_children.get(decl_id, ())
             )
         # Walk up to the nearest ancestor already known to be inhabited with all of
         # its own ancestors: what lies above it need not be read again.
@@ -341,17 +374,20 @@ def _any_inhabited(answers: Iterable[bool | None]) -> bool | None:
     return None if unknown else False
 
 
-def _inhabitation_references(table: TypeTable) -> dict[DeclId, tuple[DeclId, ...]]:
+def _inhabitation_references(
+    defs: Mapping[DeclId, TypeDef],
+    exception_children: Mapping[DeclId, tuple[DeclId, ...]],
+) -> dict[DeclId, tuple[DeclId, ...]]:
     """Return every declaration's references its inhabitation can read, over-approximated."""
     references: dict[DeclId, tuple[DeclId, ...]] = {}
-    for decl_id, typedef in table.defs.items():
+    for decl_id, typedef in defs.items():
         templates = [t for _fname, t in typedef.fields]
         templates.extend(typedef.members)
         found = [ref.decl_id for t in templates for ref in nominal_references(t)]
         if typedef.base is not None:
             found.append(typedef.base)
         if typedef.abstract:
-            found.extend(table.exception_children(decl_id))
+            found.extend(exception_children.get(decl_id, ()))
         references[decl_id] = tuple(found)
     return references
 

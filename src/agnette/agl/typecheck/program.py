@@ -456,6 +456,7 @@ def _build_program_type_table(
     *,
     type_table: TypeTable,
     entry_seed_env: TypeEnvironment | None = None,
+    merge_entry_type_table: bool = True,
     cached_modules: Mapping[ModuleId, PublishedModuleSurface] | None = None,
 ) -> ModuleTypeInterface:
     """Phase 1: collect and resolve all public type declarations across all modules.
@@ -503,11 +504,9 @@ def _build_program_type_table(
     modA.Foo fields, and modB imports modA for modA.Foo used in modB.Bar
     fields via an ``array``/``dict`` field or an enum base-case variant.
     """
-    # Shared TypeTable: one instance dual-written by every cross-module env
-    # below, so declarations from all modules land in the same table.  Step A's
-    # per-module envs are transient header-only scaffolding and never
-    # dual-write, so they keep their own private (default) tables.
-    if entry_seed_env is not None:
+    # Direct callers seed by default; the program driver already forked the
+    # session table. Never reseed after this entry registers its own names.
+    if entry_seed_env is not None and merge_entry_type_table:
         type_table.merge_from(entry_seed_env.type_table)
 
     interfaces = {
@@ -528,12 +527,20 @@ def _build_program_type_table(
     for mid, rmod in resolved.modules.items():
         if mid in interfaces:
             continue
+        # Header collection needs private state, not the authoritative shared
+        # table. Fork only this fresh entry environment, before collecting shells.
+        entry_seed = entry_seed_env if mid == resolved.entry_id else None
         env = TypeEnvironment(
             module_id=mid,
+            type_table=None if entry_seed is None else entry_seed.type_table.fork(),
             owner_declarations=rmod.resolved.owner_declarations,
         )
-        if mid == resolved.entry_id and entry_seed_env is not None:
-            env.seed_from(entry_seed_env, retired_member_scopes=resolved.retired_member_scopes)
+        if entry_seed is not None:
+            env.seed_from(
+                entry_seed,
+                merge_type_table=False,
+                retired_member_scopes=resolved.retired_member_scopes,
+            )
         # The builder is transient: it only collects headers into ``env``
         # (which bootstraps ``program_type_table`` below).  Body resolution
         # uses the cross-module builders built later, not this one.
@@ -645,7 +652,9 @@ def _build_program_type_table(
         )
         if mid == resolved.entry_id and entry_seed_env is not None:
             cross_env.seed_from(
-                entry_seed_env, retired_member_scopes=resolved.retired_member_scopes
+                entry_seed_env,
+                merge_type_table=False,
+                retired_member_scopes=resolved.retired_member_scopes,
             )
         # Seed with own type shells so bare-name local refs resolve.
         for name, t in per_module_envs[mid].non_builtin_type_items():
@@ -1250,7 +1259,9 @@ def _prepare_program(
     # dual-writes into it below, and Phase 4 re-checks each module's own
     # declarations against the SAME instance, so the whole program's declarations
     # land in one table regardless of per-module checking order.
-    shared_type_table = create_seeded_type_table()
+    shared_type_table = (
+        create_seeded_type_table() if entry_seed_env is None else entry_seed_env.type_table.fork()
+    )
 
     # Phase 1: build the program-wide type table with all module types stamped
     # with their owning module_id.  Also collects cross-module generic type defs
@@ -1260,6 +1271,7 @@ def _prepare_program(
         resolved,
         type_table=shared_type_table,
         entry_seed_env=entry_seed_env,
+        merge_entry_type_table=False,
         cached_modules=cached_checked_modules,
     )
     # Grouped once here, for both the signature pre-pass and every module

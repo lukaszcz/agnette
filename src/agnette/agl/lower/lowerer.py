@@ -451,6 +451,7 @@ class _LinkState:
     next_fn: int = 0
     next_source: int = 0
     next_contract: int = 0
+    module_allocations: dict[int, _ModuleAllocation] = field(default_factory=dict)
     decl_to_sym: dict[int, SymbolId] = field(default_factory=dict)
     fn_node_to_sym: dict[int, SymbolId] = field(default_factory=dict)
     fn_node_to_id: dict[int, FunctionId] = field(default_factory=dict)
@@ -482,12 +483,10 @@ class _LinkState:
     initializer_origins: dict[ModuleId, tuple[InitializerOrigin, ...]] = field(default_factory=dict)
 
     def snapshot(self) -> "_LinkState":
-        """Return an independent shallow copy, for the REPL's rollback snapshot.
+        """Return an independent copy for the REPL's rollback snapshot.
 
-        Every ``dict``-valued field is re-keyed into a fresh ``dict`` so later
-        mutation of the live state cannot reach the snapshot; every other
-        field is shared as-is (a counter, or the immutable
-        ``BuiltinNominals``). Reflective (``dataclasses.fields``/``getattr``)
+        Every mapping and mutable module cursor is copied; counters and the
+        immutable ``BuiltinNominals`` are shared. Reflective (``dataclasses.fields``/``getattr``)
         copying is not an option under this repository's
         ``disallow_any_expr`` mypy setting -- every dynamic-attribute
         expression is typed ``Any``. Defined beside the field list so a newly added
@@ -499,6 +498,9 @@ class _LinkState:
             next_fn=self.next_fn,
             next_source=self.next_source,
             next_contract=self.next_contract,
+            module_allocations={
+                key: replace(value) for key, value in self.module_allocations.items()
+            },
             decl_to_sym=dict(self.decl_to_sym),
             fn_node_to_sym=dict(self.fn_node_to_sym),
             fn_node_to_id=dict(self.fn_node_to_id),
@@ -641,7 +643,13 @@ class _Lowerer:
         self._checked = checked
         self._link = link
         seed = checked.resolved.program.node_id << 32
-        self._allocation = _ModuleAllocation(seed, seed, seed) if stable_ids else link
+        self._allocation = (
+            link.module_allocations.setdefault(
+                checked.resolved.program.node_id, _ModuleAllocation(seed, seed, seed)
+            )
+            if stable_ids
+            else link
+        )
         self.resources: list[tuple[Path | None, str | None, Path]] = []
         # This module's own contribution to ``link.field_defaults``, kept
         # alongside it so the module cache can capture exactly what this

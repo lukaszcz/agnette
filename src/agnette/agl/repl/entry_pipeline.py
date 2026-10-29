@@ -326,14 +326,13 @@ class EntryPipeline:
             return self._ctx._fail([diagnostic_from_span(message, span)], warnings)
 
         from agnette.agl.matchcompile import (
-            cached_module_sites,
-            compile_program_matches,
             diagnostics_from_match_issues,
             match_issue_error,
         )
+        from agnette.agl.pipeline import compile_retained_matches
 
-        match_result = compile_program_matches(
-            checked_program, cached_module_sites(self._ctx._last_match_compilation)
+        match_result = compile_retained_matches(
+            checked_program, resolved_program.graph, self._ctx._last_match_compilation
         )
         if match_result.compiled is None:
             # Match compilation reports structured issues, not a raised

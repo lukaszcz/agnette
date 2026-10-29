@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import Lock
 
 from agnette.agl import artifact_serialization
 from agnette.agl.artifact_cache import retain_lowered_module, retained_lowered_module
@@ -13,8 +15,9 @@ from agnette.agl.ir.ids import ContractId, FunctionId, NominalId, SymbolId
 from agnette.agl.ir.nodes import IrExpr
 from agnette.agl.ir.program import ExecutableModule, FunctionDescriptor, SymbolDescriptor
 from agnette.agl.ir.static_keys import HostParamKey
-from agnette.agl.lower.lowerer import _LinkState
+from agnette.agl.lower.lowerer import _LinkState, _ModuleAllocation
 from agnette.agl.syntax.resources import ResourceError, resolve_resource
+from agnette.agl.typecheck.env import CheckedModule
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,16 +55,26 @@ def capture(
     defaults: dict[BuiltinVarKey | str, IrExpr],
     program_configs: dict[SymbolId, tuple[tuple[HostParamKey, IrExpr], ...]],
     resources: tuple[tuple[Path | None, str | None, Path], ...],
-    contract_start: int,
-    contract_end: int,
+    allocation_start: int,
+    allocation_end: int,
     field_defaults: dict[NominalId, tuple[IrExpr | None, ...]],
 ) -> LoweredModule:
-    """Extract the tables owned by one freshly lowered module."""
-    functions = {fid: fn for fid, fn in link.functions.items() if fn.module_id == module.module_id}
+    """Extract only this checked source version's allocation namespace.
+
+    Module ownership spans source versions in a live REPL image. Keep its old
+    descriptors there for retained values, but never copy them into a new
+    version's artifact. Allocation identity also includes synthetic descriptors
+    whose semantic owner may be a declaration from another module.
+    """
+    functions = {
+        fid: fn
+        for fid, fn in link.functions.items()
+        if allocation_start <= fid.value < allocation_end
+    }
     symbols = {
         sid: sym
         for sid, sym in link.symbols.items()
-        if sym.owner == module.module_id or sym.owner in functions
+        if allocation_start <= sid.value < allocation_end
     }
     return LoweredModule(
         module,
@@ -70,12 +83,12 @@ def capture(
         {
             cid: value
             for cid, value in link.contracts.items()
-            if contract_start <= cid.value < contract_end
+            if allocation_start <= cid.value < allocation_end
         },
         {
             cid: value
             for cid, value in link.target_contracts.items()
-            if contract_start <= cid.value < contract_end
+            if allocation_start <= cid.value < allocation_end
         },
         {nid: sid for nid, sid in link.decl_to_sym.items() if sid in symbols},
         {nid: sid for nid, sid in link.fn_node_to_sym.items() if sid in symbols},
@@ -96,16 +109,59 @@ def load(key: bytes) -> LoweredModule | None:
             return None
         module = restored
         retain_lowered_module(key, module)
+    return module if _resources_intact(module) else None
+
+
+def _resources_intact(module: LoweredModule) -> bool:
     try:
-        for root, relative, expected in module.resources:
-            if resolve_resource(root, relative) != expected:
-                return None
+        return all(
+            resolve_resource(root, relative) == expected
+            for root, relative, expected in module.resources
+        )
     except ResourceError:
-        return None
-    return module
+        return False
 
 
 def save(key: bytes, module: LoweredModule) -> None:
     """Publish a successfully lowered module for later CLI processes."""
     retain_lowered_module(key, module)
     artifact_serialization.save(key, "ir", module)
+
+
+@dataclass(frozen=True, slots=True)
+class _SessionModule:
+    # Keep the actual owner alive: an integer object id alone is not an identity.
+    owner: CheckedModule
+    module: LoweredModule
+    allocation: _ModuleAllocation
+
+
+_SESSION_CAPACITY = 512
+_SESSION_MODULES: OrderedDict[tuple[int, bytes], _SessionModule] = OrderedDict()
+_SESSION_LOCK = Lock()
+
+
+def load_session(owner: CheckedModule, context: bytes, link: _LinkState) -> LoweredModule | None:
+    """Reuse only this exact checked artifact, never persisted session code."""
+    key = (id(owner), context)
+    with _SESSION_LOCK:
+        cached = _SESSION_MODULES.get(key)
+        if cached is None or not _resources_intact(cached.module):
+            return None
+        _SESSION_MODULES.move_to_end(key)
+        link.module_allocations[owner.resolved.program.node_id] = replace(cached.allocation)
+        return cached.module
+
+
+def save_session(
+    owner: CheckedModule, context: bytes, module: LoweredModule, link: _LinkState
+) -> None:
+    """Retain immutable IR and a copy of its allocation frontier, not runtime values."""
+    key = (id(owner), context)
+    with _SESSION_LOCK:
+        _SESSION_MODULES[key] = _SessionModule(
+            owner, module, replace(link.module_allocations[owner.resolved.program.node_id])
+        )
+        _SESSION_MODULES.move_to_end(key)
+        while len(_SESSION_MODULES) > _SESSION_CAPACITY:
+            _SESSION_MODULES.popitem(last=False)

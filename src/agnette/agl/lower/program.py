@@ -307,7 +307,11 @@ def lower_program(
     for mid, cm in checked.modules.items():
         if mid in _already_linked:
             continue
-        source_id = SourceId(cm.resolved.program.node_id if _link is None else link.next_source)
+        source_id = SourceId(
+            cm.resolved.program.node_id
+            if _link is None or mid != checked.entry_id
+            else link.next_source
+        )
         link.next_source += 1
         # The module's own frontend span already carries the exact label
         # static diagnostics use for it (canonical file path, "<repl>",
@@ -346,6 +350,13 @@ def lower_program(
     # declaration paths; binding symbols make library lets/vars available to
     # their functions while their initializers retain dependency order below.
     module_lowerers: dict[ModuleId, _Lowerer] = {}
+    # A retry continues its own allocation frontier and relowers, rather than
+    # publishing an artifact containing descriptors from earlier attempts.
+    fresh_libraries = {
+        mid
+        for mid, cm in checked.modules.items()
+        if mid != checked.entry_id and cm.resolved.program.node_id not in link.module_allocations
+    }
     for mid, cm in checked.modules.items():
         if mid in _already_linked:
             continue
@@ -361,7 +372,7 @@ def lower_program(
             compiled.sites_by_module[mid],
             checked.resource_roots[mid],
             has_std_env=STD_ENV_ID in checked.modules,
-            stable_ids=_link is None,
+            stable_ids=_link is None or mid != checked.entry_id,
         )
         module_lowerers[mid] = lowerer
         lowerer.prealloc_static_symbols(cm.resolved.program.body)
@@ -390,18 +401,39 @@ def lower_program(
         lowerer = module_lowerers[mid]
         fingerprint = checked.module_fingerprints.get(mid) if _link is None else None
         key = None
+        session_cache = False
+        # Inputs the source fingerprint cannot see: unchanged sources still
+        # relower when the resource or builtin declaration context differs.
+        context = (
+            checked.resource_roots[mid],
+            STD_ENV_ID in checked.modules,
+            sorted(link.builtin_nominals.declared.items()),
+            sorted(link.builtin_nominals.members.items()),
+            sorted(link.builtin_nominals.standard_members.items()),
+        )
         if fingerprint is not None:
-            # Inputs the source fingerprint cannot see: a module with unchanged sources
-            # still relowers when any of them differ.
-            context = (
-                checked.resource_roots[mid],
-                STD_ENV_ID in checked.modules,
-                sorted(link.builtin_nominals.declared.items()),
-                sorted(link.builtin_nominals.members.items()),
-                sorted(link.builtin_nominals.standard_members.items()),
-            )
             key = hashlib.sha256(fingerprint + repr(context).encode()).digest()
-        cached = module_cache.load(key) if key is not None else None
+        elif _link is not None and mid in fresh_libraries:
+            # An incomplete dependency may have been reallocated on retry.
+            # Its actual runtime handles, not just its syntax identities, are
+            # inputs to direct calls and captured/imported binding loads.
+            references = {
+                ref.decl_node_id
+                for ref in (*cm.resolved.resolution.values(), *cm.slot_resolution.values())
+            } | {method.decl_node_id for method in cm.method_selections.values()}
+            handles = tuple(
+                (node, link.decl_to_sym.get(node), link.fn_node_to_id.get(node))
+                for node in sorted(references)
+            )
+            key = hashlib.sha256(repr((context, handles)).encode()).digest()
+            session_cache = True
+        cached = None
+        if key is not None:
+            cached = (
+                module_cache.load_session(cm, key, link)
+                if session_cache
+                else module_cache.load(key)
+            )
         if cached is not None:
             cached.link_into(link)
             executable_modules[mid] = cached.module
@@ -434,20 +466,23 @@ def lower_program(
         builtin_setting_defaults.update(defaults)
         program_configs.update(module_program_configs)
         if key is not None:
+            # Every allocated table uses this source version's namespace;
+            # module ownership alone would also capture older REPL versions.
             seed = cm.resolved.program.node_id << 32
-            module_cache.save(
-                key,
-                module_cache.capture(
-                    executable_module,
-                    link,
-                    defaults,
-                    module_program_configs,
-                    tuple(lowerer.resources),
-                    seed,
-                    seed + (1 << 32),
-                    dict(lowerer.field_defaults),
-                ),
+            artifact = module_cache.capture(
+                executable_module,
+                link,
+                defaults,
+                module_program_configs,
+                tuple(lowerer.resources),
+                seed,
+                seed + (1 << 32),
+                dict(lowerer.field_defaults),
             )
+            if session_cache:
+                module_cache.save_session(cm, key, artifact, link)
+            else:
+                module_cache.save(key, artifact)
 
     # Build nominals from the authoritative TypeTable declarations.
     # Aliases do not have a TypeDef, so this also excludes their transparent
