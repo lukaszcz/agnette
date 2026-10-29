@@ -169,6 +169,10 @@ def preload_coverage(*, warm: bool = True) -> None:
     """
     if os.environ.get("COVERAGE_CORE") != "sysmon":
         return
+    from tests import _coverage_metadata
+
+    if _coverage_metadata.install():
+        return
     from coverage import sysmon
     from coverage.bytecode import TBranchTrails
 
@@ -228,6 +232,9 @@ def serve(
     Each request is unpickled and handed, with the descriptors that came with it, to
     *child* in a freshly forked process; *child* must end that process itself.
     """
+    from tests import _coverage_metadata
+
+    _coverage_metadata.configure_server()
     preload()
     # Imported state stays live; keep child GC from dirtying its shared pages.
     gc.collect()
@@ -533,11 +540,13 @@ def start[L: Launcher](
     Its stderr goes to the file *log*, which a :class:`LauncherError` for a zygote that
     failed to start quotes.
     """
+    from tests import _coverage_metadata
+
     address = "\0" + name
     with log.open("wb") as stderr:
         process = subprocess.Popen(
             [*argv, name],
-            env=dict(env),
+            env=_coverage_metadata.launcher_environment(dict(env)),
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

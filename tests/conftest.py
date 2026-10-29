@@ -13,12 +13,13 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import pytest
+from xdist.workermanage import WorkerController
 
 from agnette.agl.self_validation import self_validation_enabled, set_self_validation_enabled
 from agnette.core import dry_run, process
 from agnette.core.process import CapturedOutput
 from agnette.packages import python_deps
-from tests import _command_coverage, _isolation, _zygote
+from tests import _command_coverage, _coverage_metadata, _isolation, _zygote
 from tests._durations import (
     pytest_runtest_protocol,
     pytest_sessionfinish,
@@ -34,6 +35,7 @@ __all__ = ["pytest_runtest_protocol", "pytest_sessionfinish", "pytest_testnodedo
 
 _GC_THRESHOLDS = pytest.StashKey[tuple[int, int, int]]()
 _GC_COLLECTIONS = pytest.StashKey[int]()
+_COVERAGE_METADATA = pytest.StashKey[Path]()
 
 # Enable the optional invariant self-checks — match-compilation self-checks, IR
 # structural validation, and completion's re-raising of the failures it would
@@ -85,6 +87,9 @@ def pytest_configure(config: pytest.Config) -> None:
     hooks) cannot express twice under one name.
     """
     config.pluginmanager.register(_command_coverage, "agm_command_coverage")
+    worker_input = getattr(config, "workerinput", {})
+    if "agm_coverage_metadata" in worker_input:
+        _coverage_metadata.configure(Path(worker_input["agm_coverage_metadata"]))
     _zygote.preload_coverage(warm=False)
     # Collect cyclic compiler state at bounded test boundaries, not during allocations.
     thresholds = gc.get_threshold()
@@ -98,6 +103,19 @@ def pytest_configure(config: pytest.Config) -> None:
         _detach_from_controlling_terminal()
 
 
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: WorkerController) -> None:
+    """Build static analysis once; measured coverage remains process-local."""
+    config = node.config
+    if os.environ.get("COVERAGE_CORE") != "sysmon" or config.getoption("no_cov", default=False):
+        return
+    if _COVERAGE_METADATA not in config.stash:
+        directory = tempfile.TemporaryDirectory(prefix="agm-coverage-metadata-")
+        config.add_cleanup(directory.cleanup)
+        config.stash[_COVERAGE_METADATA] = _coverage_metadata.create(Path(directory.name))
+    node.workerinput["agm_coverage_metadata"] = str(config.stash[_COVERAGE_METADATA])
+
+
 def pytest_runtest_setup(item: pytest.Item) -> None:
     # Allocation pressure varies greatly between lexer cases and REPL histories.
     # Collect only at test boundaries, before cyclic compiler graphs accumulate.
@@ -109,8 +127,12 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def compiler_gc_policy(pytestconfig: pytest.Config) -> Generator[None, None, None]:
+def compiler_gc_policy(
+    pytestconfig: pytest.Config, isolated_compiler_cache: None
+) -> Generator[None, None, None]:
     """Avoid repeatedly scanning collection metadata during compiler-heavy tests."""
+    if hasattr(pytestconfig, "workerinput"):
+        _zygote.preload_stdlib()
     gc.collect()
     gc.freeze()
     try:
