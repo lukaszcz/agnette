@@ -747,7 +747,9 @@ class ProcessHost:
         poller = select.poll()
         for fd in running:
             poller.register(fd, select.POLLIN)
-        with SignalWakeup() as wakeup:
+        # Hold every signal until the caller owns cleanup, including the return from enter.
+        with held_signals(signal.valid_signals()) as previous, SignalWakeup() as wakeup:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
             while not done() and (deadline is None or time.monotonic() < deadline):
                 poll_deadline = deadline
                 if deadline is not None:

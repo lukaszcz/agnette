@@ -67,6 +67,7 @@ from agnette.agl.runtime.processes import (
 from agnette.agl.runtime.request import AgentResponse
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost, SessionHostError
 from agnette.core.process import kill_group
+from agnette.core.signals import SignalWakeup
 from tests._agl_helpers import unavailable_sandbox_context
 from tests._proc_helpers import open_fd_count, read_until_signalled
 from tests._signal_helpers import before_each_poll, trip_signal_off_thread
@@ -1495,6 +1496,49 @@ def test_a_signal_during_a_wait_interrupts_it_without_losing_the_child(tmp_path:
     report = run_callable(_signal_during_the_wait, tmp_path, timeout=RUN_TIMEOUT).value
 
     assert report == {"outcomes": [["D", "done"]] * _REPEATS, "leaked": 0}
+
+
+def _signal_as_the_wait_acquires_its_wakeup(workdir: Path) -> dict[str, Any]:
+    def interrupt(number: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGUSR1, interrupt)
+    gate = _Gate()
+    tool = 3
+
+    def acquired(code: object, offset: int, result: object) -> None:
+        # A real signal at the resource handoff, not an exception from the wait itself.
+        os.kill(os.getpid(), signal.SIGUSR1)
+
+    with _host() as host:
+        fds = open_fd_count()
+        info = host.fork(gate.wait_then(b"done"), ())
+        sys.monitoring.use_tool_id(tool, "wakeup acquisition signal")
+        try:
+            sys.monitoring.register_callback(tool, sys.monitoring.events.PY_RETURN, acquired)
+            sys.monitoring.set_local_events(
+                tool, SignalWakeup.__enter__.__code__, sys.monitoring.events.PY_RETURN
+            )
+            with pytest.raises(KeyboardInterrupt):
+                host.outcome(info.id)
+        finally:
+            sys.monitoring.set_local_events(tool, SignalWakeup.__enter__.__code__, 0)
+            sys.monitoring.register_callback(tool, sys.monitoring.events.PY_RETURN, None)
+            sys.monitoring.free_tool_id(tool)
+        gate.open()
+        return {
+            "outcome": _show(host.outcome(info.id)),
+            "reaped": _is_reaped(info.pid),
+            "leaked": open_fd_count() - fds,
+        }
+
+
+def test_a_signal_at_the_waits_resource_handoff_leaves_no_descriptors(tmp_path: Path) -> None:
+    report = run_callable(
+        _signal_as_the_wait_acquires_its_wakeup, tmp_path, timeout=RUN_TIMEOUT
+    ).value
+
+    assert report == {"outcome": ["D", "done"], "reaped": True, "leaked": 0}
 
 
 def _signal_after_waitpid_returns(workdir: Path) -> list[Any]:
