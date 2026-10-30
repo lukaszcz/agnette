@@ -1765,17 +1765,23 @@ class ModuleSources(SourcesHost):
         Its import declaration's own ``hiding``'s declarations, and those the
         imported module's export ``hiding`` withholds on the way.
         """
-        return (
-            frozenset(
-                self._import_hidden(way.node_id) | self._withheld_removed(way.withheld)
-                for way in sorted(ways, key=_way_order)
-            )
-            or NOT_HIDDEN
+        ways = tuple(ways)
+        for way in ways:
+            if way.withheld or self._import_env.decl_hiding.get(way.node_id):
+                break
+        else:
+            return NOT_HIDDEN
+        # Keep mixed alternatives and their reads intact: even an unrestricted
+        # way beside a hidden one must retain the latter's alias dependencies.
+        return frozenset(
+            self._import_hidden(way.node_id) | self._withheld_removed(way.withheld)
+            for way in sorted(ways, key=_way_order)
         )
 
     def _ways_remove(self, ways: Iterable[ImportWay], declaration: QName) -> bool:
         """Whether every one of *ways* removes *declaration* (:meth:`_hiding`)."""
-        return removes(self._hiding(ways), _qname_decl_key(declaration), self)
+        hiding = self._hiding(ways)
+        return hiding != NOT_HIDDEN and removes(hiding, _qname_decl_key(declaration), self)
 
     def _withheld_removed(self, withheld: frozenset[QName]) -> frozenset[DeclarationKey]:
         """The declarations an export ``hiding`` withholding *withheld* removes, by identity."""

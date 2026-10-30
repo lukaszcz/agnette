@@ -27,7 +27,7 @@ Resolution runs in three phases over all modules: prepare (placement, declaratio
 
 ## Imports and `use`
 
-An import contributes a module's exports by declaration identity, unfiltered; its `hiding` and the exporter's travel with the ways reaching each declaration. Import tails and `use` add bare names without narrowing qualified access; `use` reads only already-nameable paths and never loads a module. Exports and re-exports settle per import SCC to a fixpoint before any importer reads them (`scope/program.py`). Import routes share immutable member snapshots and declaration ways within a build (`scope/imports.py`); each build reads current exports. Loading-level rules are in [modules.md](../modules.md).
+An import contributes a module's exports by declaration identity, unfiltered; its `hiding` and the exporter's travel with the ways reaching each declaration. Import tails and `use` add bare names without narrowing qualified access; `use` reads only already-nameable paths and never loads a module. Exports and re-exports settle per import SCC to a fixpoint before any importer reads them (`scope/program.py`). A bounded surface cache shares owned immutable export geometry across builds (`scope/imports.py`), validating current content and exported-value identities even during SCC settling. Each environment overlays fresh import ways, tails, regions and hiding reads, and retains its maximum path depth. Loading-level rules are in [modules.md](../modules.md).
 
 ## Classification
 

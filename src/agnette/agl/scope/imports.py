@@ -8,8 +8,10 @@ filtering a surface.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
+from threading import Lock
 from types import MappingProxyType
 from typing import TypeAlias
 
@@ -147,9 +149,15 @@ class ModuleContribution:
     aliases: frozenset[str]
     routes: Mapping[str | None, RouteSurface] = field(default_factory=dict)
     exports: Mapping[NameAtom, QName] = field(default_factory=dict)
+    _geometry: InitVar[_ExportGeometry | None] = None
 
-    def __post_init__(self) -> None:
-        members = _ordered_members(self.members)
+    def __post_init__(self, _geometry: _ExportGeometry | None) -> None:
+        members = _ordered_members(self.members) if _geometry is None else _geometry.members
+        object.__setattr__(
+            self,
+            "exports",
+            _ordered_members(self.exports) if _geometry is None else _geometry.exports,
+        )
         ordered: list[str | None] = [None] if None in self.routes else []
         ordered.extend(sorted(route for route in self.routes if route is not None))
         routes: Mapping[str | None, RouteSurface] = MappingProxyType(
@@ -158,9 +166,11 @@ class ModuleContribution:
                     self.routes[route],
                     members=(
                         members
-                        if self.routes[route].members == self.members
+                        if self.routes[route].members is self.members
+                        or self.routes[route].members == self.members
                         else _ordered_members(self.routes[route].members)
                     ),
+                    member_ways=MappingProxyType(dict(self.routes[route].member_ways)),
                 )
                 for route in ordered
             }
@@ -171,6 +181,10 @@ class ModuleContribution:
 
 def _ordered_members(members: Mapping[NameAtom, QName]) -> Mapping[NameAtom, QName]:
     return MappingProxyType({atom: members[atom] for atom in sorted(members, key=_path_sort_key)})
+
+
+def _frozen_tables[K, L, V](tables: Mapping[K, Mapping[L, V]]) -> Mapping[K, Mapping[L, V]]:
+    return MappingProxyType({key: MappingProxyType(dict(table)) for key, table in tables.items()})
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,7 +258,10 @@ class ImportEnv:
         init=False, repr=False, compare=False
     )
 
-    def __post_init__(self) -> None:
+    _geometry_depth: InitVar[int | None] = None
+    maximum_depth: int = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self, _geometry_depth: int | None) -> None:
         contributions: Mapping[ModuleId, ModuleContribution] = MappingProxyType(
             {
                 module: self.contributions[module]
@@ -257,7 +274,7 @@ class ImportEnv:
         decl_bare_ways: Mapping[int, Mapping[NameAtom, Mapping[QName, frozenset[ImportWay]]]] = (
             MappingProxyType(
                 {
-                    node_id: MappingProxyType(dict(members))
+                    node_id: _frozen_tables(members)
                     for node_id, members in self.decl_bare_ways.items()
                 }
             )
@@ -267,22 +284,16 @@ class ImportEnv:
         unqualified_routes: Mapping[NameAtom, frozenset[BareRoute]] = MappingProxyType(
             dict(self.unqualified_routes)
         )
-        decl_bare_routes: Mapping[int, Mapping[NameAtom, frozenset[BareRoute]]] = MappingProxyType(
-            {
-                node_id: MappingProxyType(dict(routes))
-                for node_id, routes in self.decl_bare_routes.items()
-            }
-        )
-        decl_scope_routes: Mapping[int, Mapping[NameAtom, frozenset[BareRoute]]] = MappingProxyType(
-            {
-                node_id: MappingProxyType(dict(routes))
-                for node_id, routes in self.decl_scope_routes.items()
-            }
-        )
+        decl_bare_routes = _frozen_tables(self.decl_bare_routes)
+        decl_scope_routes = _frozen_tables(self.decl_scope_routes)
         object.__setattr__(self, "decl_bare_ways", decl_bare_ways)
         object.__setattr__(self, "unqualified_routes", unqualified_routes)
         object.__setattr__(self, "decl_bare_routes", decl_bare_routes)
         object.__setattr__(self, "decl_scope_routes", decl_scope_routes)
+        unqualified_ways = _frozen_tables(self.unqualified_ways)
+        decl_tail_beneath = _frozen_tables(self.decl_tail_beneath)
+        object.__setattr__(self, "unqualified_ways", unqualified_ways)
+        object.__setattr__(self, "decl_tail_beneath", decl_tail_beneath)
         scope_origins_by_route: Mapping[BareRoute, ScopeOrigins] = MappingProxyType(
             dict(self.scope_origins_by_route)
         )
@@ -298,11 +309,16 @@ class ImportEnv:
                 suffix.setdefault((alias,), set()).add(module)
         object.__setattr__(self, "suffix_routes", _frozen_routes(suffix))
         object.__setattr__(self, "anchored_routes", _frozen_routes(anchored))
+        object.__setattr__(
+            self,
+            "maximum_depth",
+            _measure_import_env_depth(self) if _geometry_depth is None else _geometry_depth,
+        )
 
 
 @dataclass(slots=True)
 class _RouteAccumulator:
-    members: dict[NameAtom, QName] = field(default_factory=dict)
+    members: Mapping[NameAtom, QName] = field(default_factory=dict)
     scope_paths: set[NameAtom] = field(default_factory=set)
     member_ways: dict[NameAtom, frozenset[ImportWay]] = field(default_factory=dict)
     decls: set[int] = field(default_factory=set)
@@ -319,7 +335,7 @@ class _RouteAccumulator:
 
 @dataclass(slots=True)
 class _ContributionAccumulator:
-    members: dict[NameAtom, QName] = field(default_factory=dict)
+    geometry: _ExportGeometry
     path_enabled: bool = False
     routes: dict[str | None, _RouteAccumulator] = field(default_factory=dict)
 
@@ -528,7 +544,87 @@ def _with_vanished_ancestors(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _ExportGeometry:
+    """Owned surface data only; alias readings and import provenance never enter this cache."""
+
+    exports: Mapping[NameAtom, QName]
+    scopes: Mapping[NameAtom, ScopeOrigins]
+    withheld: Mapping[NameAtom, frozenset[QName]]
+    reached: Mapping[NameAtom, Mapping[QName, frozenset[QName]]]
+    members: Mapping[NameAtom, QName]
+    hidden_sets: frozenset[frozenset[QName]]
+    scope_routes: Mapping[BareRoute, ScopeOrigins]
+    maximum_depth: int
+
+
+# Keep only the latest surface per module, bounded across unrelated graphs.
+_EXPORT_GEOMETRIES: OrderedDict[ModuleId, _ExportGeometry] = OrderedDict()
+_EXPORT_GEOMETRIES_LOCK = Lock()
+_EMPTY_SURFACE: Mapping[NameAtom, frozenset[QName]] = MappingProxyType({})
 _NOTHING_WITHHELD: Mapping[ModuleId, Mapping[NameAtom, frozenset[QName]]] = MappingProxyType({})
+
+
+def _same_surface[V](current: Mapping[NameAtom, V], frozen: Mapping[NameAtom, V]) -> bool:
+    """Validate content and immutable value identities, even when a mutable map keeps its id."""
+    return current == frozen and all(current[atom] is value for atom, value in frozen.items())
+
+
+def _export_geometry(
+    module: ModuleId,
+    exports: Mapping[NameAtom, QName],
+    scopes: Mapping[NameAtom, ScopeOrigins],
+    withheld: Mapping[NameAtom, frozenset[QName]],
+) -> _ExportGeometry:
+    with _EXPORT_GEOMETRIES_LOCK:
+        cached = _EXPORT_GEOMETRIES.get(module)
+    # Mapping equality may run caller code; validate and compute outside the lock.
+    if (
+        cached is not None
+        and _same_surface(exports, cached.exports)
+        and _same_surface(scopes, cached.scopes)
+        and _same_surface(withheld, cached.withheld)
+    ):
+        with _EXPORT_GEOMETRIES_LOCK:
+            if _EXPORT_GEOMETRIES.get(module) is cached:
+                _EXPORT_GEOMETRIES.move_to_end(module)
+        return cached
+    frozen_exports = _ordered_members(exports)
+    frozen_scopes = MappingProxyType(dict(scopes))
+    frozen_withheld = MappingProxyType(dict(withheld))
+    reached = {
+        source: {qname: frozen_withheld.get(source, frozenset())}
+        for source, qname in frozen_exports.items()
+    }
+    for source, origins in frozen_withheld.items():
+        if source not in frozen_exports:
+            reached[source] = dict.fromkeys(
+                sorted(origins, key=_origin_sort_key),
+                _with_vanished_ancestors(source, origins, frozen_exports, frozen_scopes),
+            )
+    members = _ordered_members(
+        {source: qname for source, by_qname in reached.items() for qname in by_qname}
+    )
+    atoms = [*frozen_exports, *members, *frozen_scopes]
+    atoms.extend(atom for origins in frozen_scopes.values() for _, atom in origins)
+    geometry = _ExportGeometry(
+        frozen_exports,
+        frozen_scopes,
+        frozen_withheld,
+        MappingProxyType(
+            {source: MappingProxyType(origins) for source, origins in reached.items()}
+        ),
+        members,
+        frozenset(hidden for origins in reached.values() for hidden in origins.values()),
+        MappingProxyType({(module, _path(source)): origins for source, origins in scopes.items()}),
+        max((len(_path(atom)) for atom in atoms), default=0),
+    )
+    with _EXPORT_GEOMETRIES_LOCK:
+        _EXPORT_GEOMETRIES[module] = geometry
+        _EXPORT_GEOMETRIES.move_to_end(module)
+        if len(_EXPORT_GEOMETRIES) > 128:
+            _EXPORT_GEOMETRIES.popitem(last=False)
+    return geometry
 
 
 def build_import_env(
@@ -560,41 +656,29 @@ def build_import_env(
     decl_hiding: dict[int, list[ItemDeclaration]] = {}
     decl_tail_beneath: dict[int, dict[NameAtom, set[ItemDeclaration]]] = {}
     scope_origins_by_route: dict[BareRoute, ScopeOrigins] = {}
+    maximum_depth = 0
     for decl in decls:
         target = targets[decl.node_id]
         modules = target_modules(target)
         for module in modules:
-            module_exports = exports[module]
-            module_scopes = scope_exports[module]
-            module_withheld = withheld.get(module, {})
-            unexported = {
-                source: origins
-                for source, origins in module_withheld.items()
-                if source not in module_exports
-            }
+            geometry = _export_geometry(
+                module, exports[module], scope_exports[module], withheld.get(module, _EMPTY_SURFACE)
+            )
+            module_exports = geometry.exports
+            module_scopes = geometry.scopes
+            module_withheld = geometry.withheld
+            maximum_depth = max(maximum_depth, geometry.maximum_depth)
             named = _item_declarations(
                 decl.hidden, module, module_exports, module_scopes, aliases, decl.span
             )
             if named:
                 decl_hiding.setdefault(decl.node_id, []).extend(named)
-            # Each atom the import brings, what it names, and what the module's
-            # export ``hiding`` removes beneath it.
-            reached: dict[NameAtom, dict[QName, frozenset[QName]]] = {
-                source: {qname: module_withheld.get(source, frozenset())}
-                for source, qname in module_exports.items()
-            }
-            for source, origins in unexported.items():
-                reached[source] = dict.fromkeys(
-                    sorted(origins, key=_origin_sort_key),
-                    _with_vanished_ancestors(source, origins, module_exports, module_scopes),
-                )
+            reached = geometry.reached
             # Ways carry only declaration identity and immutable withholding;
             # members reached the same way can share one value.
             ways = {
                 hidden: frozenset({ImportWay(decl.node_id, hidden)})
-                for hidden in {
-                    hidden for by_qname in reached.values() for hidden in by_qname.values()
-                }
+                for hidden in geometry.hidden_sets
             }
             if decl.tail is None:
                 selected_exports: tuple[NameAtom, ...] = ()
@@ -610,22 +694,22 @@ def build_import_env(
                     decl.tail, module, module_exports, module_withheld, aliases, decl.span
                 )
                 for exposed, items in beneath.items():
+                    maximum_depth = max(maximum_depth, *(len(item.item) for item in items))
                     decl_tail_beneath.setdefault(decl.node_id, {}).setdefault(
                         exposed, set()
                     ).update(items)
-            acc = accumulators.setdefault(module, _ContributionAccumulator())
+            acc = accumulators.setdefault(module, _ContributionAccumulator(geometry))
             if decl.alias is None:
                 acc.path_enabled = True
-            brought = acc.routes.setdefault(decl.alias, _RouteAccumulator())
+            brought = acc.routes.setdefault(
+                decl.alias,
+                _RouteAccumulator(members=geometry.members, scope_paths=set(module_scopes)),
+            )
             brought.decls.add(decl.node_id)
             for source, by_qname in reached.items():
                 for qname, withheld_by_source in by_qname.items():
-                    acc.members[source] = qname
-                    brought.members[source] = qname
                     _add_ways(brought.member_ways, source, ways[withheld_by_source])
-            brought.scope_paths.update(module_scopes)
-            for source in module_scopes:
-                scope_origins_by_route[(module, _path(source))] = module_scopes[source]
+            scope_origins_by_route.update(geometry.scope_routes)
             for exposed, source in _tail_exposures(decl, selected_exports):
                 route = (module, _path(source))
                 for qname, withheld_by_source in reached[source].items():
@@ -651,11 +735,12 @@ def build_import_env(
     for module, acc in accumulators.items():
         contributions[module] = ModuleContribution(
             module,
-            acc.members,
+            acc.geometry.members,
             acc.path_enabled,
             frozenset(route for route in acc.routes if route is not None),
             {route: surface.freeze() for route, surface in acc.routes.items()},
-            exports[module],
+            acc.geometry.exports,
+            _geometry=acc.geometry,
         )
     return ImportEnv(
         contributions=contributions,
@@ -677,6 +762,7 @@ def build_import_env(
             for node_id, members in decl_scope_routes.items()
         },
         scope_origins_by_route=scope_origins_by_route,
+        _geometry_depth=maximum_depth,
     )
 
 
@@ -794,6 +880,11 @@ def unqualified_exposures(env: ImportEnv) -> Iterator[Exposure]:
 
 def import_env_depth(env: ImportEnv) -> int:
     """The segment count of the longest path *env* names or exposes, a module route excluded."""
+    return env.maximum_depth
+
+
+def _measure_import_env_depth(env: ImportEnv) -> int:
+    """Measure directly constructed environments without a shared geometry summary."""
     atoms: list[NameAtom] = [*env.unqualified, *env.unqualified_ways, *env.unqualified_routes]
     for table in (env.decl_bare_ways, env.decl_bare_routes, env.decl_scope_routes):
         atoms.extend(atom for members in table.values() for atom in members)
