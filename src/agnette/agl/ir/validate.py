@@ -198,6 +198,8 @@ from agnette.config.engine_keys import ENGINE_KEY_NAMES
 
 __all__ = ["InvalidIrError", "validate_ir"]
 
+_EMPTY_PAYLOAD_REQUIREMENTS: frozenset[SymbolId] = frozenset()
+
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -298,11 +300,11 @@ def _check_location_deep(loc: Location, ctx: _Context) -> None:
     source_id: SourceId = loc.source_id
     if source_id == HOST_SOURCE_ID:
         return
-    if source_id not in ctx.program.sources:
+    source: SourceFile | None = ctx.program.sources.get(source_id)
+    if source is None:
         raise InvalidIrError(
             f"Location references source_id={source_id!r} which is not in program.sources"
         )
-    source: SourceFile = ctx.program.sources[source_id]
     text_len = len(source.normalized_text)
     if loc.end_offset > text_len:
         raise InvalidIrError(
@@ -982,7 +984,8 @@ def _validate_expr(
         ctx.requirement_collectors.append(set())
         try:
             _validate_expr_node(node, ctx)
-            requirements = frozenset(ctx.requirement_collectors[-1])
+            collector = ctx.requirement_collectors[-1]
+            requirements = frozenset(collector) if collector else _EMPTY_PAYLOAD_REQUIREMENTS
         finally:
             ctx.requirement_collectors.pop()
             ctx.active_exprs.remove(identifier)
@@ -995,7 +998,7 @@ def _validate_expr(
             if dominators is None
             else dominators & ctx.dominating_payload_symbols
         )
-    if merge_requirements and ctx.requirement_collectors:
+    if requirements and merge_requirements and ctx.requirement_collectors:
         ctx.requirement_collectors[-1].update(requirements)
     return requirements
 
@@ -1007,6 +1010,49 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
     new ``IrExpr`` variant is added without a corresponding arm here.
     """
     match node:
+        case IrLoad():
+            _validate_location(node.location, ctx)
+            if ctx.deep:
+                if node.symbol not in ctx.program.symbols:
+                    raise InvalidIrError(
+                        f"IrLoad references symbol_id={node.symbol.value!r}"
+                        " which is not in program.symbols"
+                    )
+                if node.symbol in ctx.targeted_extern_symbols:
+                    raise InvalidIrError(
+                        f"IrLoad of symbol_id={node.symbol.value!r} loads the raw closure of"
+                        " a type-directed extern, which has target contracts"
+                    )
+                if ctx.check_payload_dominance and _is_payload_candidate(node.symbol, ctx):
+                    ctx.requirement_collectors[-1].add(node.symbol)
+
+        case IrBind():
+            _validate_location(node.location, ctx)
+            if ctx.deep:
+                if node.symbol not in ctx.program.symbols:
+                    raise InvalidIrError(
+                        f"IrBind references symbol_id={node.symbol.value!r}"
+                        " which is not in program.symbols"
+                    )
+            _validate_expr(node.value, ctx)
+
+        case IrMakeClosure(function_id=fn_id, captures=captures):
+            _validate_location(node.location, ctx)
+            if ctx.deep:
+                if fn_id not in ctx.program.functions:
+                    raise InvalidIrError(
+                        f"IrMakeClosure references function_id={fn_id!r}"
+                        " which is not in program.functions"
+                    )
+                for cap in captures:
+                    if cap.symbol not in ctx.program.symbols:
+                        raise InvalidIrError(
+                            f"IrMakeClosure capture references symbol_id={cap.symbol!r}"
+                            " which is not in program.symbols"
+                        )
+                    if ctx.check_payload_dominance and _is_payload_candidate(cap.symbol, ctx):
+                        ctx.requirement_collectors[-1].add(cap.symbol)
+
         case IrConstInt():
             _validate_location(node.location, ctx)
 
@@ -1040,32 +1086,6 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             for key_expr, val_expr in node.entries:
                 _validate_expr(key_expr, ctx)
                 _validate_expr(val_expr, ctx)
-
-        case IrLoad():
-            _validate_location(node.location, ctx)
-            if ctx.deep:
-                if node.symbol not in ctx.program.symbols:
-                    raise InvalidIrError(
-                        f"IrLoad references symbol_id={node.symbol.value!r}"
-                        " which is not in program.symbols"
-                    )
-                if node.symbol in ctx.targeted_extern_symbols:
-                    raise InvalidIrError(
-                        f"IrLoad of symbol_id={node.symbol.value!r} loads the raw closure of"
-                        " a type-directed extern, which has target contracts"
-                    )
-                if ctx.check_payload_dominance and _is_payload_candidate(node.symbol, ctx):
-                    ctx.requirement_collectors[-1].add(node.symbol)
-
-        case IrBind():
-            _validate_location(node.location, ctx)
-            if ctx.deep:
-                if node.symbol not in ctx.program.symbols:
-                    raise InvalidIrError(
-                        f"IrBind references symbol_id={node.symbol.value!r}"
-                        " which is not in program.symbols"
-                    )
-            _validate_expr(node.value, ctx)
 
         case IrAssign():
             _validate_location(node.location, ctx)
@@ -1264,23 +1284,6 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
         case IrIterNext(iterator=iterator):
             _validate_location(node.location, ctx)
             _validate_expr(iterator, ctx)
-
-        case IrMakeClosure(function_id=fn_id, captures=captures):
-            _validate_location(node.location, ctx)
-            if ctx.deep:
-                if fn_id not in ctx.program.functions:
-                    raise InvalidIrError(
-                        f"IrMakeClosure references function_id={fn_id!r}"
-                        " which is not in program.functions"
-                    )
-                for cap in captures:
-                    if cap.symbol not in ctx.program.symbols:
-                        raise InvalidIrError(
-                            f"IrMakeClosure capture references symbol_id={cap.symbol!r}"
-                            " which is not in program.symbols"
-                        )
-                    if ctx.check_payload_dominance and _is_payload_candidate(cap.symbol, ctx):
-                        ctx.requirement_collectors[-1].add(cap.symbol)
 
         case IrDirectCall(function_id=fn_id, arguments=arguments):
             _validate_location(node.location, ctx)
@@ -1842,6 +1845,8 @@ def _check_payload_dominance(ctx: _Context) -> None:
     preserves DAG sharing.
     """
     for identifier, requirements in ctx.payload_requirements.items():
+        if not requirements:
+            continue
         missing = (requirements & ctx.payload_symbols) - ctx.dominators[identifier]
         if missing:
             symbol = next(iter(missing))
