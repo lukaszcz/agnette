@@ -6,8 +6,8 @@ the ``agnette.agl.syntax`` dataclasses — never on Lark.
 
 Design
 ------
-- ``AstBuilder(lark.Transformer)`` with ``@v_args(meta=True)`` at class level
-  so every rule method receives ``meta`` as its first positional argument.
+- ``AstBuilder(lark.Transformer)`` uses Lark's metadata adapters on ordinary
+  methods so every rule receives ``meta`` as its first positional argument.
 - Monotonic ``node_id`` counter assigned per-node in document order.
 - ``SourceSpan`` is derived from ``meta.line`` / ``meta.column`` /
   ``meta.end_line`` / ``meta.end_column`` / ``meta.start_pos`` /
@@ -25,7 +25,9 @@ because it covers the full span of multi-token productions.
 from __future__ import annotations
 
 import decimal
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from inspect import isfunction
 from itertools import count
 from typing import Iterable, TypeAlias, TypeGuard, TypeVar, cast
 
@@ -405,7 +407,23 @@ def _span_from_meta(meta: Meta) -> SourceSpan:
 # ---------------------------------------------------------------------------
 
 
-@v_args(meta=True)
+def _bind_rule_metadata[C](cls: type[C]) -> type[C]:
+    """Keep Lark's adapters without copying wrappers on every method binding."""
+    methods = {
+        name: method
+        for name, method in cast(Mapping[str, object], vars(cls)).items()
+        if not name.startswith("_") and isfunction(method)
+    }
+    cls = v_args(meta=True)(cls)
+    namespace = cast(Mapping[str, object], vars(cls))
+    for name, method in methods.items():
+        metadata = cast(dict[str, object], vars(method))
+        metadata["visit_wrapper"] = cast(object, getattr(namespace[name], "visit_wrapper"))
+        setattr(cls, name, method)
+    return cls
+
+
+@_bind_rule_metadata
 class AstBuilder(Transformer):
     """Transforms a Lark parse tree into ``agnette.agl.syntax`` dataclasses.
 
