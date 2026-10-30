@@ -34,6 +34,8 @@ Tests assert behavior, never exact help, warning, or error text. The e2e harness
 
 Per-test cost is measured in CPU seconds (`tests/_durations.py`); `just test` enforces a per-test ceiling and `just test-budget` ranks tests to recalibrate it. Pure lexer and grammar matrices batch small input axes under the same isolation and CPU gates; each case constructs fresh results. Fixtures and launchers reuse immutable compilation where roots agree, keeping runtime state fresh. The xdist controller builds static coverage analysis with bounded spawned analyzers and shares a private, per-invocation snapshot with workers and isolated zygotes (`tests/_coverage_metadata.py`); changed bytecode and temporary companions use ordinary analysis. Collectors and measured arcs remain child-local. Allocation-pressure-triggered young and periodic full GC bounds cyclic compiler retention at test boundaries; session metadata and preloaded stdlib artifacts are frozen. E2e commands have a generous hang deadline and descendant cleanup, separate from the CPU budget. `just check` runs the static gates concurrently with the suite.
 
+During the controller's existing pytest-cov summary, `tests/_coverage_reports.py` reuses bounded, immutable source facts keyed by exact filename, decoded text, and exclusion regex. Each parser rereads source and gets fresh mutable state; deferred ASTs are rebuilt independently when needed, even after reporting ends. Partial exclusions and measured-data analysis stay fresh; reports and fail-under checks are unchanged. This cache is separate from worker measurement metadata and is released after summary.
+
 ## Native Highlighting Engines
 
 Outside `just check`, `just test-kde` uses Pandoc 3.x/skylighting,
@@ -59,5 +61,6 @@ The Emacs (`config/emacs/`) and micro (`config/micro/`) modes have their own sui
 - `tests/test_e2e.py` — command e2e suite (`run_agm`).
 - `tests/conftest.py`, `tests/_isolation.py`, and `tests/_*_helpers.py` — shared fixtures, in-process guards, and fakes.
 - `tests/_command_coverage.py`, `_durations.py`, `_zygote.py`, `_agm_zygote.py` — command coverage, CPU cost, shared preforking launcher, e2e launcher.
+- `tests/_coverage_metadata.py`, `_coverage_reports.py` — shared static measurement metadata and controller-summary source reuse; neither caches measured execution.
 - `tests/test_agl_highlight_*.py` — exact tiers, Markdown context rendering/isolation, portable conformance and target contracts.
 - `justfile` — standard gates; optional `test-kde`, `test-textmate`, `test-sublime`, `test-emacs`, `test-micro`.

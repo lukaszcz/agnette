@@ -19,7 +19,7 @@ from agnette.agl.self_validation import self_validation_enabled, set_self_valida
 from agnette.core import dry_run, process
 from agnette.core.process import CapturedOutput
 from agnette.packages import python_deps
-from tests import _command_coverage, _coverage_metadata, _isolation, _zygote
+from tests import _command_coverage, _coverage_metadata, _coverage_reports, _isolation, _zygote
 from tests._durations import (
     pytest_runtest_protocol,
     pytest_sessionfinish,
@@ -101,6 +101,12 @@ def pytest_configure(config: pytest.Config) -> None:
     xdist_active = getattr(config.option, "dist", "no") != "no"
     if is_xdist_worker or not xdist_active:
         _detach_from_controlling_terminal()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Bind static report reuse after pytest-cov has selected its controller."""
+    _coverage_reports.configure(session.config)
 
 
 @pytest.hookimpl(optionalhook=True)
