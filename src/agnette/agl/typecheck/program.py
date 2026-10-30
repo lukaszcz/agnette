@@ -148,6 +148,7 @@ from agnette.agl.typecheck.declaration_validation import (
 )
 from agnette.agl.typecheck.env import (
     AglTypeError,
+    BindingTypeFact,
     CheckedModule,
     CheckedModuleImage,
     DeclaredHeaderSeed,
@@ -155,7 +156,6 @@ from agnette.agl.typecheck.env import (
     FunctionSignature,
     GenericAliasDef,
     GenericTypeDef,
-    ModuleTypeInterface,
     ProgramAliasResolution,
     PublishedModuleSurface,
     TypeEnvironment,
@@ -274,17 +274,13 @@ def _decl_key(module_id: ModuleId, item: RecordDef | EnumDef | ExceptionDef | Ty
     return (module_id, scope_names(item.scope_path), item.name)
 
 
-def _empty_program_tables() -> ModuleTypeInterface:
-    """Return the whole-program declaration tables, empty.
+@dataclass(frozen=True, slots=True)
+class _ProgramTypeTables:
+    """Mutable whole-program tables; published module interfaces are immutable."""
 
-    The tables a module publishes to its importers
-    (:class:`~agnette.agl.typecheck.env.ModuleTypeInterface`) are the same four
-    tables the pre-passes build for the whole program, so one program-wide
-    record carries them together instead of four loose parameters.
-    ``definitions`` stays empty at program scope: every declaration is in the
-    shared ``TypeTable``, which the pre-passes already thread separately.
-    """
-    return ModuleTypeInterface({}, {}, {}, ())
+    types: dict[DeclKey, Type] = field(default_factory=dict)
+    generics: dict[DeclKey, GenericTypeDef] = field(default_factory=dict)
+    aliases: dict[DeclKey, GenericAliasDef] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,7 +304,7 @@ class _ModuleTypeSeeds:
             env.register_generic_type(name, gdef)
 
 
-def _module_type_seeds(tables: ModuleTypeInterface) -> _ModuleTypeSeeds:
+def _module_type_seeds(tables: _ProgramTypeTables) -> _ModuleTypeSeeds:
     """Group the program type and generic tables by owning module."""
     types: dict[ModuleId, list[tuple[str, Type]]] = {}
     generics: dict[ModuleId, list[tuple[str, GenericTypeDef]]] = {}
@@ -334,7 +330,7 @@ def _prepass_nominal_types(env: TypeEnvironment) -> Iterator[NominalOwner]:
 def _sync_program_env_extensions(
     mid: ModuleId,
     env: TypeEnvironment,
-    tables: ModuleTypeInterface,
+    tables: _ProgramTypeTables,
 ) -> None:
     """Copy reconciled type metadata into the program tables."""
     for typ in _prepass_nominal_types(env):
@@ -354,7 +350,7 @@ def _resolve_body_for_one(
     key: DeclKey,
     item: _TypeDeclItem,
     per_module_builders: dict[ModuleId, _TypeBuilder],
-    tables: ModuleTypeInterface,
+    tables: _ProgramTypeTables,
     cross_envs: Mapping[ModuleId, TypeEnvironment],
 ) -> None:
     """Resolve the body of one type declaration and update the program tables.
@@ -458,11 +454,11 @@ def _build_program_type_table(
     entry_seed_env: TypeEnvironment | None = None,
     merge_entry_type_table: bool = True,
     cached_modules: Mapping[ModuleId, PublishedModuleSurface] | None = None,
-) -> ModuleTypeInterface:
+) -> _ProgramTypeTables:
     """Phase 1: collect and resolve all public type declarations across all modules.
 
     Returns the whole-program declaration tables (see
-    :func:`_empty_program_tables`), whose ``types`` maps
+    :class:`_ProgramTypeTables`), whose ``types`` maps
     ``(ModuleId, scope_path, name)`` → the
     ``RecordType``/``EnumType``/``ExceptionType`` handle or resolved-alias
     ``Type``.
@@ -554,7 +550,7 @@ def _build_program_type_table(
     # Collect record/enum handles into the shared program type table.
     # Aliases are NOT added here — their entries will be written in Step B
     # after their target type is resolved.
-    tables = _empty_program_tables()
+    tables = _ProgramTypeTables()
     for mid, env in per_module_envs.items():
         for handle in _prepass_nominal_types(env):
             tables.types[(mid, handle.scope_path, handle.name)] = handle
@@ -747,7 +743,7 @@ def _build_program_type_table(
 
 def _build_program_func_sig_table(
     resolved: ResolvedProgram,
-    tables: ModuleTypeInterface,
+    tables: _ProgramTypeTables,
     module_seeds: _ModuleTypeSeeds,
     type_table: TypeTable,
     entry_seed_env: TypeEnvironment | None = None,
@@ -1058,7 +1054,7 @@ def _declared_header_seed(
 def _prepare_module_environment(
     mid: ModuleId,
     resolved: ModuleResolution,
-    tables: ModuleTypeInterface,
+    tables: _ProgramTypeTables,
     module_seeds: _ModuleTypeSeeds,
     declared_func_sig_table: dict[int, FunctionSignatureRecord],
     type_table: TypeTable,
@@ -1188,6 +1184,12 @@ def _prepare_headers(
         env = module_envs[mid]
         facts = retained.get(mid)
         if facts is not None:
+            # Retained headers belong only to imports. Their declared function
+            # bindings are already seeded graph-wide; replay would build maps
+            # discarded by the common binding snapshot.
+            facts = EnvironmentFacts(
+                tuple(fact for fact in facts.entries if not isinstance(fact, BindingTypeFact))
+            )
             env.replay(facts)
             continue
         journaled = retainable is not None and mid in retainable
@@ -1202,6 +1204,35 @@ def _prepare_headers(
             prepared[mid] = env.end_facts()
     if retainable is not None and prepared:
         retain_module_headers(retainable, prepared)
+
+
+def _seed_program_bindings(
+    module_envs: Mapping[ModuleId, TypeEnvironment],
+    entry_id: ModuleId,
+    declared_seed: DeclaredHeaderSeed,
+    binding_types: Mapping[int, Type],
+) -> None:
+    """Install common bindings once, then fork their immutable map per import.
+
+    Imported headers write only declared function bindings, already in the
+    declared seed; their static bindings are in this completed program table.
+    The entry additionally owns synthetic headers and possibly session facts,
+    so overlay its existing map instead of replacing it. Candidate publication
+    and authoritative fact journals start later and remain module-local.
+    """
+    bindings = declared_seed.binding_types.fork()
+    for node_id, typ in binding_types.items():
+        bindings[node_id] = typ
+    # Forks inherit validated values without marking them as local writes.
+    # Check the common contribution once rather than on every module's seal.
+    if self_validation_enabled():
+        _assert_checked_types_closed(binding_types.values(), owner="program binding seed")
+    for mid, env in module_envs.items():
+        if mid == entry_id:
+            for node_id, typ in binding_types.items():
+                env.set_binding_type(node_id, typ)
+        else:
+            env.restore_binding_types(bindings.fork())
 
 
 @dataclass(frozen=True, slots=True)
@@ -1335,11 +1366,12 @@ def _prepare_program(
     program_builtin_var_table = _build_program_builtin_var_table(
         resolved, module_envs, shared_type_table
     )
-    for env in module_envs.values():
-        for binding_node_id, binding_type in program_static_binding_table.items():
-            env.set_binding_type(binding_node_id, binding_type)
-        for var_node_id, var_type in program_builtin_var_table.items():
-            env.set_binding_type(var_node_id, var_type)
+    _seed_program_bindings(
+        module_envs,
+        resolved.entry_id,
+        declared_seed,
+        program_static_binding_table | program_builtin_var_table,
+    )
 
     for mid, retained in cached_checked_modules.items():
         env = module_envs[mid]

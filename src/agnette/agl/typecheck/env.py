@@ -26,6 +26,8 @@ from operator import attrgetter
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, Protocol, cast
 
+from immutables import Map
+
 if TYPE_CHECKING:
     from agnette.agl.scope.program import ResolvedModule
     from agnette.agl.typecheck.function_inference import FunctionSignatureRecord
@@ -492,6 +494,20 @@ def dereference_slot_constructor_ref(
     return slot_constructor_refs.get(raw_binding.slot_id)
 
 
+@_pickles_by_name
+@dataclass(frozen=True, slots=True)
+class ModuleTypeInterface(_Record):
+    """Declaration bundle; completed module surfaces own immutable maps."""
+
+    types: Mapping[DeclKey, Type]
+    generics: Mapping[DeclKey, GenericTypeDef]
+    aliases: Mapping[DeclKey, GenericAliasDef]
+    definitions: tuple[TypeDef, ...]
+
+
+_UNMATERIALIZED_INTERFACE = ModuleTypeInterface(Map(), Map(), Map(), ())
+
+
 # ---------------------------------------------------------------------------
 # CheckedModule — output of the type-checking pass
 # ---------------------------------------------------------------------------
@@ -533,6 +549,10 @@ class CheckedModule(_Record):
         exceptions) so downstream consumers (the interpreter) can resolve
         constructors without reconstructing it.  This is the public contract
         for type-namespace access after checking.
+    ``interface``
+        Owned immutable declarations, captured after headers and bodies finalize.
+        Metadata-only replacements and data-only images retain this surface;
+        mutating the completed environment cannot rewrite it.
     ``slot_resolution`` / ``slot_constructor_refs``
         Checker-owned, fully dereferenced pattern-slot selections.
         ``binding_for`` and ``constructor_ref_for`` apply them to scope-created
@@ -607,6 +627,13 @@ class CheckedModule(_Record):
     target_contract_specs: dict[int, tuple[OutputContractSpec, ...]] = field(default_factory=dict)
     declaration_references: dict[DeclarationKey, References] = field(default_factory=dict)
     binding_references: dict[StaticBindingKey, References] = field(default_factory=dict)
+    interface: ModuleTypeInterface = _UNMATERIALIZED_INTERFACE
+
+    def __post_init__(self) -> None:
+        # Headers and bodies are final; env has its owner before program metadata
+        # is attached by replace. Metadata-only replacements retain this surface.
+        if self.interface is _UNMATERIALIZED_INTERFACE:
+            object.__setattr__(self, "interface", self.type_env.module_interface())
 
     def binding_for(self, node_id: int) -> BindingRef | None:
         """Return *node_id*'s checked binding, dereferencing a pattern slot."""
@@ -633,11 +660,6 @@ class CheckedModule(_Record):
         return self.method_selections.get(node_id)
 
     @property
-    def interface(self) -> ModuleTypeInterface:
-        """Closed type metadata this module contributes to importers."""
-        return self.type_env.module_interface()
-
-    @property
     def environment_facts(self) -> EnvironmentFacts:
         """This module's own-facts journal, as its image persists it."""
         return self.type_env.own_facts()
@@ -646,7 +668,7 @@ class CheckedModule(_Record):
         """Build a data-only image for cache persistence and rehydration.
 
         Every image field is this module's member of the same name: the
-        checked side tables directly, ``interface`` and ``environment_facts``
+        checked side tables and owned ``interface`` directly, ``environment_facts``
         through the type environment. The three members with no image field —
         ``resolved``, ``type_env``, ``source_text`` — are
         recovered from the current ``ResolvedModule`` on rehydration. Only a
@@ -758,17 +780,6 @@ def seal_checked_module(checked: CheckedModule) -> None:
 # ---------------------------------------------------------------------------
 # TypeEnvironment — mutable state during type checking
 # ---------------------------------------------------------------------------
-
-
-@_pickles_by_name
-@dataclass(frozen=True, slots=True)
-class ModuleTypeInterface(_Record):
-    """Closed declarations a compiled module contributes to its importers."""
-
-    types: dict[DeclKey, Type]
-    generics: dict[DeclKey, GenericTypeDef]
-    aliases: dict[DeclKey, GenericAliasDef]
-    definitions: tuple[TypeDef, ...]
 
 
 class PublishedModuleSurface(Protocol):
@@ -987,9 +998,9 @@ class CheckedModuleImage(_Record):
 
     Every ``CheckedModule`` field except ``resolved``, ``type_env``, and
     ``source_text`` — those are recovered from the current ``ResolvedModule``
-    on rehydration — plus ``interface`` (this module's closed type
-    contribution) and ``environment_facts`` (its environment's own-facts
-    journal). Built by :meth:`CheckedModule.image`;
+    on rehydration — plus ``environment_facts`` (its environment's own-facts
+    journal). The owned ``interface`` is retained verbatim.
+    Built by :meth:`CheckedModule.image`;
     turned back into an equivalent ``CheckedModule`` by :meth:`rehydrate`.
     Both directions move a field by its name, so every field here names the
     ``CheckedModule`` member it mirrors.
@@ -1210,10 +1221,10 @@ class TypeEnvironment:
         self._types.update(BUILTIN_PRELUDE_TYPES)
 
     def module_interface(self) -> ModuleTypeInterface:
-        """Export this module's closed type metadata without another header pass."""
+        """Project a fresh owned surface; mutable builders must never memoize it."""
 
-        def own[V](table: Mapping[DeclKey, V]) -> dict[DeclKey, V]:
-            return {key: value for key, value in table.items() if key[0] == self._module_id}
+        def own[V](table: Mapping[DeclKey, V]) -> Map[DeclKey, V]:
+            return Map((key, value) for key, value in table.items() if key[0] == self._module_id)
 
         return ModuleTypeInterface(
             own(self._program_type_table),
@@ -1242,11 +1253,11 @@ class TypeEnvironment:
             self._journal.append(MethodHeaderFact(receiver=receiver, method=method))
 
     def seal(self) -> None:
-        """Freeze this environment as checked output.
+        """Seal this environment as checked output by contract.
 
-        Validates the environment when self-validation is enabled. No journaled
-        mutator runs on a sealed environment, so what :meth:`own_facts` reports
-        can no longer change.
+        Validates the environment when self-validation is enabled. Shared tables
+        are not transitively frozen; callers must not mutate sealed own facts.
+        No journaled mutator runs afterward, so :meth:`own_facts` stays final.
         """
         if self_validation_enabled():
             self.assert_closed()
