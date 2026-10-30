@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable, Iterator
 from contextlib import contextmanager
 from typing import Protocol
+from weakref import ref
 
 from agnette.agl.scope.symbols import ScopePath
 
 
 class KeptTable(Protocol):
-    """Where results are kept by key."""
+    """A weak-referenceable owner of results kept by key."""
 
     def forget(self, key: Hashable) -> None:
         """Forget the result kept under *key*, if any."""
@@ -21,13 +22,14 @@ class KeptRead:
     """A result kept under *key* in *table*, tracked while it depends on own values.
 
     ``sensitive`` once it, or a kept result it read, read an own value;
-    ``parents`` are the sensitive results that read it.
+    ``parents`` are the sensitive results that read it. The backlink to the
+    table is weak: a discarded table needs no invalidation, but its readers do.
     """
 
     __slots__ = ("alive", "key", "parents", "sensitive", "table")
 
     def __init__(self, table: KeptTable, key: Hashable) -> None:
-        self.table = table
+        self.table = ref(table)
         self.key = key
         self.alive = True
         self.sensitive = False
@@ -90,7 +92,9 @@ class ValueReads:
             kept = pending.pop()
             if kept.alive:
                 kept.alive = False
-                kept.table.forget(kept.key)
+                table = kept.table()
+                if table is not None:
+                    table.forget(kept.key)
                 pending.extend(kept.parents)
 
 

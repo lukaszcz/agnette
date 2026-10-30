@@ -56,6 +56,7 @@ from agnette.agl.scope.lookup import (
     Application,
     Candidate,
     LookupKind,
+    Misfit,
     Own,
     PathReader,
     QualifiedTarget,
@@ -123,6 +124,7 @@ from agnette.agl.syntax.nodes import (
     RecordDef,
     TypeAlias,
     UseDecl,
+    VariantRef,
 )
 from agnette.agl.syntax.spans import SourceSpan
 from agnette.agl.syntax.types import (
@@ -222,6 +224,13 @@ def _target_spelling(alias: TypeAlias) -> NameT | AppliedT | None:
     return named_builtin_type(target)
 
 
+def reached_member_paths(
+    paths: Collection[ScopePath], read: Callable[[ScopePath], object]
+) -> frozenset[ScopePath]:
+    """Exclude only paths explicitly hidden by their whole-path read."""
+    return frozenset(path for path in paths if not isinstance(read(path), HiddenMemberError))
+
+
 class SourcesHost(Protocol):
     """What reading a module's paths needs of the resolver collecting and walking it.
 
@@ -254,7 +263,7 @@ class SourcesHost(Protocol):
     _site_sources: Callable[[ModuleId], ModuleSources]
 
     def type_name_selection_at(
-        self, scope_path: ScopePath, spelling: NameT | AppliedT, *, every_use: bool
+        self, scope_path: ScopePath, spelling: NameT | AppliedT | VariantRef, *, every_use: bool
     ) -> TypeSelection | None:
         """Return what type name *spelling*, at *scope_path*, selects now."""
         ...
@@ -353,6 +362,27 @@ class ModuleSources(SourcesHost):
             )
             for declaration, path in self._type_declarations
         }
+
+    def paths_reached_at(
+        self,
+        scope_path: ScopePath,
+        spelling: NameT | AppliedT,
+        paths: Collection[ScopePath],
+        *,
+        every_use: bool,
+    ) -> frozenset[ScopePath]:
+        """Return the member paths whose whole-path lookup is not hidden in this use view."""
+        with self._uses.view(every_use):
+            return reached_member_paths(
+                paths,
+                lambda path: lookup_qualified(
+                    self,
+                    member_chain(spelling, path),
+                    scope_path,
+                    LookupKind.TYPE,
+                    span=spelling.span,
+                ),
+            )
 
     def read_view(self) -> object:
         """What reads made now see of the uses: reads with equal views see the same of them."""
@@ -2006,13 +2036,29 @@ class ResolvedSources(ModuleSources):
         self._constructor_candidates = resolved.constructor_candidates
         self._site_sources = site_sources
         self._owner_declarations = resolved.owner_declarations
+        self._repl_session = repl_session_type_paths is not None
         self._uses = UseReader(
             self, module_id, self._scope_nodes, self._scope_entity_kinds, type_owners
         )
         self._keep_readings()
 
     def type_name_selection_at(
-        self, scope_path: ScopePath, spelling: NameT | AppliedT, *, every_use: bool
+        self, scope_path: ScopePath, spelling: NameT | AppliedT | VariantRef, *, every_use: bool
     ) -> TypeSelection | None:
-        """What *spelling* selected when the module was resolved: what it selects now."""
-        return self._owner_declarations.get(selection_node_id(spelling))
+        """Read a retained entry's spelling in its current use view; a library's stays settled."""
+        if not self._repl_session:
+            return self._owner_declarations.get(selection_node_id(spelling))
+        with self._uses.view(every_use):
+            found: QualifiedTarget | Misfit | AglError | None
+            if not isinstance(spelling, VariantRef) and spelling.qualifier is None:
+                found = lookup_bare(
+                    self, spelling.name, scope_path, LookupKind.TYPE, span=spelling.span
+                )
+            else:
+                chain = (
+                    spelling.chain
+                    if isinstance(spelling, VariantRef)
+                    else member_chain(spelling, ())
+                )
+                found = lookup_qualified(self, chain, scope_path, LookupKind.TYPE, span=chain.span)
+        return found.selection if isinstance(found, QualifiedTarget) else None

@@ -573,6 +573,10 @@ shares the old one's name and display but is unrelated to it:
   it. A path beneath an alias reads the current target path: after
   `type OldB = Base` and a redeclaration of `Base`, `OldB::h` reads whatever
   `Base::h` currently is.
+- While an alias's written target still selects its original declaration,
+  later `use` visibility changes apply to its constructors and match-witness
+  spellings. If that spelling becomes shadowed or ambiguous, constructor
+  visibility freezes at declaration time.
 - A failed entry changes nothing. Redeclaring a record an existing enum
   references, or the enum declaring a referenced member, keeps that enum's
   member set but stops injecting the superseded member. Redeclaring an enum

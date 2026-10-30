@@ -31,7 +31,7 @@ from dataclasses import dataclass, field, replace
 from functools import partial
 from itertools import chain as iter_chain
 from typing import TYPE_CHECKING, Protocol, cast
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, proxy
 
 from agnette.agl.artifact_cache import (
     retain_module_declarations,
@@ -1128,6 +1128,8 @@ def resolve_program(
     source_factory = _SourceReader(resolvers, build_sources)
     # Readers call the independent factory, not the program's owning cache.
     sources_of = _SourceReader(resolvers, lambda mid, _: source_factory(mid), keep_alive=True)
+    # The program and retained sources own the factory; its index callbacks must not.
+    callback_sources = cast(_SourceReader, proxy(source_factory))
 
     def reached_paths(
         qname: QName,
@@ -1141,6 +1143,10 @@ def resolve_program(
         resolver = resolvers.get(module_id)
         if resolver is not None:
             return resolver.paths_reached_at(path[:-1], spelling, paths, every_use=every_use)
+        if module_id == graph.entry_id and retained_type_owners is not None:
+            return callback_sources(module_id).paths_reached_at(
+                path[:-1], spelling, paths, every_use=every_use
+            )
         hidden = resolved_modules[module_id].resolved.type_owners[path].hidden
         return frozenset(paths).difference(hidden)
 
@@ -1161,17 +1167,13 @@ def resolve_program(
         *,
         every_use: bool,
     ) -> TypeSelection | None:
-        resolver = resolvers.get(module_id)
-        if resolver is not None:
-            return resolver.type_name_selection_at(scope_path, spelling, every_use=every_use)
-        return resolved_modules[module_id].resolved.owner_declarations.get(
-            selection_node_id(spelling)
+        return callback_sources(module_id).type_name_selection_at(
+            scope_path, spelling, every_use=every_use
         )
 
     def read_view(module_id: ModuleId) -> object:
-        """Return what reads in *module_id* see of its uses; a finished module's never change."""
-        resolver = resolvers.get(module_id)
-        return None if resolver is None else resolver.read_view()
+        """Return the active or retained reader's use view."""
+        return callback_sources(module_id).read_view()
 
     # The index answers from prepared headers, so it is only asked once every
     # module below is constructed.

@@ -100,6 +100,7 @@ from agnette.agl.scope.sources import (
     ModuleSources,
     constructor_binding,
     constructor_candidate_sort_key,
+    reached_member_paths,
     scope_path_sort_key,
 )
 from agnette.agl.scope.symbols import (
@@ -3264,13 +3265,11 @@ class _Resolver(ModuleSources):
         is read when *every_use*; otherwise those the read in progress sees.
         """
         with self._uses.view(every_use), self._named_scope(scope_path):
-            return frozenset(
-                path
-                for path in paths
-                if not isinstance(
-                    self._type_target(member_chain(spelling, path), path[-1], spelling.span),
-                    HiddenMemberError,
-                )
+            return reached_member_paths(
+                paths,
+                lambda path: self._type_target(
+                    member_chain(spelling, path), path[-1], spelling.span
+                ),
             )
 
     def type_name_selection_at(
