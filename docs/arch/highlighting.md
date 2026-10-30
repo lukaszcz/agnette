@@ -54,6 +54,10 @@ transitions, validating portable patterns and state references. `grammar_eval.py
 its line-local reference interpreter. `agl_grammar.py` derives keywords, builtins,
 escapes and identifier boundaries from canonical language inventories. Its 11 states
 use shared native push/pop frames for strings, brackets, interpolation and recovery.
+`unicode_vocabulary.py` uses the immutable, range-compressed `unicode_snapshot.py`
+only for its exact Unicode database version; other runtimes scan canonical predicates.
+`tools/highlight_unicode.py` regenerates the snapshot; `tests/test_agl_highlight_unicode.py`
+checks every code point and live-platform fallback.
 Generated highlighting is **lexical approximation**, not scope-resolved semantics.
 
 Local captures apply only in code, including brackets and interpolation:

@@ -1,4 +1,4 @@
-"""Reuse immutable source facts only during the controller's coverage summary.
+"""Prefetch immutable source facts for the xdist controller's coverage summary.
 
 Private parser fields reviewed against coverage 7.13; summary against pytest-cov 7.1.
 Recheck these interfaces when upgrading, independently of measurement metadata.
@@ -10,13 +10,17 @@ import ast
 from collections import OrderedDict, defaultdict
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import Context, ContextVar
 from dataclasses import dataclass, replace
-from threading import Lock
+from pathlib import Path
+from threading import Lock, Thread
 from typing import TYPE_CHECKING, Protocol, TextIO, cast
+
+from tests._coverage_metadata import source_paths
 
 if TYPE_CHECKING:
     import pytest
+    from coverage import Coverage
     from coverage.parser import PythonParser
 
 type _Key = tuple[str, str, str | None]
@@ -195,7 +199,64 @@ def install() -> None:
     _installed = True
 
 
+class Prefetch:
+    """Own one bounded source-only job; surface unexpected failures on joining."""
+
+    def __init__(self, paths: tuple[Path, ...], exclude: str | None) -> None:
+        self.cache = Cache()
+        self.paths = paths
+        self.exclude = exclude
+        self.error: BaseException | None = None
+        self.thread = Thread(
+            target=Context().run, args=(self._run,), name="agm-coverage-report-prefetch"
+        )
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def _run(self) -> None:
+        try:
+            from coverage.exceptions import NoSource, NotPython
+            from coverage.parser import PythonParser
+
+            with scope(self.cache):
+                for path in self.paths:
+                    try:
+                        parser = PythonParser(filename=str(path), exclude=self.exclude)
+                        parser.parse_source()
+                        parser.arcs()
+                    except (NoSource, NotPython):
+                        # Only the actual report decides whether and how to show these.
+                        continue
+        except BaseException as error:
+            self.error = error
+
+    def join(self) -> None:
+        interrupted: KeyboardInterrupt | None = None
+        while True:
+            try:
+                self.thread.join()
+                break
+            except KeyboardInterrupt as error:
+                # Finish bounded work before propagating an interrupted shutdown.
+                interrupted = error
+        failure, self.error = self.error, None
+        if failure is not None:
+            if interrupted is not None:
+                raise failure from interrupted
+            raise failure
+        if interrupted is not None:
+            raise interrupted
+
+    def close(self) -> None:
+        try:
+            self.join()
+        finally:
+            self.cache.close()
+
+
 class _Controller(Protocol):
+    cov: Coverage
     summary: Callable[[TextIO], float]
 
 
@@ -208,15 +269,33 @@ def configure(config: pytest.Config) -> None:
     if controller is None:
         return
     original = controller.summary
+    prefetch = None
+    if getattr(config.option, "dist", "no") != "no":
+        install()
+        prefetch = Prefetch(source_paths(), controller.cov._exclude_regex("exclude"))
 
     def summary(stream: TextIO) -> float:
         install()
-        cache = Cache()
+        cache = prefetch.cache if prefetch is not None else Cache()
         try:
+            if prefetch is not None:
+                prefetch.join()
             with scope(cache):
                 return original(stream)
         finally:
-            cache.close()
+            if prefetch is not None:
+                prefetch.close()
+            else:
+                cache.close()
+
+    def cleanup() -> None:
+        try:
+            if prefetch is not None:
+                prefetch.close()
+        finally:
+            controller.summary = original
 
     controller.summary = summary
-    config.add_cleanup(lambda: setattr(controller, "summary", original))
+    config.add_cleanup(cleanup)
+    if prefetch is not None:
+        prefetch.start()

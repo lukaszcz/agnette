@@ -61,13 +61,20 @@ from agnette.agl.ir.reserved_nominals import require_reserved_nominal_id as _res
 from agnette.agl.modules.ids import ENTRY_ID, RESERVED_ID, ModuleId
 
 # ---------------------------------------------------------------------------
-# Primitive types (singletons-by-construction; frozen dataclasses)
+# Primitive types (empty frozen dataclasses)
 # ---------------------------------------------------------------------------
+
+
+def _primitive_hash(self: object) -> int:
+    """Hash empty types by exact class, matching their dataclass equality."""
+    return hash(type(self))
 
 
 @dataclass(frozen=True, slots=True)
 class TextType:
     """The ``text`` built-in type."""
+
+    __hash__ = _primitive_hash
 
     @property
     def kind(self) -> str:
@@ -81,6 +88,8 @@ class TextType:
 class JsonType:
     """The ``json`` built-in type (any JSON value)."""
 
+    __hash__ = _primitive_hash
+
     @property
     def kind(self) -> str:
         return "json"
@@ -92,6 +101,8 @@ class JsonType:
 @dataclass(frozen=True, slots=True)
 class BoolType:
     """The ``bool`` built-in type."""
+
+    __hash__ = _primitive_hash
 
     @property
     def kind(self) -> str:
@@ -105,6 +116,8 @@ class BoolType:
 class IntType:
     """The ``int`` built-in type."""
 
+    __hash__ = _primitive_hash
+
     @property
     def kind(self) -> str:
         return "int"
@@ -116,6 +129,8 @@ class IntType:
 @dataclass(frozen=True, slots=True)
 class DecimalType:
     """The ``decimal`` built-in type (exact fixed-point)."""
+
+    __hash__ = _primitive_hash
 
     @property
     def kind(self) -> str:
@@ -302,6 +317,8 @@ class UnitType:
     loops) yield ``unit``.
     """
 
+    __hash__ = _primitive_hash
+
     @property
     def kind(self) -> str:
         return "unit"
@@ -341,6 +358,8 @@ class BottomType:
     Assignable to ANY target; nothing is assignable to it except itself.
     Not JSON-shaped, not comparable, not user-writable (no TypeExpr yields it).
     """
+
+    __hash__ = _primitive_hash
 
     @property
     def kind(self) -> str:

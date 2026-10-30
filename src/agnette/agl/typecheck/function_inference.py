@@ -298,6 +298,36 @@ def _candidate_methods_by_name(functions: dict[int, _CandidateFunction]) -> dict
     return by_name
 
 
+@dataclass
+class _CandidateDependencyWalk:
+    """One body's traversal state; recursive calls borrow it without a closure cycle."""
+
+    functions: dict[int, _CandidateFunction]
+    binding_values: dict[int, tuple[CandidateModule, Expr]]
+    methods_by_name: dict[str, list[int]]
+    referenced: set[int] = field(default_factory=set)
+    visited_bindings: set[int] = field(default_factory=set)
+
+    def visit_from(self, owner: CandidateModule, value: Expr) -> None:
+        def visit(item: object) -> None:
+            if isinstance(item, VarRef):
+                reference = owner.resolved.resolution.get(item.node_id)
+                if reference is None:
+                    return
+                if reference.decl_node_id in self.functions:
+                    self.referenced.add(reference.decl_node_id)
+                binding = self.binding_values.get(reference.decl_node_id)
+                if binding is not None and reference.decl_node_id not in self.visited_bindings:
+                    self.visited_bindings.add(reference.decl_node_id)
+                    self.visit_from(*binding)
+            elif isinstance(item, FieldAccess):
+                # Member selection happens later; widening an SCC is safe,
+                # but missing a same-named method could close it too early.
+                self.referenced.update(self.methods_by_name.get(item.field, ()))
+
+        walk(value, visit)
+
+
 def _function_dependencies(
     functions: dict[int, _CandidateFunction],
 ) -> dict[int, tuple[int, ...]]:
@@ -315,41 +345,18 @@ def _function_dependencies(
 
     dependencies: dict[int, tuple[int, ...]] = {}
     for declaration_id, (module, _node, body) in functions.items():
-        referenced: set[int] = set()
-        visited_bindings: set[int] = set()
-
-        def visit_from(owner: CandidateModule, value: Expr) -> None:
-            def visit(item: object) -> None:
-                if isinstance(item, VarRef):
-                    reference = owner.resolved.resolution.get(item.node_id)
-                    if reference is None:
-                        return
-                    if reference.decl_node_id in functions:
-                        referenced.add(reference.decl_node_id)
-                    binding = binding_values.get(reference.decl_node_id)
-                    if binding is not None and reference.decl_node_id not in visited_bindings:
-                        visited_bindings.add(reference.decl_node_id)
-                        visit_from(*binding)
-                elif isinstance(item, FieldAccess):
-                    # A member call's target is only disambiguated from a field
-                    # read later, by the checker; over-approximate here with an
-                    # edge to every same-named candidate method so a missing edge
-                    # never lets an SCC close out of order. Widening an SCC is
-                    # safe; missing an edge is the bug this closes.
-                    referenced.update(methods_by_name.get(item.field, ()))
-
-            walk(value, visit)
+        traversal = _CandidateDependencyWalk(functions, binding_values, methods_by_name)
 
         # Walking the whole body deliberately includes direct calls, function
         # values, partial applications, type applications, member calls, and
         # transitively referenced top-level binding initializers. Defaults are
         # checked only by authoritative validation.
-        visit_from(module, body)
+        traversal.visit_from(module, body)
 
         def dependency_key(node_id: int) -> tuple[tuple[str, ...], int, int]:
             return _function_key(functions, node_id)
 
-        dependencies[declaration_id] = tuple(sorted(referenced, key=dependency_key))
+        dependencies[declaration_id] = tuple(sorted(traversal.referenced, key=dependency_key))
     return dependencies
 
 

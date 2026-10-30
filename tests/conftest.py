@@ -101,35 +101,34 @@ def pytest_configure(config: pytest.Config) -> None:
     xdist_active = getattr(config.option, "dist", "no") != "no"
     if is_xdist_worker or not xdist_active:
         _detach_from_controlling_terminal()
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_sessionstart(session: pytest.Session) -> None:
-    """Bind static report reuse after pytest-cov has selected its controller."""
-    _coverage_reports.configure(session.config)
+    # pytest-cov has its controller before configure; start before xdist launches nodes.
+    _coverage_reports.configure(config)
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_configure_node(node: WorkerController) -> None:
-    """Build static analysis once; measured coverage remains process-local."""
+    """Start static analysis once without blocking subsequent worker creation."""
     config = node.config
     if os.environ.get("COVERAGE_CORE") != "sysmon" or config.getoption("no_cov", default=False):
         return
     if _COVERAGE_METADATA not in config.stash:
         directory = tempfile.TemporaryDirectory(prefix="agm-coverage-metadata-")
         config.add_cleanup(directory.cleanup)
-        config.stash[_COVERAGE_METADATA] = _coverage_metadata.create(Path(directory.name))
+        preparation = _coverage_metadata.Preparation(Path(directory.name))
+        # Pytest cleanups are LIFO: join the writer before removing its directory.
+        config.add_cleanup(preparation.close)
+        config.stash[_COVERAGE_METADATA] = preparation.path
     node.workerinput["agm_coverage_metadata"] = str(config.stash[_COVERAGE_METADATA])
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     # Allocation pressure varies greatly between lexer cases and REPL histories.
     # Collect only at test boundaries, before cyclic compiler graphs accumulate.
-    if gc.get_count()[0] < 25_000:
+    if gc.get_count()[0] < 50_000:
         return
     count = item.config.stash[_GC_COLLECTIONS] + 1
-    gc.collect(2 if count == 30 else 0)
-    item.config.stash[_GC_COLLECTIONS] = 0 if count == 30 else count
+    gc.collect(2 if count == 60 else 0)
+    item.config.stash[_GC_COLLECTIONS] = 0 if count == 60 else count
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -151,7 +150,10 @@ def compiler_gc_policy(
         clear_retained_artifacts()
         clear_parsed_module_cache()
         repl_session_module._bootstrap_cache.clear()
-        gc.unfreeze()
+        # Workers exit after this session; keep metadata frozen through shutdown.
+        # In-process pytest callers must regain ordinary process GC behavior.
+        if not hasattr(pytestconfig, "workerinput"):
+            gc.unfreeze()
         gc.set_threshold(*pytestconfig.stash[_GC_THRESHOLDS])
 
 
@@ -258,6 +260,19 @@ def isolated_runner_session(
     )
     yield
     isolated_runner.bind_session(None, None)
+
+
+@pytest.fixture
+def no_cyclic_gc() -> Generator[None, None, None]:
+    """Make ownership assertions independent of cyclic collection timing."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+        gc.collect()
 
 
 @pytest.fixture()

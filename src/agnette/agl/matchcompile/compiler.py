@@ -318,62 +318,66 @@ def _first_failure_constraints(root: Decision, type_table: TypeTable) -> _Constr
     Every decision identity is analyzed at most once, so a hash-consed DAG whose
     paths are exponential in its node count still costs one visit per node.
     """
-    memo: dict[int, _Constraints | None] = {}
+    return _failure_constraints(root, type_table, {})
 
-    def visit(decision: Decision) -> _Constraints | None:
-        identifier = id(decision)
-        if identifier in memo:
-            return memo[identifier]
-        if isinstance(decision, DecisionFail):
-            memo[identifier] = ()
-            return ()
-        if isinstance(decision, DecisionLeaf):
-            memo[identifier] = None
-            return None
-        if isinstance(decision, DecisionDecompose):
-            suffix = visit(decision.child)
-            if suffix is None:
-                memo[identifier] = None
-                return None
-            result = (
-                (decision.occurrence.id, _ConstructorConstraint(decision.constructor)),
-                *suffix,
-            )
-            memo[identifier] = result
-            return result
-        signature = signature_for_type(decision.occurrence.type, type_table)
-        edges: list[tuple[int, Decision, _Constraint]] = []
-        for branch_index, branch in enumerate(decision.keyed_children):
-            order = (
-                signature.index_of(branch.constructor)
-                if isinstance(signature, ClosedSignature)
-                else branch_index
-            )
-            edges.append((order, branch.decision, _ConstructorConstraint(branch.constructor)))
-        if decision.default is not None:
-            constraint = _default_constraint(decision, type_table)
-            order = (
-                signature.index_of(constraint.constructor)
-                if isinstance(signature, ClosedSignature)
-                and isinstance(constraint, _ConstructorConstraint)
-                else len(edges)
-            )
-            edges.append((order, decision.default, constraint))
 
-        def edge_order(edge: tuple[int, Decision, _Constraint]) -> int:
-            return edge[0]
-
-        for _, child, constraint in sorted(edges, key=edge_order):
-            suffix = visit(child)
-            if suffix is None:
-                continue
-            result = ((decision.occurrence.id, constraint), *suffix)
-            memo[identifier] = result
-            return result
+def _failure_constraints(
+    decision: Decision,
+    type_table: TypeTable,
+    memo: dict[int, _Constraints | None],
+) -> _Constraints | None:
+    """Recurse without a closure cycle retaining the borrowed type table."""
+    identifier = id(decision)
+    if identifier in memo:
+        return memo[identifier]
+    if isinstance(decision, DecisionFail):
+        memo[identifier] = ()
+        return ()
+    if isinstance(decision, DecisionLeaf):
         memo[identifier] = None
         return None
+    if isinstance(decision, DecisionDecompose):
+        suffix = _failure_constraints(decision.child, type_table, memo)
+        if suffix is None:
+            memo[identifier] = None
+            return None
+        result = (
+            (decision.occurrence.id, _ConstructorConstraint(decision.constructor)),
+            *suffix,
+        )
+        memo[identifier] = result
+        return result
+    signature = signature_for_type(decision.occurrence.type, type_table)
+    edges: list[tuple[int, Decision, _Constraint]] = []
+    for branch_index, branch in enumerate(decision.keyed_children):
+        order = (
+            signature.index_of(branch.constructor)
+            if isinstance(signature, ClosedSignature)
+            else branch_index
+        )
+        edges.append((order, branch.decision, _ConstructorConstraint(branch.constructor)))
+    if decision.default is not None:
+        constraint = _default_constraint(decision, type_table)
+        order = (
+            signature.index_of(constraint.constructor)
+            if isinstance(signature, ClosedSignature)
+            and isinstance(constraint, _ConstructorConstraint)
+            else len(edges)
+        )
+        edges.append((order, decision.default, constraint))
 
-    return visit(root)
+    def edge_order(edge: tuple[int, Decision, _Constraint]) -> int:
+        return edge[0]
+
+    for _, child, constraint in sorted(edges, key=edge_order):
+        suffix = _failure_constraints(child, type_table, memo)
+        if suffix is None:
+            continue
+        result = ((decision.occurrence.id, constraint), *suffix)
+        memo[identifier] = result
+        return result
+    memo[identifier] = None
+    return None
 
 
 def _witness_for_occurrence(
@@ -782,41 +786,53 @@ def _validate_decision_dataflow(
             )
 
 
-def _validate_compiled_decisions(
-    compiled: CompiledMatchSite,
-    occurrences_by_id: dict[OccurrenceId, Occurrence],
-    occurrence_groups: dict[tuple[OccurrenceId, Constructor], tuple[Occurrence, ...]],
-) -> None:
-    normalized = compiled.normalized
-    source_actions = {action.action_id: action for action in normalized.source.actions}
-    binder_paths = _source_binder_paths(normalized)
-    referenced_groups: set[tuple[OccurrenceId, Constructor]] = set()
-    free_memo: dict[int, tuple[OccurrenceId, ...]] = {}
-    occurrence_index = OccurrenceIndex.for_occurrences(compiled.occurrences)
+class _DecisionValidator:
+    """Borrow checked context without recursive closures extending its lifetime."""
 
-    def resolve_binder_path(path: _BinderPath) -> Occurrence:
-        occurrence = normalized.root
+    def __init__(
+        self,
+        compiled: CompiledMatchSite,
+        occurrences_by_id: dict[OccurrenceId, Occurrence],
+        occurrence_groups: dict[tuple[OccurrenceId, Constructor], tuple[Occurrence, ...]],
+    ) -> None:
+        self.normalized = compiled.normalized
+        self.occurrences_by_id = occurrences_by_id
+        self.occurrence_groups = occurrence_groups
+        self.source_actions = {
+            action.action_id: action for action in self.normalized.source.actions
+        }
+        self.binder_paths = _source_binder_paths(self.normalized)
+        self.referenced_groups: set[tuple[OccurrenceId, Constructor]] = set()
+        self.free_memo: dict[int, tuple[OccurrenceId, ...]] = {}
+        self.occurrence_index = OccurrenceIndex.for_occurrences(compiled.occurrences)
+
+    def resolve_binder_path(self, path: _BinderPath) -> Occurrence:
+        occurrence = self.normalized.root
         for step in path:
-            children = occurrence_groups[(occurrence.id, step.constructor)]
+            children = self.occurrence_groups[(occurrence.id, step.constructor)]
             occurrence = children[step.field_index]
         return occurrence
 
-    def validate_free_interface(decision: Decision) -> tuple[OccurrenceId, ...]:
+    def validate_free_interface(self, decision: Decision) -> tuple[OccurrenceId, ...]:
+        normalized = self.normalized
         identifier = id(decision)
-        memoized = free_memo.get(identifier)
+        memoized = self.free_memo.get(identifier)
         if memoized is not None:
             return memoized
         if isinstance(decision, DecisionFail):
             expected_free: tuple[OccurrenceId, ...] = ()
         elif isinstance(decision, DecisionLeaf):
-            if decision.action_id not in source_actions or decision.action_id not in binder_paths:
+            if (
+                decision.action_id not in self.source_actions
+                or decision.action_id not in self.binder_paths
+            ):
                 raise MatchCompileInvariantError(
                     "decision leaf action does not belong to a retained source case row"
                 )
-            expected_binders = binder_paths[decision.action_id]
+            expected_binders = self.binder_paths[decision.action_id]
             actual_binders: dict[int, BinderAssignment] = {}
             for assignment in decision.binder_assignments:
-                occurrence = occurrences_by_id.get(assignment.occurrence)
+                occurrence = self.occurrences_by_id.get(assignment.occurrence)
                 if occurrence is None:
                     raise MatchCompileInvariantError(
                         "decision leaf binder names an unknown occurrence"
@@ -830,7 +846,7 @@ def _validate_compiled_decisions(
                     raise MatchCompileInvariantError(
                         "decision leaf contains foreign source binder provenance"
                     )
-                if occurrence is not resolve_binder_path(expected[1]):
+                if occurrence is not self.resolve_binder_path(expected[1]):
                     raise MatchCompileInvariantError(
                         "decision leaf binder targets an incompatible occurrence identity"
                     )
@@ -841,7 +857,7 @@ def _validate_compiled_decisions(
                 )
 
             def assignment_order(item: BinderAssignment) -> tuple[int, int, int]:
-                return _binder_assignment_sort_key(item, occurrences_by_id)
+                return _binder_assignment_sort_key(item, self.occurrences_by_id)
 
             expected_assignments = tuple(sorted(actual_binders.values(), key=assignment_order))
             if decision.binder_assignments != expected_assignments:
@@ -850,7 +866,7 @@ def _validate_compiled_decisions(
                 )
             expected_free = decision.free_occurrences
         elif isinstance(decision, DecisionDecompose):
-            ledger_occurrence = occurrences_by_id.get(decision.occurrence.id)
+            ledger_occurrence = self.occurrences_by_id.get(decision.occurrence.id)
             if ledger_occurrence is not decision.occurrence:
                 raise MatchCompileInvariantError(
                     "decision decomposition does not reference its exact ledger occurrence"
@@ -869,14 +885,14 @@ def _validate_compiled_decisions(
                 raise MatchCompileInvariantError(
                     "decision decomposition requires an exactly singleton nominal signature"
                 )
-            children = occurrence_groups.get((decision.occurrence.id, canonical), ())
+            children = self.occurrence_groups.get((decision.occurrence.id, canonical), ())
             if decision.children != children:
                 raise MatchCompileInvariantError(
                     "decision decomposition children do not match the occurrence ledger"
                 )
             if canonical.arity:
-                referenced_groups.add((decision.occurrence.id, canonical))
-            validate_free_interface(decision.child)
+                self.referenced_groups.add((decision.occurrence.id, canonical))
+            self.validate_free_interface(decision.child)
             expected_demanded = _demanded_occurrences(decision.child, children)
             if decision.demanded_occurrences != expected_demanded:
                 raise MatchCompileInvariantError(
@@ -886,14 +902,14 @@ def _validate_compiled_decisions(
                 decision.occurrence,
                 decision.child,
                 children,
-                occurrence_index,
+                self.occurrence_index,
             )
             if decision.free_occurrences != expected_free:
                 raise MatchCompileInvariantError(
                     "decision decomposition carries a forged free occurrence interface"
                 )
         else:
-            ledger_occurrence = occurrences_by_id.get(decision.occurrence.id)
+            ledger_occurrence = self.occurrences_by_id.get(decision.occurrence.id)
             if ledger_occurrence is not decision.occurrence:
                 raise MatchCompileInvariantError(
                     "decision switch does not reference its exact ledger occurrence"
@@ -930,30 +946,37 @@ def _validate_compiled_decisions(
             for branch, canonical in zip(decision.keyed_children, canonical_keys, strict=True):
                 if isinstance(canonical, NominalConstructor) and canonical.arity:
                     group_key = (decision.occurrence.id, canonical)
-                    if group_key not in occurrence_groups:
+                    if group_key not in self.occurrence_groups:
                         raise MatchCompileInvariantError(
                             "enum decision branch lacks its complete occurrence field group"
                         )
-                    referenced_groups.add(group_key)
-                validate_free_interface(branch.decision)
+                    self.referenced_groups.add(group_key)
+                self.validate_free_interface(branch.decision)
             if decision.default is not None:
-                validate_free_interface(decision.default)
+                self.validate_free_interface(decision.default)
             expected_free = _switch_free_occurrences(
                 decision.occurrence,
                 decision.keyed_children,
                 decision.default,
-                occurrence_index,
+                self.occurrence_index,
             )
             if decision.free_occurrences != expected_free:
                 raise MatchCompileInvariantError(
                     "decision switch carries a forged free occurrence interface"
                 )
-        free_memo[identifier] = expected_free
+        self.free_memo[identifier] = expected_free
         return expected_free
 
+
+def _validate_compiled_decisions(
+    compiled: CompiledMatchSite,
+    occurrences_by_id: dict[OccurrenceId, Occurrence],
+    occurrence_groups: dict[tuple[OccurrenceId, Constructor], tuple[Occurrence, ...]],
+) -> None:
+    validator = _DecisionValidator(compiled, occurrences_by_id, occurrence_groups)
     _validate_decision_shape(compiled.root)
-    validate_free_interface(compiled.root)
-    if set(occurrence_groups) != referenced_groups:
+    validator.validate_free_interface(compiled.root)
+    if set(occurrence_groups) != validator.referenced_groups:
         raise MatchCompileInvariantError(
             "compiled occurrence ledger does not exactly match decision decompositions"
         )
@@ -964,48 +987,50 @@ def _validate_compiled_decisions(
     # against the occurrences a path really makes available.
     _validate_decision_dataflow(
         compiled.root,
-        frozenset((normalized.root.id,)),
+        frozenset((compiled.normalized.root.id,)),
         occurrence_groups,
     )
 
 
-def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
-    """Replay compiler rules against the stored DAG without compiling a replacement.
+class _SemanticReplay:
+    """Replay compiler rules with traversal-owned, cycle-free memo tables.
 
     Canonical matrices memoize their exact decision identity, while decision identities
     memoize their local compiler rule. This accepts hash-consed nodes reached from
     semantically compatible states but rejects divergent state mappings.
     """
 
-    state_nodes: dict[_CompileStateKey, Decision] = {}
-    node_rules: dict[int, _ReplayRule] = {}
+    def __init__(self) -> None:
+        self.state_nodes: dict[_CompileStateKey, Decision] = {}
+        self.node_rules: dict[int, _ReplayRule] = {}
 
-    def remember_rule(decision: Decision, rule: _ReplayRule) -> None:
-        previous = node_rules.get(id(decision))
+    def remember_rule(self, decision: Decision, rule: _ReplayRule) -> None:
+        previous = self.node_rules.get(id(decision))
         if previous is not None and previous != rule:
             raise MatchCompileInvariantError(
                 "semantic replay found one decision identity reused for incompatible states"
             )
-        node_rules[id(decision)] = rule
+        self.node_rules[id(decision)] = rule
 
     def replay(
+        self,
         matrix: PatternMatrix,
         decision: Decision,
         allocator: OccurrenceAllocator,
     ) -> OccurrenceAllocator:
         state_key = _compile_state_key(matrix)
-        if state_key in state_nodes:
-            if state_nodes[state_key] is not decision:
+        if state_key in self.state_nodes:
+            if self.state_nodes[state_key] is not decision:
                 raise MatchCompileInvariantError(
                     "semantic replay found one canonical matrix state mapped to divergent "
                     "decision identities"
                 )
             return allocator
-        state_nodes[state_key] = decision
+        self.state_nodes[state_key] = decision
 
         if not matrix.rows:
             rule: _ReplayRule = _ReplayFailRule()
-            remember_rule(decision, rule)
+            self.remember_rule(decision, rule)
             if not isinstance(decision, DecisionFail):
                 raise MatchCompileInvariantError(
                     "semantic replay requires an empty matrix to map to DecisionFail"
@@ -1016,7 +1041,7 @@ def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
         if all(isinstance(cell, WildcardCell) for cell in first.cells):
             expected_assignments = _finalize_binders(matrix, first)
             rule = _ReplayLeafRule(first.action_id, expected_assignments)
-            remember_rule(decision, rule)
+            self.remember_rule(decision, rule)
             if not isinstance(decision, DecisionLeaf):
                 raise MatchCompileInvariantError(
                     "semantic replay requires an irrefutable first row to map to DecisionLeaf"
@@ -1036,7 +1061,7 @@ def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
         if isinstance(signature, ClosedSignature) and len(signature.constructors) == 1:
             singleton_constructor = cast(NominalConstructor, signature.constructors[0])
             rule = _ReplayDecomposeRule(selection.occurrence, singleton_constructor)
-            remember_rule(decision, rule)
+            self.remember_rule(decision, rule)
             if not isinstance(decision, DecisionDecompose):
                 raise MatchCompileInvariantError(
                     "semantic replay requires a singleton nominal state to map to DecisionDecompose"
@@ -1053,7 +1078,7 @@ def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
                 raise MatchCompileInvariantError(
                     "semantic replay found an incompatible singleton decomposition"
                 )
-            next_allocator = replay(specialized.matrix, decision.child, specialized.allocator)
+            next_allocator = self.replay(specialized.matrix, decision.child, specialized.allocator)
             if decision.demanded_occurrences != _demanded_occurrences(decision.child, children):
                 raise MatchCompileInvariantError(
                     "semantic replay found forged decomposition demands"
@@ -1064,7 +1089,7 @@ def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
             heads, signature
         )
         rule = _ReplaySwitchRule(selection.occurrence, heads, needs_default)
-        remember_rule(decision, rule)
+        self.remember_rule(decision, rule)
         if not isinstance(decision, DecisionSwitch):
             raise MatchCompileInvariantError(
                 "semantic replay requires a refutable matrix to map to DecisionSwitch"
@@ -1090,20 +1115,23 @@ def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
                 constructor,
                 current_allocator,
             )
-            current_allocator = replay(
+            current_allocator = self.replay(
                 specialized.matrix,
                 branch.decision,
                 specialized.allocator,
             )
         if needs_default:
-            current_allocator = replay(
+            current_allocator = self.replay(
                 default_matrix(matrix, selection.index),
                 cast(Decision, decision.default),
                 current_allocator,
             )
         return current_allocator
 
-    final_allocator = replay(
+
+def _validate_semantic_replay(compiled: CompiledMatchSite) -> None:
+    """Replay compiler rules against the stored DAG without compiling a replacement."""
+    final_allocator = _SemanticReplay().replay(
         matrix_from_normalized(compiled.normalized),
         compiled.root,
         OccurrenceAllocator.for_case(compiled.normalized),

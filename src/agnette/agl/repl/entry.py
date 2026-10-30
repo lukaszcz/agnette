@@ -23,6 +23,24 @@ if TYPE_CHECKING:
 EntryKind = Literal["expression", "binding", "declaration", "statement", "type"]
 
 
+def detach_failure(failure: AglError) -> AglError:
+    """Keep a static rejection's semantic data and causal links, not Python frames."""
+    pending: list[BaseException] = [failure]
+    detached: set[int] = set()
+    while pending:
+        error = pending.pop()
+        identity = id(error)
+        if identity in detached:
+            continue
+        detached.add(identity)
+        error.with_traceback(None)
+        if error.__cause__ is not None:
+            pending.append(error.__cause__)
+        if error.__context__ is not None:
+            pending.append(error.__context__)
+    return failure
+
+
 @dataclass(frozen=True, slots=True)
 class EntryResult:
     """Outcome of evaluating one REPL entry (pure data, no styled strings).
@@ -76,7 +94,8 @@ class EntryResult:
         (``error``), and for a diagnostic with no single originating
         ``AglError`` (a lowering ``ResourceError``, a param/environment/
         extern diagnostic). The REPL
-        renderer keeps using ``diagnostics``.
+        renderer keeps using ``diagnostics``. Returned failures retain causal
+        error objects and semantic payloads, but not Python tracebacks.
     ``scope_failed``
         Whether the entry never resolved (a parse, import or scope failure), so a
         host reporting what ``agm check`` does withholds the warnings of source

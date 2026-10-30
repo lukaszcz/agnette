@@ -1892,9 +1892,13 @@ class ModuleSources(SourcesHost):
         """The names of the types the root import tails expose and no ``hiding`` removes."""
         return frozenset(
             name
-            for name in self._import_env.unqualified
+            for name, qnames in self._import_env.unqualified.items()
             if isinstance(name, str)
-            and any(qname in self._all_public_types for qname in self.tail_exposed(name))
+            for qname in qnames
+            if qname in self._all_public_types
+            and not self._ways_remove(
+                self._import_env.unqualified_ways.get(name, {}).get(qname, ()), qname
+            )
         )
 
     def _use_exposures(

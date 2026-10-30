@@ -22,7 +22,9 @@ import decimal
 import os
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
+from functools import partial
 from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
+from weakref import proxy
 
 from agnette.agl.eval.arith import (
     add,
@@ -218,6 +220,10 @@ __all__ = [
 
 
 _ArgT = TypeVar("_ArgT")
+
+
+def _debug_setting(settings: Mapping[str, Value]) -> bool:
+    return cast(BoolValue, settings["debug"]).value
 
 
 class HostConfigurationError(Exception):
@@ -431,6 +437,7 @@ class IrInterpreter:
         self._max_call_depth: int = max_call_depth
         assert host is None or session_host is None
         self._owns_host = host is None
+        self._builtin_host_settings: dict[str, Value] = {}
         self._host = (
             host
             if host is not None
@@ -438,7 +445,7 @@ class IrInterpreter:
                 session_host
                 if session_host is not None
                 else AgentDispatcherSessionHost(agent_dispatcher),
-                fallback_debug=lambda: self.debug,
+                fallback_debug=partial(_debug_setting, self._builtin_host_settings),
             )
         )
         self._get_sandbox_context = get_sandbox_context
@@ -455,7 +462,6 @@ class IrInterpreter:
         self._strict_json = False
         self._shell_exec_timeout: float | None = None
         self._timeout_setting = none_value(nominals=self._program.builtin_nominals)
-        self._builtin_host_settings: dict[str, Value] = {}
         self._builtin_vars: dict[BuiltinVarKey, Value] = {}
         self._seeded_symbols: dict[SymbolId, Value] = {
             symbol: value
@@ -468,12 +474,6 @@ class IrInterpreter:
             if (slot := self._program.function_param_bindings.get(key)) is not None
         }
         self._host_reconfigurer = host_reconfigurer
-        # Bound once and handed to every extern call's `ActiveCall`, so
-        # resolving a trace span never allocates a per-call closure.
-        self._extern_span_resolver: Callable[
-            [ModuleId, Location | None], tuple[Location | None, ModuleId | None]
-        ] = self._extern_trace_span
-
         defaults: dict[BuiltinVarKey, Value] = {
             builtin_var_key(STD_CONFIG_ID, (), key): value
             for key, value in _engine_default_settings().items()
@@ -534,11 +534,13 @@ class IrInterpreter:
         # a well-typed program never reads one that has no register (see
         # ``_load_builtin_setting``).
         effective = {**defaults, **seed}
-        self._builtin_host_settings = {
-            key: effective[builtin_var_key(STD_CONFIG_ID, (), key)]
-            for key in HOST_CONSUMED_ENGINE_KEYS
-            if builtin_var_key(STD_CONFIG_ID, (), key) in effective
-        }
+        self._builtin_host_settings.update(
+            {
+                key: effective[builtin_var_key(STD_CONFIG_ID, (), key)]
+                for key in HOST_CONSUMED_ENGINE_KEYS
+                if builtin_var_key(STD_CONFIG_ID, (), key) in effective
+            }
+        )
         self._builtin_vars = {
             key: value for key, value in effective.items() if not is_engine_builtin_var_key(key)
         }
@@ -578,7 +580,8 @@ class IrInterpreter:
             extern_registry if extern_registry is not None else ExternRegistry()
         )
         self._extern_call_window_guard = ExternCallWindow()
-        self._effects = EffectHandlers(self)
+        # Only this interpreter owns the helper; it must not own its caller back.
+        self._effects = EffectHandlers(cast(IrInterpreter, proxy(self)))
 
     def _parse_host_output(
         self,
@@ -638,7 +641,7 @@ class IrInterpreter:
     @property
     def debug(self) -> bool:
         """Current ``debug`` setting (may have been updated by a ``builtin var`` write)."""
-        return cast(BoolValue, self._builtin_host_settings["debug"]).value
+        return _debug_setting(self._builtin_host_settings)
 
     @property
     def builtin_vars(self) -> dict[BuiltinVarKey, Value]:
@@ -2067,7 +2070,8 @@ class IrInterpreter:
         try:
             self._reconfigure_host_service(self._host_reconfigurer)
         except Exception:
-            self._builtin_host_settings = previous
+            # Host callbacks retain this live register; writes only replace seeded keys.
+            self._builtin_host_settings.update(previous)
             raise
 
     def _reconfigure_host_service(self, reconfigurer: "HostSettingsReconfigurer") -> None:

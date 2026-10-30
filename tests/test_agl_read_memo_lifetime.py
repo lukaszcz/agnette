@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import gc
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from weakref import ref
 
@@ -18,6 +17,8 @@ from agnette.agl.scope.read_memo import ReadMemo, ValueReads
 from agnette.agl.scope.sources import ModuleSources
 from agnette.agl.scope.symbols import ScopePath
 
+pytestmark = pytest.mark.usefixtures("no_cyclic_gc")
+
 
 class _Value:
     """A weak-referenceable result."""
@@ -28,18 +29,6 @@ class _Source:
 
     def read(self) -> int:
         return 7
-
-
-@pytest.fixture(autouse=True)
-def _without_cyclic_gc() -> Iterator[None]:
-    enabled = gc.isenabled()
-    gc.disable()
-    try:
-        yield
-    finally:
-        if enabled:
-            gc.enable()
-        gc.collect()
 
 
 def test_discarding_an_insensitive_memo_releases_its_results() -> None:

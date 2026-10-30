@@ -13,7 +13,7 @@ from __future__ import annotations
 import bisect
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
@@ -123,46 +123,53 @@ def sccs(
         SCCs in **reverse topological order** (sinks first, roots last).  Within
         each SCC the members are sorted by *key*.
     """
-    index_counter = [0]
-    stack: list[T] = []
-    on_stack: set[T] = set()
-    index: dict[T, int] = {}
-    lowlink: dict[T, int] = {}
-    result: list[tuple[T, ...]] = []
+    traversal = _SccTraversal(adj, key)
+    nodes = sorted(adj, key=key)
+    for node in nodes:
+        if node not in traversal.index:
+            traversal.strongconnect(node)
+    return tuple(traversal.result)
 
-    def strongconnect(node: T) -> None:
-        idx = index_counter[0]
-        index[node] = idx
-        lowlink[node] = idx
-        index_counter[0] += 1
-        stack.append(node)
-        on_stack.add(node)
 
-        if node in adj:
-            for neighbour in adj[node]:
-                if neighbour not in index:
-                    strongconnect(neighbour)
-                    lowlink[node] = min(lowlink[node], lowlink[neighbour])
-                elif neighbour in on_stack:
-                    lowlink[node] = min(lowlink[node], index[neighbour])
+class _SccTraversal(Generic[T, K]):
+    """Tarjan state with no self-capturing closure retaining the borrowed graph/key."""
 
-        if lowlink[node] == index[node]:
+    def __init__(self, adj: Mapping[T, Iterable[T]], key: Callable[[T], K]) -> None:
+        self.adj = adj
+        self.key = key
+        self.index_counter = 0
+        self.stack: list[T] = []
+        self.on_stack: set[T] = set()
+        self.index: dict[T, int] = {}
+        self.lowlink: dict[T, int] = {}
+        self.result: list[tuple[T, ...]] = []
+
+    def strongconnect(self, node: T) -> None:
+        idx = self.index_counter
+        self.index[node] = idx
+        self.lowlink[node] = idx
+        self.index_counter += 1
+        self.stack.append(node)
+        self.on_stack.add(node)
+
+        if node in self.adj:
+            for neighbour in self.adj[node]:
+                if neighbour not in self.index:
+                    self.strongconnect(neighbour)
+                    self.lowlink[node] = min(self.lowlink[node], self.lowlink[neighbour])
+                elif neighbour in self.on_stack:
+                    self.lowlink[node] = min(self.lowlink[node], self.index[neighbour])
+
+        if self.lowlink[node] == self.index[node]:
             scc: list[T] = []
             while True:
-                w = stack.pop()
-                on_stack.discard(w)
+                w = self.stack.pop()
+                self.on_stack.discard(w)
                 scc.append(w)
                 if w == node:
                     break
-            scc.sort(key=key)
-            result.append(tuple(scc))
-
-    nodes = sorted(adj, key=key)
-    for node in nodes:
-        if node not in index:
-            strongconnect(node)
-
-    return tuple(result)
+            scc.sort(key=self.key)
+            self.result.append(tuple(scc))
 
 
 def toposort(

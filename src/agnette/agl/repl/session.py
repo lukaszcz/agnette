@@ -34,6 +34,7 @@ from agnette.agl.repl.entry import (
     EntryResult,
     FileOrigin,
     Placement,
+    detach_failure,
     relocate,
     relocate_diagnostic,
 )
@@ -284,7 +285,7 @@ def _static_verdict[T](probe: Callable[[], T]) -> T | AglError:
     try:
         return probe()
     except AglError as exc:
-        return exc
+        return detach_failure(exc)
 
 
 def _declared_spelling(scope_path: tuple[str, ...], decl_name: str) -> str:
@@ -1341,7 +1342,7 @@ class ReplSession:
             warnings=warnings,
             error=None,
             ok=False,
-            failure=failure,
+            failure=None if failure is None else detach_failure(failure),
             scope_failed=scope_failed,
         )
 
@@ -2568,10 +2569,11 @@ class ReplSession:
         )
 
     def _new_host(self, sessions: "SessionHost") -> HostSession:
+        current = self._current
         return HostSession(
             sessions,
             fallback_debug=lambda: (
-                (debug := self._current.get("debug")) is not None and cast("BoolValue", debug).value
+                (debug := current.get("debug")) is not None and cast("BoolValue", debug).value
             ),
         )
 
@@ -2622,7 +2624,9 @@ class ReplSession:
         # control where one exists and a declared default otherwise -- the
         # same precedence construction applies, since a declared default is
         # only ever added via ``setdefault`` and never outranks a host seed.
-        self._current = dict(self._engine_seed)
+        # Host callbacks own this live register, not the session itself.
+        self._current.clear()
+        self._current.update(self._engine_seed)
         self._shell_exec_timeout = self._seeded_timeout_seconds()
         self._trace_path = self._initial_trace_path
         self._builtin_var_values = dict(self._builtin_var_seed)

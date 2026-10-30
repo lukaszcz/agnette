@@ -1,7 +1,6 @@
 """Portable lexical grammar with local captures, not lexer promotion history."""
 
 import re
-import sys
 from dataclasses import replace
 
 from agnette.agl.highlight.categories import Category
@@ -15,6 +14,7 @@ from agnette.agl.highlight.grammar import (
     character_class,
     keyword_rule,
 )
+from agnette.agl.highlight.unicode_vocabulary import unicode_character_classes
 from agnette.agl.keywords import (
     CONSTANT_KEYWORDS,
     KEYWORDS,
@@ -23,19 +23,14 @@ from agnette.agl.keywords import (
     TYPE_DECLARATION_KEYWORDS,
 )
 from agnette.agl.lexer import RESERVED_OPERATOR_SPELLINGS
-from agnette.agl.operator_names import is_operator_name, is_operator_name_char
+from agnette.agl.operator_names import is_operator_name
 from agnette.agl.scope.symbols import BUILTIN_CALL_NAMES
 from agnette.agl.syntax import BUILTIN_TYPE_NAMES
 from agnette.agl.value_syntax.lexical import ESCAPE_DECODE
-from agnette.util.ident import IDENT_STOP, is_identifier_start
+from agnette.util.ident import IDENT_STOP
 
 # Explicit sets preserve Python's Unicode vocabulary without engine-specific classes.
-_START = character_class(
-    chr(point) for point in range(sys.maxunicode + 1) if is_identifier_start(chr(point))
-)
-_OPERATOR = character_class(
-    chr(point) for point in range(sys.maxunicode + 1) if is_operator_name_char(chr(point))
-)
+_START, _OPERATOR = unicode_character_classes()
 _STOP = character_class(IDENT_STOP)[1:-1]
 _NAME = f"{_START}[^{_STOP}]*"
 # Holes open at `%`, optionally followed by `!` to shell-quote the value.

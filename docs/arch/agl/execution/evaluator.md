@@ -19,7 +19,7 @@ Direct, indirect, extern, and program-entry calls share parameter-order argument
 
 ## Host-Backed Operations
 
-Effects dispatch through `eval/effects.py`, which composes prompts and records requests and responses for tracing:
+Effects dispatch through `eval/effects.py`, which composes prompts and records requests and responses for tracing. Interpreter-owned helpers borrow their context; escaped callbacks retain it. Host debug fallbacks retain only live registers, not interpreter scratch.
 
 - **Agents.** An explicit-agent `ask` opens an ephemeral session spanning its parse-retry loop; a free `ask` uses the default session, whose environment is fixed on first use in each process; session nodes drive persistent handles ([runtime.md](runtime.md)).
 - **Shell.** `exec` returns `ExecResult` for any exit code or decodes stdout per its contract; spawn failures, timeouts, sandbox-preparation failures and, for other targets, non-zero exits and exhausted parse retries raise `ExecError`. A `sandbox` operand routes through the shared sandbox library ([../../sandbox.md](../../sandbox.md)).

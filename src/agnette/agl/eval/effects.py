@@ -126,9 +126,9 @@ class EffectCtx(Protocol):
     _strict_json: bool
     _extern_registry: ExternRegistry
 
-    _extern_span_resolver: Callable[
-        [ModuleId, "Location | None"], "tuple[Location | None, ModuleId | None]"
-    ]
+    def _extern_trace_span(
+        self, extern_module: ModuleId, location: Location | None
+    ) -> tuple[Location | None, ModuleId | None]: ...
 
     def _eval(self, expr: IrExpr) -> Value: ...
 
@@ -258,7 +258,7 @@ class EffectHandlers:
                     trace_store=self._ctx._trace,
                     module_id=module_id,
                     location=location,
-                    resolve_span=self._ctx._extern_span_resolver,
+                    resolve_span=self._ctx._extern_trace_span,
                 ),
                 contracts=self._ctx._program.target_contracts if extern.target_count else None,
             )

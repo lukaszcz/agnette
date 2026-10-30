@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
+from weakref import proxy
 
 from agnette.agl.diagnostics import AglError, Diagnostic, diagnostic_from_span
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
@@ -136,7 +137,7 @@ class EntryPipeline:
     """
 
     def __init__(self, ctx: ReplSession) -> None:
-        self._ctx = ctx
+        self._ctx = cast("ReplSession", proxy(ctx))
 
     def load_and_check_program(
         self,

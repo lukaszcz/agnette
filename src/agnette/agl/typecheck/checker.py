@@ -44,6 +44,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Literal, Protocol, assert_never, cast
+from weakref import proxy
 
 from agnette.agl.constraints import ConstraintBounds, ConstraintKind, strongest_constraint
 from agnette.agl.diagnostics import (
@@ -1786,12 +1787,14 @@ class _Checker:
         diagnostic.
         """
         if self._module_constants is None:
+            # Checker-owned scratch borrows its context, like ConstructorChecker.
+            ctx = cast(_Checker, proxy(self))
             self._module_constants = ModuleConstantBindings(
                 self._resolved,
                 self._module_id,
-                is_constructor=lambda node_id: self._constructor_ref_for(node_id) is not None,
+                is_constructor=lambda node_id: ctx._constructor_ref_for(node_id) is not None,
                 is_constant_builtin=lambda node_id: is_constant_builtin_call(
-                    self._resolved, node_id
+                    ctx._resolved, node_id
                 ),
             )
         return self._module_constants

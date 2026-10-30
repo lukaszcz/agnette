@@ -1369,108 +1369,110 @@ def resolve_program(
     # reach, then prepared again over each re-resolution until they settle,
     # so every member reads its importees' final exports.
     # ------------------------------------------------------------------
-    cached_exports = retained_module_exports(retainable)
-    for component in graph.sccs:
-        members = tuple(sorted(component, key=_mid_sort_key))
-        if all(mid in cached_exports for mid in members):
-            # Restore the entire component before preparing any member of a cycle.
-            for mid in members:
-                surface = cached_exports[mid]
-                export_maps[mid] = dict(surface.declarations)
-                scope_export_maps[mid] = dict(surface.scopes)
-                withheld[mid] = dict(surface.withheld)
-            for mid in members:
-                prepare(mid)
-            continue
-        if len(members) > 1 or members[0] in graph.adjacency.get(members[0], ()):
-            _resolve_reexports(
-                export_maps,
-                scope_export_maps,
-                withheld,
-                local_atoms,
-                frozenset(type_origins),
-                all_targets,
-                graph,
-                members,
-                _reaches_nothing,
-                _Unresolved(),
-                validate=False,
+    try:
+        cached_exports = retained_module_exports(retainable)
+        for component in graph.sccs:
+            members = tuple(sorted(component, key=_mid_sort_key))
+            if all(mid in cached_exports for mid in members):
+                # Restore the entire component before preparing any member of a cycle.
+                for mid in members:
+                    surface = cached_exports[mid]
+                    export_maps[mid] = dict(surface.declarations)
+                    scope_export_maps[mid] = dict(surface.scopes)
+                    withheld[mid] = dict(surface.withheld)
+                for mid in members:
+                    prepare(mid)
+                continue
+            if len(members) > 1 or members[0] in graph.adjacency.get(members[0], ()):
+                _resolve_reexports(
+                    export_maps,
+                    scope_export_maps,
+                    withheld,
+                    local_atoms,
+                    frozenset(type_origins),
+                    all_targets,
+                    graph,
+                    members,
+                    _reaches_nothing,
+                    _Unresolved(),
+                    validate=False,
+                )
+                settling.update(members)
+                _converge(partial(settle, members), _export_count(graph, members))
+                settling.difference_update(members)
+                # Its items name what its modules export once those settle.
+                for mid in members:
+                    validate_imports(mid)
+            else:
+                prepare(members[0])
+            reexport(members, validate=True)
+
+        # ------------------------------------------------------------------
+        # Step 6: Collect every prepared module's constructors and root bindings,
+        # then resolve each one's bodies against the type owners the prepared
+        # headers make selectable: a body reads through other modules' aliases.
+        # ------------------------------------------------------------------
+        def header_references(mid: ModuleId) -> dict[tuple[int, str], frozenset[QName]]:
+            """Read header spellings from their target's public surface, including alias paths."""
+            references: dict[tuple[int, str], frozenset[QName]] = {}
+            declarations: tuple[ImportDecl | ExportDecl, ...] = (
+                *graph.modules[mid].imports,
+                *graph.modules[mid].export_decls,
             )
-            settling.update(members)
-            _converge(partial(settle, members), _export_count(graph, members))
-            settling.difference_update(members)
-            # Its items name what its modules export once those settle.
-            for mid in members:
-                validate_imports(mid)
-        else:
-            prepare(members[0])
-        reexport(members, validate=True)
+            for decl in declarations:
+                items: tuple[ImportItem | ExportItem, ...] = (
+                    decl.items if isinstance(decl, ExportDecl) else decl.tail or ()
+                )
+                targets = target_modules(all_targets[decl.node_id])
 
-    # ------------------------------------------------------------------
-    # Step 6: Collect every prepared module's constructors and root bindings,
-    # then resolve each one's bodies against the type owners the prepared
-    # headers make selectable: a body reads through other modules' aliases.
-    # ------------------------------------------------------------------
-    def header_references(mid: ModuleId) -> dict[tuple[int, str], frozenset[QName]]:
-        """Read header spellings from their target's public surface, including alias paths."""
-        references: dict[tuple[int, str], frozenset[QName]] = {}
-        declarations: tuple[ImportDecl | ExportDecl, ...] = (
-            *graph.modules[mid].imports,
-            *graph.modules[mid].export_decls,
-        )
-        for decl in declarations:
-            items: tuple[ImportItem | ExportItem, ...] = (
-                decl.items if isinstance(decl, ExportDecl) else decl.tail or ()
+                def record(node_id: int, name: str, path: PathAtom) -> None:
+                    origins: set[QName] = set()
+                    for target in targets:
+                        origin = export_maps[target].get(_atom(path))
+                        if origin is None:
+                            origin = through(target, path).get(())
+                        if origin is not None:
+                            origins.add(origin)
+                    references[node_id, name] = frozenset(origins)
+
+                hidden: tuple[ImportItem | ExportItem, ...] = decl.hidden
+                for node_id, path in import_item_spellings(iter_chain(items, hidden)):
+                    record(node_id, path[-1], path)
+            return references
+
+        for mid, resolver in resolvers.items():
+            resolver.collect()
+        for mid in graph.modules:
+            prepared = resolvers.get(mid)
+            if prepared is None:
+                continue
+            resolved = prepared.resolve()
+            resolved = replace(
+                resolved, name_references=resolved.name_references | header_references(mid)
             )
-            targets = target_modules(all_targets[decl.node_id])
+            resolved_modules[mid] = ResolvedModule(
+                module_id=mid,
+                resolved=resolved,
+                import_env=import_envs[mid],
+                exports=export_maps[mid],
+                scope_exports=scope_export_maps[mid],
+                source_text=graph.modules[mid].source_text,
+                source=graph.modules[mid].program,
+            )
 
-            def record(node_id: int, name: str, path: PathAtom) -> None:
-                origins: set[QName] = set()
-                for target in targets:
-                    origin = export_maps[target].get(_atom(path))
-                    if origin is None:
-                        origin = through(target, path).get(())
-                    if origin is not None:
-                        origins.add(origin)
-                references[node_id, name] = frozenset(origins)
-
-            hidden: tuple[ImportItem | ExportItem, ...] = decl.hidden
-            for node_id, path in import_item_spellings(iter_chain(items, hidden)):
-                record(node_id, path[-1], path)
-        return references
-
-    for mid, resolver in resolvers.items():
-        resolver.collect()
-    for mid in graph.modules:
-        prepared = resolvers.get(mid)
-        if prepared is None:
-            continue
-        resolved = prepared.resolve()
-        resolved = replace(
-            resolved, name_references=resolved.name_references | header_references(mid)
+        resolved_modules = {mid: resolved_modules[mid] for mid in graph.modules}
+        retain_resolved_modules(retainable, resolved_modules)
+        retain_module_exports(
+            retainable,
+            {
+                mid: _ModuleExports(export_maps[mid], scope_export_maps[mid], withheld[mid])
+                for mid in resolved_modules
+            },
         )
-        resolved_modules[mid] = ResolvedModule(
-            module_id=mid,
-            resolved=resolved,
-            import_env=import_envs[mid],
-            exports=export_maps[mid],
-            scope_exports=scope_export_maps[mid],
-            source_text=graph.modules[mid].source_text,
-            source=graph.modules[mid].program,
-        )
-
-    resolved_modules = {mid: resolved_modules[mid] for mid in graph.modules}
-    retain_resolved_modules(retainable, resolved_modules)
-    retain_module_exports(
-        retainable,
-        {
-            mid: _ModuleExports(export_maps[mid], scope_export_maps[mid], withheld[mid])
-            for mid in resolved_modules
-        },
-    )
-    # What reads a module from now on (spelling) is read from its resolution alone, as a cached
-    # module's is: the resolvers, and everything they hold, are not kept.
-    resolvers.clear()
+    finally:
+        # Readers and index callbacks retain this map. Break their resolver
+        # back-references on success and on header, collect or body failure.
+        resolvers.clear()
     return ResolvedProgram(
         modules=resolved_modules,
         graph=graph,

@@ -458,7 +458,7 @@
     "path": "src/agnette/util/graph.py",
     "line": 62,
     "column": 15,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -474,7 +474,7 @@
     "path": "src/agnette/util/graph.py",
     "line": 67,
     "column": 11,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -490,7 +490,7 @@
     "path": "src/agnette/util/graph.py",
     "line": 60,
     "column": 22,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -506,7 +506,7 @@
     "path": "src/agnette/util/graph.py",
     "line": 69,
     "column": 21,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -520,15 +520,15 @@
   {
     "id": "M031",
     "path": "src/agnette/util/graph.py",
-    "line": 146,
+    "line": 160,
     "column": 21,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
     "module": "agnette.util.graph",
-    "function": "sccs",
-    "before": "neighbour in on_stack",
+    "function": "_SccTraversal.strongconnect",
+    "before": "neighbour in self.on_stack",
     "after": "True",
     "mode": "eval",
     "reason": "Merge/lose components on edges to completed SCCs"
@@ -536,31 +536,31 @@
   {
     "id": "M032",
     "path": "src/agnette/util/graph.py",
-    "line": 147,
-    "column": 36,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "line": 161,
+    "column": 41,
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
     "module": "agnette.util.graph",
-    "function": "sccs",
-    "before": "min(lowlink[node], index[neighbour])",
-    "after": "lowlink[node]",
+    "function": "_SccTraversal.strongconnect",
+    "before": "min(self.lowlink[node], self.index[neighbour])",
+    "after": "self.lowlink[node]",
     "mode": "eval",
     "reason": "Ignore SCC back-edge lowlink"
   },
   {
     "id": "M033",
     "path": "src/agnette/util/graph.py",
-    "line": 157,
+    "line": 171,
     "column": 12,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
     "module": "agnette.util.graph",
-    "function": "sccs",
-    "before": "scc.sort(key=key)",
+    "function": "_SccTraversal.strongconnect",
+    "before": "scc.sort(key=self.key)",
     "after": "pass",
     "mode": "exec",
     "reason": "Do not order members by key"
@@ -568,9 +568,9 @@
   {
     "id": "M034",
     "path": "src/agnette/util/graph.py",
-    "line": 221,
+    "line": 228,
     "column": 15,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -584,9 +584,9 @@
   {
     "id": "M035",
     "path": "src/agnette/util/graph.py",
-    "line": 227,
+    "line": 234,
     "column": 16,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -600,9 +600,9 @@
   {
     "id": "M036",
     "path": "src/agnette/util/graph.py",
-    "line": 229,
+    "line": 236,
     "column": 7,
-    "source_sha256": "7f0663ab0d0ac476440a0c0e36c3db16ad28c133198a718cf52c6609e4d042b6",
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
     "tests": [
       "tests/test_util_graph.py"
     ],
@@ -1481,9 +1481,9 @@
     "id": "AGL_AND_SHORT_CIRCUIT",
     "path": "src/agnette/agl/eval/ir_interpreter.py",
     "module": "agnette.agl.eval.ir_interpreter",
-    "line": 1559,
+    "line": 1562,
     "column": 23,
-    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
     "before": "not lhs_val.value",
     "after": "False",
     "mode": "eval",
@@ -1494,9 +1494,9 @@
     "id": "AGL_OR_SHORT_CIRCUIT",
     "path": "src/agnette/agl/eval/ir_interpreter.py",
     "module": "agnette.agl.eval.ir_interpreter",
-    "line": 1566,
+    "line": 1569,
     "column": 23,
-    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
     "before": "lhs_val.value",
     "after": "False",
     "mode": "eval",
@@ -1507,9 +1507,9 @@
     "id": "AGL_CATCH_SUBTYPE",
     "path": "src/agnette/agl/eval/ir_interpreter.py",
     "module": "agnette.agl.eval.ir_interpreter",
-    "line": 1738,
+    "line": 1741,
     "column": 31,
-    "source_sha256": "1e7a8594942136054de9d002f476321f41774e56e70dee3bf7ed2d1d485a76c9",
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
     "before": "nominal_conforms(self._program.nominals, pending.exc.nominal, (handler.nominal,))",
     "after": "False",
     "mode": "eval",
@@ -1611,9 +1611,9 @@
     "id": "BOOTSTRAP_DISCOVERY_VALIDATION",
     "path": "src/agnette/agl/repl/session.py",
     "module": "agnette.agl.repl.session",
-    "line": 875,
+    "line": 876,
     "column": 19,
-    "source_sha256": "08b5be2ad1efa219eba78316779c11a91f7bc0608cc7f4f4f56fc58e370980f0",
+    "source_sha256": "fc3e90a18bb70097328cec63ae9ce3be684f6c2cc70ec17ab7bc0ad912bfcf6f",
     "before": "resolve_module(module_id, roots) != module.path",
     "after": "False",
     "mode": "eval",
@@ -1728,9 +1728,9 @@
     "id": "REPL_ALIAS_CURRENT_SELECTION",
     "path": "src/agnette/agl/scope/sources.py",
     "module": "agnette.agl.scope.sources",
-    "line": 2055,
+    "line": 2059,
     "column": 11,
-    "source_sha256": "c9add0ae6147fb5daf1292247b7ba5ec46a247594f8e9abc2511556ef27235a9",
+    "source_sha256": "292814a43f9062a285b9c57c4b27d94f9902ce4aa134d777dba5cf172af16d25",
     "before": "not self._repl_session",
     "after": "True",
     "mode": "eval",
@@ -1743,7 +1743,7 @@
     "module": "agnette.agl.scope.program",
     "line": 1132,
     "column": 43,
-    "source_sha256": "a49cbb1d3cf509e7c4d8a6444d3a9959dc1c999ceca3a9767e107aacbf9f2607",
+    "source_sha256": "34c46db4d0dfc50ec73bb5ab0df89de42800ea42fe35f1a984320375367e4a98",
     "before": "proxy(source_factory)",
     "after": "source_factory",
     "mode": "eval",
@@ -1873,7 +1873,7 @@
     "module": "agnette.agl.scope.sources",
     "line": 1770,
     "column": 15,
-    "source_sha256": "c9add0ae6147fb5daf1292247b7ba5ec46a247594f8e9abc2511556ef27235a9",
+    "source_sha256": "292814a43f9062a285b9c57c4b27d94f9902ce4aa134d777dba5cf172af16d25",
     "before": "way.withheld or self._import_env.decl_hiding.get(way.node_id)",
     "after": "self._import_env.decl_hiding.get(way.node_id)",
     "mode": "eval",
@@ -1905,5 +1905,311 @@
     "mode": "eval",
     "tests": ["tests/test_agl_header_preparation.py"],
     "reason": "Replace the entry's session and synthetic header bindings instead of overlaying common static bindings"
+  },
+  {
+    "id": "CHECKER_CONSTANT_CONTEXT_BORROW",
+    "path": "src/agnette/agl/typecheck/checker.py",
+    "module": "agnette.agl.typecheck.checker",
+    "function": "_Checker._constant_bindings",
+    "line": 1791,
+    "column": 33,
+    "source_sha256": "c257f9a16c099bece6ac17e857fcf3d58623fc89fc3bb46861da62563302d15b",
+    "before": "proxy(self)",
+    "after": "self",
+    "mode": "eval",
+    "tests": [
+      "tests/test_agl_compiler_lifetime.py::test_completed_checker_releases_scratch_but_preserves_module",
+      "tests/test_agl_compiler_lifetime.py::test_failed_checks_release_scratch_after_exception_drop"
+    ],
+    "reason": "Let checker-owned constant classification callbacks strongly capture their checker, retaining completed or rejected checking scratch"
+  },
+  {
+    "id": "SCC_TRAVERSAL_CLOSURE_OWNERSHIP",
+    "path": "src/agnette/util/graph.py",
+    "module": "agnette.util.graph",
+    "function": "sccs",
+    "line": 126,
+    "column": 4,
+    "source_sha256": "1021c7e54cc7b493d3b47d577bc4c614b85289e8cdabbcb28b81ca62bc6a62d9",
+    "before": "traversal = _SccTraversal(adj, key)",
+    "after": "if True:\n    traversal = _SccTraversal(adj, key)\n    def retain_traversal():\n        return retain_traversal, traversal",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_compiler_lifetime.py::test_scc_releases_borrowed_graph_and_key_on_success_or_sort_error",
+      "tests/test_agl_compiler_lifetime.py::test_scc_releases_inputs_after_successor_iteration_error",
+      "tests/test_agl_compiler_lifetime.py::test_scc_observes_graph_mutation_during_component_sort"
+    ],
+    "reason": "Reintroduce a self-referencing visitor closure owning Tarjan state and its borrowed graph/key without changing SCC traversal or results"
+  },
+  {
+    "id": "CANDIDATE_TRAVERSAL_CLOSURE_OWNERSHIP",
+    "path": "src/agnette/agl/typecheck/function_inference.py",
+    "module": "agnette.agl.typecheck.function_inference",
+    "function": "_function_dependencies",
+    "line": 348,
+    "column": 8,
+    "source_sha256": "c5dd9a01916dde16a8560ba95f0d30ad96a484f136bc4296087a5434b650f035",
+    "before": "traversal = _CandidateDependencyWalk(functions, binding_values, methods_by_name)",
+    "after": "if True:\n    traversal = _CandidateDependencyWalk(functions, binding_values, methods_by_name)\n    def retain_traversal():\n        return retain_traversal, traversal",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_compiler_lifetime.py::test_candidate_dependency_scan_releases_borrowed_environment",
+      "tests/test_agl_compiler_lifetime.py::test_candidate_workflows_release_environments_after_outputs_drop"
+    ],
+    "reason": "Reintroduce a self-referencing dependency visitor closure retaining candidate modules/environments while preserving dependency edges and binding traversal"
+  },
+  {
+    "id": "MATCH_FAILURE_TRAVERSAL_OWNERSHIP",
+    "path": "src/agnette/agl/matchcompile/compiler.py",
+    "module": "agnette.agl.matchcompile.compiler",
+    "function": "_first_failure_constraints",
+    "line": 321,
+    "column": 4,
+    "source_sha256": "0d75f3be3c7d01c33923ac9ef42d9c4f9162d39fd1c5eb84ea7c0bfc109329bd",
+    "before": "return _failure_constraints(root, type_table, {})",
+    "after": "if True:\n    def retain_traversal():\n        return retain_traversal, type_table\n    return _failure_constraints(root, type_table, {})",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_matchcompile_lifetime.py::test_failure_analysis_releases_borrowed_type_table",
+      "tests/test_agl_matchcompile_lifetime.py::test_retained_exception_owns_context_only_until_traceback_drop[failure]"
+    ],
+    "reason": "Reintroduce failure analysis's self-referencing closure ownership of the borrowed type table, preserving memoized analysis and witness semantics"
+  },
+  {
+    "id": "MATCH_DECISION_TRAVERSAL_OWNERSHIP",
+    "path": "src/agnette/agl/matchcompile/compiler.py",
+    "module": "agnette.agl.matchcompile.compiler",
+    "function": "_validate_compiled_decisions",
+    "line": 976,
+    "column": 4,
+    "source_sha256": "0d75f3be3c7d01c33923ac9ef42d9c4f9162d39fd1c5eb84ea7c0bfc109329bd",
+    "before": "validator = _DecisionValidator(compiled, occurrences_by_id, occurrence_groups)",
+    "after": "if True:\n    validator = _DecisionValidator(compiled, occurrences_by_id, occurrence_groups)\n    def retain_traversal():\n        return retain_traversal, validator",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_matchcompile_lifetime.py::test_decision_validation_releases_borrowed_checked_context",
+      "tests/test_agl_matchcompile_lifetime.py::test_completed_validation_releases_context_after_artifact_drop",
+      "tests/test_agl_matchcompile_lifetime.py::test_retained_exception_owns_context_only_until_traceback_drop[decisions]"
+    ],
+    "reason": "Reintroduce a self-referencing validator closure retaining borrowed checked context without skipping shape, interface, provenance or dataflow validation"
+  },
+  {
+    "id": "MATCH_REPLAY_TRAVERSAL_OWNERSHIP",
+    "path": "src/agnette/agl/matchcompile/compiler.py",
+    "module": "agnette.agl.matchcompile.compiler",
+    "function": "_validate_semantic_replay",
+    "line": 1134,
+    "column": 4,
+    "source_sha256": "0d75f3be3c7d01c33923ac9ef42d9c4f9162d39fd1c5eb84ea7c0bfc109329bd",
+    "before": "final_allocator = _SemanticReplay().replay(matrix_from_normalized(compiled.normalized), compiled.root, OccurrenceAllocator.for_case(compiled.normalized))",
+    "after": "if True:\n    def retain_traversal():\n        return retain_traversal, compiled\n    final_allocator = _SemanticReplay().replay(matrix_from_normalized(compiled.normalized), compiled.root, OccurrenceAllocator.for_case(compiled.normalized))",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_matchcompile_lifetime.py::test_semantic_replay_releases_borrowed_decision_graph",
+      "tests/test_agl_matchcompile_lifetime.py::test_recursive_replay_releases_graph_after_branch_error",
+      "tests/test_agl_matchcompile_lifetime.py::test_retained_exception_owns_context_only_until_traceback_drop[replay]"
+    ],
+    "reason": "Reintroduce a self-referencing replay closure owning the borrowed decision graph across success or rejection without weakening semantic replay"
+  },
+  {
+    "id": "SCOPE_RESOLVER_FAILURE_CLEANUP",
+    "path": "src/agnette/agl/scope/program.py",
+    "module": "agnette.agl.scope.program",
+    "function": "resolve_program",
+    "line": 1475,
+    "column": 8,
+    "source_sha256": "34c46db4d0dfc50ec73bb5ab0df89de42800ea42fe35f1a984320375367e4a98",
+    "before": "resolvers.clear()",
+    "after": "if __import__('sys').exception() is None:\n    resolvers.clear()",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_scope_lifetime.py::test_rejected_scope_releases_its_inputs_without_gc",
+      "tests/test_agl_scope_lifetime.py::test_successful_scope_keeps_only_current_sources"
+    ],
+    "reason": "Restore success-only resolver-map cleanup, leaving reader/index callback cycles owning input roots after header, collect or body rejection"
+  },
+  {
+    "id": "REPL_STATIC_CAUSAL_FRAME_DETACH",
+    "path": "src/agnette/agl/repl/entry.py",
+    "module": "agnette.agl.repl.entry",
+    "function": "detach_failure",
+    "line": 36,
+    "column": 8,
+    "source_sha256": "4b05cb69d790fcaa7dd51e4b2a25f7cbe2041a92f4154a28d714674108fdfe24",
+    "before": "error.with_traceback(None)",
+    "after": "error.with_traceback(None) if error is failure else error",
+    "mode": "eval",
+    "tests": [
+      "tests/test_agl_repl_failure_lifetime.py::test_static_verdict_preserves_diagnostics_and_causal_objects_without_frames",
+      "tests/test_agl_repl_failure_lifetime.py::test_static_verdict_handles_shared_and_cyclic_causal_links",
+      "tests/test_agl_repl_failure_lifetime.py::test_static_failure_data_does_not_keep_a_closed_session_alive"
+    ],
+    "reason": "Detach only the primary static rejection, leaving cause/context traceback frames retaining payloads despite preserved diagnostic and causal objects"
+  },
+  {
+    "id": "REPL_PIPELINE_CONTEXT_BORROW",
+    "path": "src/agnette/agl/repl/entry_pipeline.py",
+    "module": "agnette.agl.repl.entry_pipeline",
+    "function": "EntryPipeline.__init__",
+    "line": 140,
+    "column": 20,
+    "source_sha256": "01d5e25253ed6c31d34ba21c10155c883bea3a9ad4f6d119c5f0ed1d772c9600",
+    "before": "cast(\"ReplSession\", proxy(ctx))",
+    "after": "ctx",
+    "mode": "eval",
+    "tests": [
+      "tests/test_agl_repl_failure_lifetime.py::test_successful_result_does_not_keep_a_closed_session_alive",
+      "tests/test_agl_repl_failure_lifetime.py::test_static_failure_data_does_not_keep_a_closed_session_alive",
+      "tests/test_agl_repl_failure_lifetime.py::test_retained_public_session_callback_keeps_its_context_alive"
+    ],
+    "reason": "Let the session-owned entry pipeline own its session back, retaining closed sessions even after successful evaluation"
+  },
+  {
+    "id": "REPL_HOST_DEBUG_REGISTER_OWNERSHIP",
+    "path": "src/agnette/agl/repl/session.py",
+    "module": "agnette.agl.repl.session",
+    "function": "ReplSession._new_host",
+    "line": 2576,
+    "column": 26,
+    "source_sha256": "fc3e90a18bb70097328cec63ae9ce3be684f6c2cc70ec17ab7bc0ad912bfcf6f",
+    "before": "current.get(\"debug\")",
+    "after": "self._current.get(\"debug\")",
+    "mode": "eval",
+    "tests": [
+      "tests/test_agl_repl_failure_lifetime.py::test_host_debug_callback_retains_only_the_live_register_across_reset"
+    ],
+    "reason": "Make retained host debug callbacks capture the session instead of only the live settings register, leaking closed sessions across reset"
+  },
+  {
+    "id": "IR_EFFECT_CONTEXT_BORROW",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "function": "IrInterpreter.__init__",
+    "line": 584,
+    "column": 24,
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
+    "before": "EffectHandlers(cast(IrInterpreter, proxy(self)))",
+    "after": "EffectHandlers(self)",
+    "mode": "eval",
+    "tests": [
+      "tests/test_agl_interpreter_lifetime.py::test_dropped_interpreter_releases_trace_and_its_callback_owner",
+      "tests/test_agl_interpreter_lifetime.py::test_returned_closure_keeps_captures_without_retaining_run_scratch"
+    ],
+    "reason": "Let interpreter-owned effect handlers strongly own their interpreter, retaining trace state and callback owners after run inputs drop"
+  },
+  {
+    "id": "IR_PRIVATE_BOUND_RESOLVER_RETENTION",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "function": "IrInterpreter.__init__",
+    "line": 582,
+    "column": 8,
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
+    "before": "self._extern_call_window_guard = ExternCallWindow()",
+    "after": "if True:\n    self._extern_call_window_guard = ExternCallWindow()\n    self._extern_span_resolver = self._extern_trace_span",
+    "mode": "exec",
+    "tests": [
+      "tests/test_agl_interpreter_lifetime.py::test_dropped_interpreter_releases_trace_and_its_callback_owner",
+      "tests/test_agl_interpreter_lifetime.py::test_escaped_bound_callback_keeps_interpreter_context_until_dropped"
+    ],
+    "reason": "Restore the private cached bound extern span resolver, creating an interpreter self-cycle that retains trace state without an escaped public callback"
+  },
+  {
+    "id": "UNICODE_SNAPSHOT_EXACT_VERSION_OWNER",
+    "path": "src/agnette/agl/highlight/unicode_vocabulary.py",
+    "module": "agnette.agl.highlight.unicode_vocabulary",
+    "function": "unicode_character_classes",
+    "line": 28,
+    "column": 7,
+    "source_sha256": "45f9a283c699974df7fab026d988b6d0787ca8e39404a002954f18bafc1f94cc",
+    "before": "unicodedata.unidata_version == UNICODE_SNAPSHOT[0]",
+    "after": "unicodedata.unidata_version != UNICODE_SNAPSHOT[0]",
+    "mode": "eval",
+    "tests": ["tests/test_agl_highlight_unicode.py::test_snapshot_is_an_immutable_version_owned_pair"],
+    "reason": "Select literal Unicode data for a different UCD owner instead of its exact version"
+  },
+  {
+    "id": "UNICODE_UNKNOWN_VERSION_LIVE_FALLBACK",
+    "path": "src/agnette/agl/highlight/unicode_vocabulary.py",
+    "module": "agnette.agl.highlight.unicode_vocabulary",
+    "function": "unicode_character_classes",
+    "line": 30,
+    "column": 11,
+    "source_sha256": "45f9a283c699974df7fab026d988b6d0787ca8e39404a002954f18bafc1f94cc",
+    "before": "scan_unicode_classes()",
+    "after": "UNICODE_SNAPSHOT[1]",
+    "mode": "eval",
+    "tests": ["tests/test_agl_highlight_unicode.py::test_unknown_unicode_version_uses_live_platform_semantics"],
+    "reason": "Reuse stale classified snapshot data instead of live canonical predicates for an unknown UCD version"
+  },
+  {
+    "id": "UNICODE_SCAN_CANONICAL_IDENTIFIER_START",
+    "path": "src/agnette/agl/highlight/unicode_vocabulary.py",
+    "module": "agnette.agl.highlight.unicode_vocabulary",
+    "function": "scan_unicode_classes",
+    "line": 17,
+    "column": 11,
+    "source_sha256": "45f9a283c699974df7fab026d988b6d0787ca8e39404a002954f18bafc1f94cc",
+    "before": "is_identifier_start(character)",
+    "after": "character.isidentifier()",
+    "mode": "eval",
+    "tests": ["tests/test_agl_highlight_unicode.py::test_live_scan_matches_the_current_vocabulary"],
+    "reason": "Admit Python identifier-start categories that AgL's canonical alphabetic predicate excludes"
+  },
+  {
+    "id": "UNICODE_SCAN_NONASCII_OPERATORS",
+    "path": "src/agnette/agl/highlight/unicode_vocabulary.py",
+    "module": "agnette.agl.highlight.unicode_vocabulary",
+    "function": "scan_unicode_classes",
+    "line": 19,
+    "column": 11,
+    "source_sha256": "45f9a283c699974df7fab026d988b6d0787ca8e39404a002954f18bafc1f94cc",
+    "before": "is_operator_name_char(character)",
+    "after": "character.isascii() and is_operator_name_char(character)",
+    "mode": "eval",
+    "tests": ["tests/test_agl_highlight_unicode.py::test_live_scan_matches_the_current_vocabulary"],
+    "reason": "Drop non-ASCII operator characters from the live classified Unicode vocabulary"
+  },
+  {
+    "id": "UNICODE_SNAPSHOT_CLASSIFIED_PAIR",
+    "path": "src/agnette/agl/highlight/unicode_vocabulary.py",
+    "module": "agnette.agl.highlight.unicode_vocabulary",
+    "function": "unicode_character_classes",
+    "line": 29,
+    "column": 15,
+    "source_sha256": "45f9a283c699974df7fab026d988b6d0787ca8e39404a002954f18bafc1f94cc",
+    "before": "UNICODE_SNAPSHOT[1]",
+    "after": "UNICODE_SNAPSHOT[1][::-1]",
+    "mode": "eval",
+    "tests": ["tests/test_agl_highlight_unicode.py::test_unicode_category_boundaries"],
+    "reason": "Swap the snapshot's identifier-start and operator classes when serving actual character data"
+  },
+  {
+    "id": "PRIMITIVE_HASH_EXACT_CLASS_DISTRIBUTION",
+    "path": "src/agnette/agl/semantics/types.py",
+    "module": "agnette.agl.semantics.types",
+    "function": "_primitive_hash",
+    "line": 70,
+    "column": 11,
+    "source_sha256": "42b4207a05cc19cbbbceb93b56a1f18abcb0476792712602f882762ce9824e5a",
+    "before": "hash(type(self))",
+    "after": "hash(())",
+    "mode": "eval",
+    "tests": ["tests/test_agl_type_hashing.py::test_empty_primitive_hash_is_discriminated_by_its_exact_class"],
+    "reason": "Restore the shared empty-tuple hash for all primitive classes, violating their explicit class-distribution quality contract"
+  },
+  {
+    "id": "IR_HOST_REGISTER_ROLLBACK_IDENTITY",
+    "path": "src/agnette/agl/eval/ir_interpreter.py",
+    "module": "agnette.agl.eval.ir_interpreter",
+    "function": "_store_builtin_setting",
+    "line": 2074,
+    "column": 12,
+    "source_sha256": "cc889bcc1ea8a45240a73166df9a25990474ad7066789c40615ecfc0a50651a2",
+    "before": "self._builtin_host_settings.update(previous)",
+    "after": "self._builtin_host_settings = previous",
+    "mode": "exec",
+    "tests": ["tests/test_agl_interpreter_lifetime.py::test_owned_host_debug_stays_live_after_trace_reconfiguration_rollback"],
+    "reason": "Replace the live register on trace rollback, leaving the owned host's debug callback attached to stale settings"
   }
 ]
