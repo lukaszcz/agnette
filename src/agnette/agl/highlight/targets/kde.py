@@ -9,9 +9,11 @@ at its end. No capture substitution or stack cross product is needed.
 KDE does not run RegExpr at EOL. Unconditional end actions and empty-line actions
 use native context attributes; context-dependent zero-width end actions are not
 exportable. Nullable native transitions use an explicit lookahead fallback after
-any consuming rule; nontransitioning empty rules are omitted. Every generated
-context ends with a one-character default-category fallback so native scanners
-cannot swallow unmatched chunks before later rules.
+any consuming rule; nontransitioning empty rules are omitted. Skylighting stops
+after one EOL pop, so a context popping at EOL also pops at column 0, where no such
+context is ever live. Every generated context ends with a one-character
+default-category fallback so native scanners cannot swallow unmatched chunks before
+later rules.
 """
 
 from __future__ import annotations
@@ -265,6 +267,9 @@ def generate(grammar: Grammar) -> str:
                 node.set("lineEndContext", _action(rule.action, names))
             if empty and node.attrib["lineEmptyContext"] == "#stay":
                 node.set("lineEmptyContext", _action(rule.action, names))
+        if node.attrib["lineEndContext"] == "#pop":
+            _regex(node, ".", state.default, "#pop", lookahead=True, column_zero=True)
+        for rule in state.rules:
             lower(node, rule)
     for node in contexts:
         _regex(node, ".", Category(node.attrib["attribute"]), "#stay")
