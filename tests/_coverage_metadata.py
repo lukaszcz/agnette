@@ -19,6 +19,7 @@ type _Analysis = tuple[_Offsets, _Offsets, TBranchTrails]
 type _Snapshot = tuple[dict[str, _Offsets], dict[_CodeKey, _Analysis]]
 
 ENVIRONMENT_KEY = "_AGM_TEST_COVERAGE_METADATA"
+_ANALYSIS_WORKERS = 4  # Bound interpreter memory and startup CPU.
 _path: Path | None = None
 _installed = False
 
@@ -54,31 +55,49 @@ def _code_key(code: CodeType) -> _CodeKey:
     )
 
 
-def create(directory: Path) -> Path:
-    """Analyze checkout bytecode without importing or executing application code."""
+def _analyze(path: Path) -> _Snapshot:
+    """Build only serializable static analysis in a fresh interpreter."""
     from coverage import sysmon
 
+    filename = str(path)
+    multiline = sysmon.get_multiline_map(filename)
+    analyses: dict[_CodeKey, _Analysis] = {}
+    pending = [compile(path.read_bytes(), filename, "exec", dont_inherit=True)]
+    while pending:
+        code = pending.pop()
+        pending.extend(value for value in code.co_consts if isinstance(value, CodeType))
+        # Sysmon deliberately ignores deferred annotation execution.
+        if code.co_name == "__annotate__":
+            continue
+        trails = sysmon.branch_trails(code, multiline)
+        analyses[_code_key(code)] = (
+            sysmon.bytes_to_lines(code),
+            sysmon.always_jumps(code),
+            {offset: dict(branches) for offset, branches in trails.items()},
+        )
+    return {filename: multiline}, analyses
+
+
+def create(directory: Path) -> Path:
+    """Analyze checkout bytecode without importing or executing application code."""
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import get_context
+
     root = Path(__file__).resolve().parents[1]
+    paths = (
+        path
+        for base in (root / "src", root / "packages" / "stdlib" / "src")
+        for path in base.rglob("*.py")
+    )
     source_maps: dict[str, _Offsets] = {}
     analyses: dict[_CodeKey, _Analysis] = {}
-    for base in (root / "src", root / "packages" / "stdlib" / "src"):
-        for path in base.rglob("*.py"):
-            filename = str(path)
-            multiline = sysmon.get_multiline_map(filename)
-            source_maps[filename] = multiline
-            pending = [compile(path.read_bytes(), filename, "exec", dont_inherit=True)]
-            while pending:
-                code = pending.pop()
-                pending.extend(value for value in code.co_consts if isinstance(value, CodeType))
-                # Sysmon deliberately ignores deferred annotation execution.
-                if code.co_name == "__annotate__":
-                    continue
-                trails = sysmon.branch_trails(code, multiline)
-                analyses[_code_key(code)] = (
-                    sysmon.bytes_to_lines(code),
-                    sysmon.always_jumps(code),
-                    {offset: dict(branches) for offset, branches in trails.items()},
-                )
+    # Spawn avoids forking the threaded xdist controller. Bound retained results too.
+    with ProcessPoolExecutor(
+        max_workers=_ANALYSIS_WORKERS, mp_context=get_context("spawn")
+    ) as pool:
+        for maps, file_analyses in pool.map(_analyze, paths, buffersize=2 * _ANALYSIS_WORKERS):
+            source_maps.update(maps)
+            analyses.update(file_analyses)
     snapshot = directory / "coverage-metadata.pickle"
     snapshot.write_bytes(pickle.dumps((source_maps, analyses), protocol=5))
     return snapshot
