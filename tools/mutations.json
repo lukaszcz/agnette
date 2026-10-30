@@ -1697,5 +1697,83 @@
     "mode": "eval",
     "tests": ["tests/test_agl_repl_lowering_cache.py"],
     "reason": "Capture functions from an older version of an interrupted module"
+  },
+  {
+    "id": "READ_MEMO_WEAK_OWNER",
+    "path": "src/agnette/agl/scope/read_memo.py",
+    "module": "agnette.agl.scope.read_memo",
+    "line": 32,
+    "column": 21,
+    "source_sha256": "14a06b8ffacf2b872c6eacab7cee637132d0631a9d2b1f87de8fec2b5e817893",
+    "before": "ref(table)",
+    "after": "lambda: table",
+    "mode": "eval",
+    "tests": ["tests/test_agl_read_memo_lifetime.py"],
+    "reason": "Retain discarded memo owners through their cached results"
+  },
+  {
+    "id": "READ_MEMO_DEAD_OWNER_PROPAGATION",
+    "path": "src/agnette/agl/scope/read_memo.py",
+    "module": "agnette.agl.scope.read_memo",
+    "line": 98,
+    "column": 31,
+    "source_sha256": "14a06b8ffacf2b872c6eacab7cee637132d0631a9d2b1f87de8fec2b5e817893",
+    "before": "kept.parents",
+    "after": "kept.parents if table is not None else ()",
+    "mode": "eval",
+    "tests": ["tests/test_agl_read_memo_lifetime.py"],
+    "reason": "Lose transitive invalidation when an intermediate memo is released"
+  },
+  {
+    "id": "REPL_ALIAS_CURRENT_SELECTION",
+    "path": "src/agnette/agl/scope/sources.py",
+    "module": "agnette.agl.scope.sources",
+    "line": 2049,
+    "column": 11,
+    "source_sha256": "ac1dc15dc0f0b16d0103494189b816d225d959bacfdd01924658cd04566ea692",
+    "before": "not self._repl_session",
+    "after": "True",
+    "mode": "eval",
+    "tests": ["tests/test_agl_repl_alias_reachability.py"],
+    "reason": "Freeze retained alias selections despite current constructor hiding"
+  },
+  {
+    "id": "SCOPE_SOURCE_FACTORY_OWNERSHIP",
+    "path": "src/agnette/agl/scope/program.py",
+    "module": "agnette.agl.scope.program",
+    "line": 1132,
+    "column": 43,
+    "source_sha256": "a49cbb1d3cf509e7c4d8a6444d3a9959dc1c999ceca3a9767e107aacbf9f2607",
+    "before": "proxy(source_factory)",
+    "after": "source_factory",
+    "mode": "eval",
+    "tests": ["tests/test_agl_repl_alias_reachability.py"],
+    "reason": "Retain discarded source factories through their index callbacks"
+  },
+  {
+    "id": "IR_SOURCE_BOUNDS_FRESHNESS",
+    "path": "src/agnette/agl/ir/validate.py",
+    "module": "agnette.agl.ir.validate",
+    "line": 308,
+    "column": 15,
+    "source_sha256": "daa05084a4ba375aaaf5d94ec11f440a795a9d6b6ea23457ba5fc56bec2653e0",
+    "before": "len(source.normalized_text)",
+    "after": "10 ** 100",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_validation_freshness.py"],
+    "reason": "Accept locations beyond a replacement source's current bounds"
+  },
+  {
+    "id": "IR_NONEMPTY_PAYLOAD_REQUIREMENTS",
+    "path": "src/agnette/agl/ir/validate.py",
+    "module": "agnette.agl.ir.validate",
+    "line": 988,
+    "column": 27,
+    "source_sha256": "daa05084a4ba375aaaf5d94ec11f440a795a9d6b6ea23457ba5fc56bec2653e0",
+    "before": "frozenset(collector) if collector else _EMPTY_PAYLOAD_REQUIREMENTS",
+    "after": "_EMPTY_PAYLOAD_REQUIREMENTS",
+    "mode": "eval",
+    "tests": ["tests/test_agl_ir_validate.py"],
+    "reason": "Discard nonempty payload requirements during DAG validation"
   }
 ]
