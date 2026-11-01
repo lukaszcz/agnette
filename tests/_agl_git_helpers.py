@@ -17,22 +17,21 @@ from agnette.agl.pipeline import PipelineDriver
 from tests._agl_helpers import run_program
 
 
-def run_git_program(
+def execute_git_program(
     body: str,
     cwd: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     *,
     imports: tuple[str, ...] = (),
     runtime: PipelineDriver | None = None,
     roots: RootSet | None = None,
-) -> str:
+) -> None:
     """Run *body* as ``main`` with ``std/git`` and its members imported and cwd set to *cwd*.
 
     ``std/env::environ`` is seeded from the current (isolated) ``os.environ``, as ``agm exec``
     does. *imports* adds further ``import`` lines; *runtime* and *roots* replace the default driver
     and roots (see :func:`~tests._agl_helpers.run_program`). Asserts the program succeeds without
-    warnings and returns its stdout.
+    warnings.
     """
     header = "".join(f"import {name}\n" for name in ("std/git", "std/git::*", *imports))
     source = f"{header}program def main() -> unit =\n{textwrap.indent(body.strip(), '  ')}\n"
@@ -40,6 +39,18 @@ def run_git_program(
     result = run_program(source, process_environment=dict(os.environ), runtime=runtime, roots=roots)
     assert result.ok, (result.diagnostics, result.error)
     assert result.warnings == []
+
+
+def run_git_program(
+    body: str,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    imports: tuple[str, ...] = (),
+) -> str:
+    """Run *body* as :func:`execute_git_program` does and return its stdout."""
+    execute_git_program(body, cwd, monkeypatch, imports=imports)
     return capsys.readouterr().out
 
 

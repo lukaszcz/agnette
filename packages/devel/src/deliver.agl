@@ -3,7 +3,14 @@
 import std/config
 import std/session::Session
 import std/fs
+import std/git
 import std/log
+import std/os
+import std/path
+import std/ps
+import std/text::join
+import std/time
+import devel/git as agent-git
 import devel/utils
 import devel/review
 
@@ -13,6 +20,12 @@ enum VerifyResult
       next-task-file: Option[path]
   | Incomplete
       reason: text
+
+record TaskRun
+  task-file: path
+  branch: text
+  worktree: path
+  process: ps::Process[unit]
 
 def make-tasks-prompt(plan-file: path, tasks-dir: path, instructions: text = "") -> text =
   let instructions' =
@@ -79,11 +92,16 @@ def update-task-progress-prompt(tasks-dir: path) -> text =
   Keep PROGRESS.md concise.
   """
 
-def verify-task-prompt(task-file: path, tasks-dir: path) -> text =
+def check-task-prompt(task-file: path) -> text =
   """
   Verify if %{task-file} is completed. Check the implementation against the corresponding task file.
 
   IMPORTANT: A task is not done until all its acceptance criteria are satisfied. Do not mark partially done tasks as complete. Do not consider deferrals as signs of completion.
+  """
+
+def verify-task-prompt(task-file: path, tasks-dir: path) -> text =
+  """
+  %{check-task-prompt(task-file)}
 
   %{update-task-progress-prompt(tasks-dir)}
 
@@ -96,12 +114,28 @@ def verify-task-prompt(task-file: path, tasks-dir: path) -> text =
 def Session::verify-task(self, task-file: path, tasks-dir: path) -> VerifyResult =
   self.ask <| verify-task-prompt(task-file, tasks-dir)
 
+def verify-worktree-task-prompt(task-file: path) -> text =
+  """
+  %{check-task-prompt(task-file)}
+
+  The implementation is on the current branch in the current directory. Do not modify any files.
+
+  ## Response
+
+  - If %{task-file} is complete, return `Complete` with `None`.
+  - If %{task-file} is not complete, return `Incomplete` with a reason for why the task is not complete.
+  """
+
+def Session::verify-worktree-task(self, task-file: path) -> VerifyResult =
+  self.ask <| verify-worktree-task-prompt(task-file)
+
+def mark-done-prompt(task-file: Option[path]) -> text =
+  case task-file of
+    | Some(value) => "Mark %{value} as done. "
+    | None => ""
+
 def select-next-task-prompt(task-file: Option[path], tasks-dir: path) -> text =
-  let mark-done-prompt: text =
-    case task-file of
-      | Some(value) => "Mark %{value} as done. "
-      | None => ""
-  mark-done-prompt ++
+  mark-done-prompt(task-file) ++
   update-task-progress-prompt(tasks-dir) ++
   """
 
@@ -113,6 +147,27 @@ def select-next-task-prompt(task-file: Option[path], tasks-dir: path) -> text =
 def Session::select-next-task(self, task-file: Option[path], tasks-dir: path) -> Option[path] =
   self.ask <| select-next-task-prompt(task-file, tasks-dir)
 
+# Returns the next task reported by the verification that completed `task-file`.
+def revise-until-complete(task-file: path, exec-agent: Agent, verify: () -> VerifyResult) -> Option[path] =
+  var next-task: Option[path] = None
+  do
+    log::info("Verifying task %{task-file}")
+    let r = verify()
+    case r of
+      | Complete(next-task-file) =>
+        log::info("Task complete")
+        next-task := next-task-file
+      | Incomplete(reason) =>
+        log::info("Task incomplete: %{reason}")
+        log::info("\nRevising implementation of %{task-file}")
+        exec-agent.implement-task(task-file, Some(reason))
+  until r is Complete
+  next-task
+
+def refine-task(task-file: path, review-agent: Agent, revise-agent: Agent, max-refine-steps: int, save-reviews: bool) -> unit =
+  if max-refine-steps > 0 =>
+    review::refine("the implementation of %{task-file}", review::default-aspects ++ ", adherence to %{task-file}", review-agent, revise-agent, max-refine-steps, save-reviews)
+
 def Session::deliver-plan(self, plan-file: path, tasks-dir: path, exec-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool) -> unit =
   var next-task: Option[path] = self.select-next-task(None, tasks-dir)
   while next-task is Some do
@@ -120,23 +175,109 @@ def Session::deliver-plan(self, plan-file: path, tasks-dir: path, exec-agent: Ag
     log::info-heading("Implementing task %{task-file}")
     exec-agent.implement-task(task-file, None)
     if verify =>
-      do
-        log::info("Verifying task %{task-file}")
-        let r = self.verify-task(task-file, tasks-dir)
-        case r of
-          | Complete(next-task-file) =>
-            log::info("Task complete")
-            next-task := next-task-file
-          | Incomplete(reason) =>
-            log::info("Task incomplete: %{reason}")
-            log::info("\nRevising implementation of %{task-file}")
-            exec-agent.implement-task(task-file, Some(reason))
-      until r is Complete
+      next-task := revise-until-complete(task-file, exec-agent, fn() => self.verify-task(task-file, tasks-dir))
     else =>
       next-task := self.select-next-task(Some(task-file), tasks-dir)
-    if max-refine-steps > 0 =>
-      review::refine("the implementation of %{task-file}", review::default-aspects ++ ", adherence to %{task-file}", review-agent, revise-agent, max-refine-steps, save-reviews)
+    refine-task(task-file, review-agent, revise-agent, max-refine-steps, save-reviews)
   done
+
+def select-ready-tasks-prompt(task-file: Option[path], in-progress: array[path], tasks-dir: path) -> text =
+  let in-progress-list = join(in-progress.map(fn(file: path) => "- %{file}"), "\n")
+  mark-done-prompt(task-file) ++
+  update-task-progress-prompt(tasks-dir) ++
+  """
+
+  ## Tasks in progress
+
+  Only the following tasks are in progress now, whatever PROGRESS.md says:
+
+  %{in-progress-list}
+
+  ## Response
+
+  Return the absolute paths of all task files that are not yet completed, not in progress, and not blocked by uncompleted tasks. A task that depends on a task in progress is blocked. Return an empty array if there are no such tasks.
+  """
+
+def Session::select-ready-tasks(self, task-file: Option[path], in-progress: array[path], tasks-dir: path) -> array[path] =
+  let ready: array[path] = self.ask <| select-ready-tasks-prompt(task-file, in-progress, tasks-dir)
+  ready.map(path::absolute)
+
+# Runs in a forked child, which owns its working directory: agent calls and git act on `worktree`.
+def deliver-task(task-file: path, worktree: path, main-dir: path, verify-agent: Agent, exec-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool) -> unit =
+  os::chdir(worktree)
+  log::info-heading("Implementing task %{task-file}")
+  exec-agent.implement-task(task-file, None)
+  if verify =>
+    let session = session::Session::open(verify-agent)
+    let _ = revise-until-complete(task-file, exec-agent, fn() => session.verify-worktree-task(task-file))
+    session.close()
+  refine-task(task-file, review-agent, revise-agent, max-refine-steps, save-reviews)
+  for review-file in fs::glob("reviews/*", ".agent-files") do
+    fs::copy(".agent-files/%{review-file}", "%{main-dir}/.agent-files/%{review-file}")
+  # Removing the worktree discards whatever is not committed.
+  if not git::is-clean() =>
+    exec-agent.commit()
+
+# Keeps a branch with unmerged commits: it holds the only copy of that work.
+def TaskRun::remove(self) -> unit =
+  git::worktree::remove(self.worktree, true)
+  if git::is-ancestor(self.branch, "HEAD") =>
+    git::branch::delete(self.branch)
+  else =>
+    log::warn("Keeping unmerged branch %{self.branch} of %{self.task-file}")
+
+@doc("""
+  Deliver the tasks in `tasks-dir` like `deliver-plan`, running up to `jobs` tasks concurrently.
+
+  Each task runs in a forked process, in a temporary worktree on a branch of its own, and starts
+  once the tasks it depends on are merged. A finished task is merged into the current branch, with
+  `exec-agent` resolving conflicts, and its worktree and branch are removed. The orchestrator
+  session runs here, while a slot is free, and alone updates PROGRESS.md.
+
+  The first failure terminates the running tasks and is raised again, after removing their worktrees.
+  Branches with unmerged commits are kept. Raises `RangeError` if `jobs` is not positive.
+""")
+def Session::deliver-plan-parallel(self, plan-file: path, tasks-dir: path, exec-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool, jobs: int) -> unit =
+  if jobs < 1 =>
+    raise RangeError(message = "jobs must be positive, got %{jobs}")
+  let main-dir = os::cwd()
+  # Task files may be ignored by git, so workers read them from the main repository.
+  let tasks-path = path::absolute(tasks-dir)
+  let worktrees-dir = fs::temp-dir()
+  let branch-prefix = "deliver-%{time::timestamp()}"
+  var running: array[TaskRun] = []
+  var started: array[path] = []
+  var merged: Option[path] = None
+  try
+    while true do
+      let in-progress = running.map(fn(run: TaskRun) => run.task-file)
+      let ready = self.select-ready-tasks(merged, in-progress, tasks-path)
+        .select(fn(task-file: path) => not started.contains(task-file))
+      for task-file in ready.take(jobs - running.size()) do
+        started.push(task-file)
+        let worktree = "%{worktrees-dir}/task-%{started.size()}"
+        let branch = "%{branch-prefix}/task-%{started.size()}"
+        git::worktree::add(worktree, new-branch = Some(branch))
+        let process = ps::fork(fn() =>
+          deliver-task(task-file, worktree, main-dir, self.agent, exec-agent, review-agent, revise-agent, verify, max-refine-steps, save-reviews))
+        running.push(TaskRun(task-file, branch, worktree, process))
+      if running.is-empty() =>
+        break
+      let index = ps::settle-any(running.map(fn(run: TaskRun) => run.process))
+      let run = running[index]
+      ps::wait(run.process)
+      log::info-heading("Merging task %{run.task-file}")
+      exec-agent.merge(run.branch)
+      if not git::is-ancestor(run.branch, "HEAD") =>
+        raise Abort(message = "Merge of %{run.branch} did not finish")
+      let _ = running.remove-at(index)
+      run.remove()
+      merged := Some(run.task-file)
+  catch _ =>
+    for run in running do
+      ps::terminate(run.process)
+      run.remove()
+    raise
 
 def implement-tasks-prompt(plan-file: path, tasks-dir: path, impl-model: text, review-model: text, jobs: int) -> text =
   let jobs-prompt =

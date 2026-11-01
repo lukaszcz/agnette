@@ -6,10 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.pipeline import PipelineDriver
-from agnette.agl.runtime.agents import value_driven_agent_factory
-from tests._agl_git_helpers import run_git_program
-from tests._agl_helpers import hermetic_get_sandbox_context, package_roots
+from tests._devel_helpers import run_devel_program
 from tests._git_helpers import (
     commit_file,
     conflicting_branches,
@@ -20,10 +17,7 @@ from tests._git_helpers import (
     init_repo,
     write_file,
 )
-from tests._package_helpers import package_info
 from tests.conftest import FakeAgentTransport
-
-_DEVEL_ROOT = Path(__file__).resolve().parents[1] / "packages" / "devel"
 
 _BODY = """
 try
@@ -38,23 +32,8 @@ def _run_merge(
     ref: str, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> str:
     """Run ``devel/git``'s ``Agent::merge(ref)`` in *repo*; return ``merged`` or ``raised``."""
-    runtime = PipelineDriver(
-        resolve_agent_spec=None,
-        agent_dispatcher=value_driven_agent_factory(
-            idle_timeout=None, get_sandbox_context=hermetic_get_sandbox_context()
-        ),
-        get_sandbox_context=None,
-    )
-    out = run_git_program(
-        _BODY % ref,
-        repo,
-        monkeypatch,
-        capsys,
-        imports=("devel/git",),
-        runtime=runtime,
-        roots=package_roots(package_info(_DEVEL_ROOT), cwd=_DEVEL_ROOT),
-    )
-    return out.strip()
+    run_devel_program(_BODY % ref, repo, monkeypatch, imports=("devel/git",))
+    return capsys.readouterr().out.strip()
 
 
 def test_conflicting_merge_asks_the_agent_to_finish_it(
