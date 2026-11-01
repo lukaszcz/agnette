@@ -13,8 +13,10 @@ enum Agent
 
 builtin
 enum AgentSandbox
-  | Disabled
-  | Native
+  | @name("none")
+    Disabled
+  | @name("native", "auto")
+    Native
   | std/sandbox::Sandbox
 
 builtin
