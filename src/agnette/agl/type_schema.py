@@ -173,6 +173,7 @@ def _emit_field_decodes(
             emit_field(ftype),
             zone=zones[name],
             alias=externals.get(name, NO_EXTERNAL_NAME).alias(name),
+            aliases=externals.get(name, NO_EXTERNAL_NAME).extra_names,
             default_index=index if defaults[name] else None,
         )
         for index, (name, json_name, ftype) in enumerate(type_table.json_fields(handle))
@@ -755,6 +756,7 @@ def _emit_decode_body(
             ),
             name=typ.name,
             alias=type_table.external_name(typ).alias(typ.name),
+            aliases=type_table.external_name(typ).extra_names,
         )
     # The checker admits only wire data types; the one left is an enum.
     enum_type = cast(EnumType, typ)
@@ -774,6 +776,7 @@ def _emit_decode_body(
                     lambda ftype: _emit_decode(ftype, type_table, plan, memo),
                 ),
                 alias=type_table.external_name(member).alias(vname),
+                aliases=type_table.external_name(member).extra_names,
             )
             for vname, member in members.items()
         ),

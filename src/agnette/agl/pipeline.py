@@ -1897,9 +1897,12 @@ def _enum_completion_values(type_: "Type", type_table: "TypeTable") -> tuple[str
     if not isinstance(type_, EnumType):
         return ()
     return tuple(
-        type_table.external_name(member).name or member.name
+        spelling
         for member in type_table.enum_members(type_)
         if all(has_default for _, has_default in type_table.field_has_default(member))
+        for spelling in (
+            type_table.external_name(member).value_names(member.name)[1:] or (member.name,)
+        )
     )
 
 

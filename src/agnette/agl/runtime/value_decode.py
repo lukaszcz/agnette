@@ -263,7 +263,7 @@ def _convert_record(node: ValueNode, schema: RecordDecode, defs: DefsMap) -> dic
         raise ValueDecodeError(
             f"expected {schema.display_name}, got {_node_kind(node)}", node.start
         )
-    if node.name != schema.name and node.name != schema.alias:
+    if node.name not in (schema.name, schema.alias, *schema.aliases):
         raise ValueDecodeError(
             f"expected constructor {schema.display_name!r}, got {node.name!r}", node.start
         )
@@ -283,7 +283,7 @@ def _match_variant(node: CtorNode, schema: EnumDecode) -> VariantDecode | None:
     member, or the scope of a referenced (non-inline) member's own
     declaration.
     """
-    variant = next((v for v in schema.variants if node.name in (v.name, v.alias)), None)
+    variant = next((v for v in schema.variants if node.name in (v.name, v.alias, *v.aliases)), None)
     if variant is None:
         return None
     if node.qualifier is not None and node.qualifier not in (
@@ -333,6 +333,8 @@ def _convert_ctor_args(
         alias_map[field.name] = field.name
         if field.alias is not None:
             alias_map[field.alias] = field.name
+        for alias in field.aliases:
+            alias_map[alias] = field.name
     bind_params = [
         BindParam(name=f.name, kind=f.zone, has_default=f.default_index is not None) for f in fields
     ]
@@ -584,7 +586,7 @@ def _agent_ctor_probe(text: str, schema: EnumDecode) -> bool:
     if head is None:
         return False
     _qualifier, name = head
-    return any(name in (v.name, v.alias) for v in schema.variants)
+    return any(name in (v.name, v.alias, *v.aliases) for v in schema.variants)
 
 
 def _decode_agent_text(

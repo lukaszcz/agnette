@@ -5126,8 +5126,12 @@ def test_method_may_reuse_a_field_name_declared_only_in_a_sibling_branch() -> No
     (
         ("  code: int = 0\n", '  @name("code")\n  other: int = 0\n'),
         ('  @name("x")\n  code: int = 0\n', "  x: int = 0\n"),
+        (
+            '  @name("first", "shared")\n  code: int = 0\n',
+            '  @name("second", "shared")\n  other: int = 0\n',
+        ),
     ),
-    ids=("renamed-own-clashes-with-inherited", "own-clashes-with-renamed-inherited"),
+    ids=("renamed-own-clashes-with-inherited", "own-clashes-with-renamed-inherited", "extra-alias"),
 )
 def test_an_exception_field_cannot_share_an_external_name_with_an_inherited_field(
     base_field: str, own_field: str

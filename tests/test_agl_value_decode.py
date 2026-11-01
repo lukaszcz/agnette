@@ -126,6 +126,27 @@ _LINK_SRC = "enum Link\n  | End\n  | Cell(next: Link)\nlet l: Link = Cell(next =
 
 _OPTION_INT_SRC = "let x: Option[int] = None\nx"
 
+
+def test_multiple_external_names_decode_and_use_first_for_json() -> None:
+    source = (
+        '@name("Pt", "P")\nrecord Point\n'
+        '  @name("px", "horizontal") x: int\n'
+        "let p: Point = Point(x = 1)\np"
+    )
+    schema, defs = _last_expr_plan(source)
+    assert value_node_to_json(read_value("P(horizontal = 3)"), schema, defs) == {"px": 3}
+
+
+def test_multiple_enum_names_and_json_override() -> None:
+    source = (
+        'enum Shape\n  | @name("sq", "square") @json-name("square-json") Square\n'
+        "  | Other\nlet s: Shape = Square\ns"
+    )
+    schema, defs = _last_expr_plan(source)
+    for name in ("Square", "sq", "square"):
+        assert value_node_to_json(read_value(name), schema, defs) == "square-json"
+
+
 _OPTION_POINT_SRC = (
     "record Point\n"
     '  @name("px") @json-name("pixel") x: int\n'

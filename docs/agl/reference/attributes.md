@@ -116,7 +116,7 @@ that same binding in an expression reads whatever value the host bound.
 | `@opt-metavar("…")` | placeholder | `program def` parameter, `@param` parameter, or `@param` binding | Value placeholder in usage and help. |
 | `@opt-hidden` | none | `program def` parameter, `@param` parameter, or `@param` binding | Omits the flag from help and completion; the parameter still binds. |
 | `@inherit("a.b.c", ...)` | one or more dotted config addresses | `program def` parameter, `@param` parameter, or `@param` binding | Defaults the parameter to the configured value of another command's parameter; see [`@inherit`](#inherit). |
-| `@name("…")` | AgL identifier | field, enum member, or record declaration | Alternative external name; default JSON name. |
+| `@name("…", ...)` | one or more AgL identifiers | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
 | `@command("…")` | command path | `program def` | Registers the program as that package command. |
 | `@allow("name", ...)` | one or more warning names | every defining declaration; `@!allow` on a module or scope region | Hides the named static warnings within the declaration, module, or region. |
@@ -164,15 +164,15 @@ member; or a record declaration (a record's own `@name`/`@json-name` doubles
 as its JSON tag wherever it is an enum member). Not legal on an enum or
 exception declaration, a parameter, a binding, a function, or a `type` alias.
 
-`@name("…")` takes an AgL identifier that is not a hard keyword; a soft
-keyword is fine. It is the declaration's alternative external name, and the
-default JSON name when no `@json-name` is given.
+`@name("…", ...)` takes one or more distinct AgL identifiers that are not hard
+keywords; soft keywords are fine. Each is an alternative external name. The
+first is the default JSON name when no `@json-name` is given.
 
 `@json-name("…")` takes any non-empty text except `"$case"` (reserved for
 the enum-member discriminator). It overrides the JSON name only, leaving the
 declared name and any `@name` untouched everywhere else.
 
-Effective JSON name: `@json-name` if present, else `@name`, else the
+Effective JSON name: `@json-name` if present, else the first `@name` argument, else the
 declared name. This is the object key a record or exception field encodes
 and decodes under, and the JSON tag naming a record wherever it inhabits an
 enum, wherever a value crosses JSON: agent structured output, `as`/`as?`
@@ -187,7 +187,7 @@ whose declared/`@name` spellings collide, are static errors, checked across
 a record's own fields, an exception's inherited field chain, and an enum's
 members (inline and referenced alike).
 
-A record's, enum member's, or field's `@name` is also accepted in place of
+A record's, enum member's, or field's `@name` arguments are also accepted in place of
 the declared name in [host value syntax](host-environment.md#value-syntax):
 `Square` and `sq` both construct the `Square` member below.
 

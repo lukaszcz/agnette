@@ -137,7 +137,7 @@ class FieldDecode:
     default fill (``runtime.convert.decode_value``'s ``default_resolver``)
     uses to evaluate the real default expression. A missing JSON key or an
     omitted constructor argument is then legal rather than an error.
-    ``None`` for a field with no default.
+    ``None`` for a field with no default. ``aliases`` carries further spellings.
     """
 
     name: str
@@ -146,6 +146,7 @@ class FieldDecode:
     zone: ParamZone
     alias: str | None
     default_index: int | None = None
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +156,7 @@ class RecordDecode:
     ``name`` is the record's terminal declared name (the handle's own
     ``name``, unqualified — unlike ``display_name``). ``alias`` is the
     record's own ``@name`` spelling when it differs from ``name``, or
-    ``None`` when the record carries no alias.
+    ``None`` when the record carries no alias. ``aliases`` carries further spellings.
     """
 
     nominal: NominalId
@@ -163,6 +164,7 @@ class RecordDecode:
     fields: tuple[FieldDecode, ...]
     name: str
     alias: str | None
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +172,8 @@ class VariantDecode:
     """One enum member's terminal name, JSON tag, identity, display name, and fields.
 
     ``alias`` is the member's own ``@name`` spelling when it differs from
-    ``name``, or ``None`` when the member carries no alias.
+    ``name``, or ``None`` when the member carries no alias. ``aliases`` carries
+    further spellings.
     """
 
     name: str
@@ -179,6 +182,7 @@ class VariantDecode:
     display_name: str
     fields: tuple[FieldDecode, ...]
     alias: str | None
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

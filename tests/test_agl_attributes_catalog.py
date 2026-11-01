@@ -61,7 +61,8 @@ class TestCatalogContents:
             AttributeTarget.ENUM_MEMBER,
             AttributeTarget.RECORD,
         }
-        assert spec.arguments is AttributeArguments.ONE_TEXT
+        expected = AttributeArguments.TEXT_LIST if name == "name" else AttributeArguments.ONE_TEXT
+        assert spec.arguments is expected
 
     def test_specs_are_keyed_by_their_own_name(self) -> None:
         assert all(name == spec.name for name, spec in BUILTIN_ATTRIBUTES.items())

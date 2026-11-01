@@ -335,6 +335,11 @@ class TestAttributeDiagnostics:
         (field,) = record.fields
         assert resolution.attributes.external_names[field.node_id].name == "exec$"
 
+    @pytest.mark.parametrize("names", ['"ok", "if"', '"ok", "ok"', ""])
+    def test_invalid_multiple_names_are_rejected(self, names: str) -> None:
+        with pytest.raises(AglScopeError):
+            resolve_entry(f"record R\n  @name({names}) x: int\n")
+
 
 class TestProgramOptions:
     """The command-line presentation the ``@opt-*`` attributes describe."""

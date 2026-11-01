@@ -507,28 +507,23 @@ class _Recognizer:
         every declaration :meth:`_check` sees and simply finds nothing to
         file for the rest.
         """
-        texts: dict[str, str | None] = {}
-        for attribute, invalid_text in (
-            (NAME_ATTRIBUTE, invalid_external_name),
-            (JSON_NAME_ATTRIBUTE, invalid_json_name),
+        names = recognized.lists.get(NAME_ATTRIBUTE, ())
+        json_name = recognized.texts.get(JSON_NAME_ATTRIBUTE)
+        for attribute, values, invalid_text in (
+            (NAME_ATTRIBUTE, names, invalid_external_name),
+            (JSON_NAME_ATTRIBUTE, (json_name,) if json_name is not None else (), invalid_json_name),
         ):
-            attribute_node = recognized.nodes.get(attribute)
-            if attribute_node is None:
-                texts[attribute] = None
-                continue
-            text = recognized.texts[attribute]
-            invalid = invalid_text(text)
-            if invalid is not None:
-                raise AglScopeError(
-                    f"Attribute '@{attribute}' argument {text!r} {invalid}.",
-                    span=attribute_node.span,
-                )
-            texts[attribute] = text
-        if texts[NAME_ATTRIBUTE] is None and texts[JSON_NAME_ATTRIBUTE] is None:
-            return
-        self.external_names[node_id] = ExternalName(
-            name=texts[NAME_ATTRIBUTE], json_name=texts[JSON_NAME_ATTRIBUTE]
-        )
+            for text in values:
+                invalid = invalid_text(text)
+                if invalid is not None:
+                    raise AglScopeError(
+                        f"Attribute '@{attribute}' argument {text!r} {invalid}.",
+                        span=recognized.nodes[attribute].span,
+                    )
+        if names or json_name is not None:
+            self.external_names[node_id] = ExternalName(
+                name=names[0] if names else None, json_name=json_name, extra_names=names[1:]
+            )
 
     # ------------------------------------------------------------------
     # Fact builder: static warning names

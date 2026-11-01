@@ -310,7 +310,7 @@ _EXTERNAL_NAME_TARGETS: frozenset[AttributeTarget] = frozenset(
 )
 
 #: The attributes naming a field, enum member, or record's external spellings.
-#: ``@name`` is an alternative value-syntax spelling and the JSON default;
+#: ``@name`` supplies value-syntax spellings, the first being the JSON default;
 #: ``@json-name`` overrides the JSON spelling only.
 NAME_ATTRIBUTE = "name"
 JSON_NAME_ATTRIBUTE = "json-name"
@@ -506,7 +506,7 @@ _SPECS: tuple[AttributeSpec, ...] = (
     AttributeSpec(
         name=NAME_ATTRIBUTE,
         targets=_EXTERNAL_NAME_TARGETS,
-        arguments=AttributeArguments.ONE_TEXT,
+        arguments=AttributeArguments.TEXT_LIST,
     ),
     AttributeSpec(
         name=JSON_NAME_ATTRIBUTE,
