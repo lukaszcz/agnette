@@ -3874,6 +3874,99 @@ class TestProgramOptionAttributesCLI:
     argument tokens reach ``agm exec``.
     """
 
+    @pytest.mark.parametrize("flag", ["--out", "-O"])
+    def test_alternative_option_spellings(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], flag: str
+    ) -> None:
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            'program def main(@opt-name("output", "out") @opt-short("o", "O") '
+            'value: text = "default") -> unit = print value\n',
+        )
+        exec_command.run(_exec_args_no_trace(agl_file, argument_tokens=[flag, "chosen"]))
+        assert capsys.readouterr().out == "chosen\n"
+
+    def test_ordered_environment_aliases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            'program def main(@opt-env("PRIMARY_VAR", "FALLBACK_VAR") '
+            'value: text = "default") -> unit = print value\n',
+        )
+        monkeypatch.setenv("PRIMARY_VAR", "")
+        monkeypatch.setenv("FALLBACK_VAR", "fallback")
+        exec_command.run(_exec_args_no_trace(agl_file))
+        assert capsys.readouterr().out == "fallback\n"
+        monkeypatch.setenv("PRIMARY_VAR", "primary")
+        exec_command.run(_exec_args_no_trace(agl_file))
+        assert capsys.readouterr().out == "primary\n"
+
+    def test_alternative_config_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, '[prog.main]\nout = "configured"\n')
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            'program def main(@opt-name("output", "out") value: text = "default") '
+            "-> unit = print value\n",
+        )
+        exec_command.run(_exec_args_no_trace(agl_file))
+        assert capsys.readouterr().out == "configured\n"
+
+    @pytest.mark.parametrize("flag", ["--out", "-O"])
+    def test_module_parameter_aliases(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], flag: str
+    ) -> None:
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            '@param @opt-name("output", "out") @opt-short("o", "O") '
+            'let value: text = "default"\nprogram def main() -> unit = print value\n',
+        )
+        exec_command.run(_exec_args_no_trace(agl_file, argument_tokens=[flag, "chosen"]))
+        assert capsys.readouterr().out == "chosen\n"
+
+    def test_boolean_alias_negation(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            'program def main(@opt-name("verbose", "chatty") flag: bool = true) '
+            "-> unit = print flag\n",
+        )
+        exec_command.run(_exec_args_no_trace(agl_file, argument_tokens=["--no-chatty"]))
+        assert capsys.readouterr().out == "false\n"
+
+    def test_module_alias_config_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _config_home(tmp_path, monkeypatch, '[prog.main]\nout = "configured"\n')
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            '@param @opt-name("output", "out") let value: text = "default"\n'
+            "program def main() -> unit = print value\n",
+        )
+        exec_command.run(_exec_args_no_trace(agl_file))
+        assert capsys.readouterr().out == "configured\n"
+
+    def test_alias_flag_collision_is_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        agl_file = tmp_path / "prog.agl"
+        write_file_program(
+            agl_file,
+            'program def main(@opt-name("output", "out") first: text = "a", '
+            'out: text = "b") -> unit = ()\n',
+        )
+        with pytest.raises(SystemExit):
+            exec_command.run(_exec_args_no_trace(agl_file))
+
     def _greeter(self, tmp_path: Path) -> Path:
         agl_file = tmp_path / "prog.agl"
         write_file_program(

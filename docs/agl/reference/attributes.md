@@ -110,15 +110,15 @@ that same binding in an expression reads whatever value the host bound.
 | `@arg-named` | none | same | Named-only zone. |
 | `@extern-name("…")` | Python identifier | `extern def` | Names the companion function. |
 | `@param` | none | module-root or scope-region `let`/`var` binding; `def`, `extern def`, or `program def` parameter | Exposes the binding or parameter as a host parameter. |
-| `@opt-name("…")` | flag word | `program def` parameter, `@param` parameter, or `@param` binding | External spelling: flag, `--no-` negation, config key, completion. |
-| `@opt-short("c")` | one ASCII letter | `program def` parameter, `@param` parameter, or `@param` binding | One-letter flag `-c`. |
-| `@opt-env("VAR")` | variable name | `program def` parameter, `@param` parameter, or `@param` binding | Environment fallback when no CLI token supplies the value. |
+| `@opt-name("…", ...)` | one or more flag words | `program def` parameter, `@param` parameter, or `@param` binding | External spelling: flag, `--no-` negation, config key, completion. |
+| `@opt-short("c", ...)` | one or more ASCII letters | `program def` parameter, `@param` parameter, or `@param` binding | One-letter flag `-c`. |
+| `@opt-env("VAR", ...)` | one or more variable names | `program def` parameter, `@param` parameter, or `@param` binding | Environment fallback when no CLI token supplies the value. |
 | `@opt-metavar("…")` | placeholder | `program def` parameter, `@param` parameter, or `@param` binding | Value placeholder in usage and help. |
 | `@opt-hidden` | none | `program def` parameter, `@param` parameter, or `@param` binding | Omits the flag from help and completion; the parameter still binds. |
 | `@inherit("a.b.c", ...)` | one or more dotted config addresses | `program def` parameter, `@param` parameter, or `@param` binding | Defaults the parameter to the configured value of another command's parameter; see [`@inherit`](#inherit). |
 | `@name("…", ...)` | one or more AgL identifiers | field, enum member, or record declaration | Alternative external name; default JSON name. |
 | `@json-name("…")` | non-empty text, not `"$case"` | same | Overrides the JSON name only. |
-| `@command("…")` | command path | `program def` | Registers the program as that package command. |
+| `@command("…", ...)` | one or more command paths | `program def` | Registers the program as that package command. |
 | `@allow("name", ...)` | one or more warning names | every defining declaration; `@!allow` on a module or scope region | Hides the named static warnings within the declaration, module, or region. |
 | `@exempts("name", ...)` | one or more exemptable warning names | any `def` form | Exempts the function's call results from the named static warnings. |
 | `@shell-quoted` | none | any `def` form | Declares the function's call results complete, quoted shell words. |
@@ -208,14 +208,14 @@ record Job
 ## `@command`
 
 `@command` registers a `program def` as a command of the package that owns its
-module ([Packages](packages.md#programs-and-commands)). Its argument is a
+module ([Packages](packages.md#programs-and-commands)). Each argument is a
 command path: space-separated words naming the command a reader invokes, so
 `@command("devel review")` is invoked as `devel review`. A path whose first
 word is one of the host's own commands, or any word of which looks like an
 option, is a static error; validating the package also rejects a first word
 naming one of AgM's config sections
 ([`agm pkg`](../../commands/pkg.md#commands)). It appears at most once, and on
-a `program def` alone.
+a `program def` alone. The first path is canonical; later paths are aliases.
 
 A command is a way to refer to a program, so the registration carries no prose
 of its own: the program's `@doc` describes it wherever it runs, the listing of
@@ -463,10 +463,10 @@ definitions](program-structure.md#program-definitions)), a
 [`@param`](#module-parameters) binding is addressed by the host; their effects
 are in the [catalog](#catalog). Beyond it:
 
-- `@opt-name`'s flag word is ASCII letters and digits with single interior
-  hyphens, so both `--word` and `--no-word` can be formed.
-- `@opt-short` takes exactly one ASCII letter.
-- An unset and an empty `@opt-env` variable both supply nothing.
+- Each `@opt-name` is a flag word; the first is canonical and the rest are alternate flags and
+  config keys. A flag word uses ASCII letters and digits with single interior hyphens.
+- `@opt-short` accepts one or more ASCII letters as short flags.
+- `@opt-env` tries its variables in order; unset and empty variables supply nothing.
 - A positional-capable parameter under `@opt-hidden` keeps its usage slot.
 
 A positional-only program parameter is never addressed by name, so `@opt-name`,

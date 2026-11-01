@@ -126,7 +126,10 @@ class TestExternAndOptionAttributes:
 
     @pytest.mark.parametrize("name", ("opt-short", "opt-name", "opt-env", "opt-metavar"))
     def test_valued_option_attributes_take_one_text(self, name: str) -> None:
-        assert BUILTIN_ATTRIBUTES[name].arguments is AttributeArguments.ONE_TEXT
+        expected = (
+            AttributeArguments.ONE_TEXT if name == "opt-metavar" else AttributeArguments.TEXT_LIST
+        )
+        assert BUILTIN_ATTRIBUTES[name].arguments is expected
 
     def test_opt_hidden_is_a_bare_marker(self) -> None:
         assert BUILTIN_ATTRIBUTES["opt-hidden"].arguments is AttributeArguments.NONE
@@ -178,9 +181,9 @@ class TestCommandAttribute:
         spec = BUILTIN_ATTRIBUTES[COMMAND_ATTRIBUTE]
         assert spec.targets == frozenset({AttributeTarget.PROGRAM})
 
-    def test_the_command_attribute_takes_one_text(self) -> None:
+    def test_the_command_attribute_takes_text_list(self) -> None:
         spec = BUILTIN_ATTRIBUTES[COMMAND_ATTRIBUTE]
-        assert spec.arguments is AttributeArguments.ONE_TEXT
+        assert spec.arguments is AttributeArguments.TEXT_LIST
 
 
 class TestDocAttribute:

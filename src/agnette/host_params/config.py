@@ -348,9 +348,16 @@ def colliding_declarations(params: Iterable[HostParamInfo]) -> str | None:
     the named modules'.
     """
     return full_spelling_collision(
-        (param.declared_spellings[-1], host_param_label(param.key))
+        (spelling, host_param_label(param.key))
         for param in params
         if not param.module.is_entry
+        for spelling in (
+            param.declared_spellings[-1],
+            *(
+                ".".join((*param.declared_spellings[-1].split(".")[:-1], alias))
+                for alias in param.cli.name_aliases
+            ),
+        )
     )
 
 
@@ -392,7 +399,7 @@ def _targets(program: ProgramDeclInfo, entries: Sequence[ParamSurfaceEntry]) -> 
                 argument.name,
                 program.param_key(argument.name),
                 argument,
-                (argument.cli.name,),
+                argument.cli.names,
             )
             for argument in _addressable_arguments(program)
         ),
@@ -428,10 +435,10 @@ class _Claims:
                 feeding, declared = by_route.setdefault(route, ([], []))
                 if param.key in reached:
                     feeding.append(
-                        _Target(param.declaration_path, param.key, param, (param.cli.name,))
+                        _Target(param.declaration_path, param.key, param, param.cli.names)
                     )
                 else:
-                    declared.append(param.cli.name)
+                    declared.extend(param.cli.names)
         if _EXEC_ROUTE in by_route:
             by_route[_EXEC_ROUTE][1].extend(EXEC_OPTION_KEYS)
         for route, (feeding, declared) in by_route.items():
@@ -690,7 +697,9 @@ def _addressable_arguments(program: ProgramDeclInfo) -> Iterator[ProgramParamInf
 
 def _program_leaves(program: ProgramDeclInfo) -> frozenset[str]:
     """Return the config spellings of *program*'s name-addressable arguments."""
-    return frozenset(parameter.cli.name for parameter in _addressable_arguments(program))
+    return frozenset(
+        name for parameter in _addressable_arguments(program) for name in parameter.cli.names
+    )
 
 
 def _positional_only_leaves(program: ProgramDeclInfo) -> frozenset[str]:

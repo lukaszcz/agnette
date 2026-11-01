@@ -95,8 +95,17 @@ class _ParamRoutes:
 
     def full(self) -> "_ParamRoutes":
         """Keep only the most qualified long name, which no abbreviation may take."""
+        prefix = self.spellings[-1].rsplit(".", maxsplit=1)[0]
+        names = {f"{prefix}.{name}" for name in self.param.cli.names}
+        selected = tuple(
+            (name, projection)
+            for name, projection in zip(self.spellings, self.projections, strict=True)
+            if name in names or name == self.spellings[-1]
+        )
         return _ParamRoutes(
-            param=self.param, spellings=self.spellings[-1:], projections=self.projections[-1:]
+            param=self.param,
+            spellings=tuple(name for name, _ in selected),
+            projections=tuple(projection for _, projection in selected),
         )
 
 
@@ -117,7 +126,7 @@ def _param_routes(param: HostParamInfo, *, bare_only: bool) -> _ParamRoutes:
 
     Only the bare name when *bare_only*.
     """
-    names = param.declared_spellings[: 1 if bare_only else None]
+    names = param.cli.names if bare_only else param.declared_spellings
     return _ParamRoutes(
         param=param,
         spellings=names,
@@ -146,7 +155,8 @@ def _host_option_claims(reserved_flags: Collection[str]) -> _Claims:
 def _signature_long_claims(parameters: Iterable[ProgramParamInfo]) -> _Claims:
     claims: dict[str, list[_Claimant]] = {}
     for parameter in parameters:
-        _append_claim(claims, parameter.cli.name, None)
+        for name in parameter.cli.names:
+            _append_claim(claims, name, None)
     return _freeze_claims(claims)
 
 
@@ -155,8 +165,8 @@ def _signature_option_claims(parameters: Iterable[ProgramParamInfo]) -> _Claims:
     for parameter in parameters:
         if parameter.kind is ParamZone.POSITIONAL_ONLY or parameter.cli.cli_positional:
             continue
-        projected = project_option(parameter.cli.name, parameter.type)
-        for flag in param_spellings(parameter, projected):
+        projections = tuple(project_option(name, parameter.type) for name in parameter.cli.names)
+        for flag in param_spellings(parameter, *projections):
             _append_claim(claims, flag, None)
     return _freeze_claims(claims)
 
@@ -336,12 +346,11 @@ def _entry(
         if negative is not None and option_winners.get(negative) == param:
             negative_option_spellings.append(negative)
             option_spellings.append(negative)
-    short = param.cli.short
-    short_option = (
-        None if short is None or option_winners.get(f"-{short}") != param else f"-{short}"
+    short_options = tuple(
+        f"-{short}" for short in param.cli.shorts if option_winners.get(f"-{short}") == param
     )
-    if short_option is not None:
-        option_spellings.append(short_option)
+    short_option = short_options[0] if short_options else None
+    option_spellings.extend(short_options)
     return ParamSurfaceEntry(
         param=param,
         spellings=route.spellings,

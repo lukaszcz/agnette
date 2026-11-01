@@ -200,7 +200,8 @@ program def review(target: text) -> unit =
 
 ### `[aliases]`
 
-`[aliases]` and command groups are always manifest-declared, never via program attributes. Each
+A program may declare command aliases as additional `@command` arguments. Command groups are
+manifest-declared. Each `[aliases]`
 key is an alternate command path (same restrictions as commands) naming a canonical command or
 group in this package, never another alias; an alias cannot overwrite another command or alias,
 but may target a command a program registers via `@command`. Group aliases expose all canonical

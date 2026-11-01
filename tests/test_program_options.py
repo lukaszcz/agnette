@@ -1415,6 +1415,18 @@ class TestDefaultMetavar:
 class TestCompletionQueries:
     """What a completer needs to know about a partially typed program invocation."""
 
+    def test_aliases_are_completed_and_recognized_as_value_options(self) -> None:
+        param = _param("output", TextType(), short="o")
+        param = replace(
+            param,
+            cli=replace(param.cli, name_aliases=("out",), short_aliases=("O",)),
+        )
+        command = _command(param)
+        assert {"--output", "--out", "-o", "-O"} <= set(command.option_spellings())
+        assert command.option_arity()["--out"]
+        assert command.option_arity()["-O"]
+        assert command.value_options()[0][1] == ("--output", "--out", "-o", "-O")
+
     def _command(self) -> ProgramCommand:
         return _command(
             _param("source", TextType(), ParamZone.POSITIONAL_ONLY, is_path=True),

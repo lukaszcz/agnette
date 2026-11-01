@@ -325,7 +325,9 @@ class ProgramOptionSpec:
     """How one host-facing parameter presents itself to a host.
 
     ``name`` is the external spelling used for a flag (when present), its
-    config key, and completion; it defaults to the declared name. ``short``
+    config key, and completion; it defaults to the declared name. ``name_aliases``
+    adds long and config spellings; ``short_aliases`` adds short flags, and
+    ``env_aliases`` adds ordered environment fallbacks. ``short``
     is a one-letter alternative spelling, ``env`` an environment variable
     read when no value is supplied,
     ``metavar`` the placeholder standing for the value in usage text,
@@ -345,6 +347,21 @@ class ProgramOptionSpec:
     hidden: bool = False
     doc: str | None = None
     cli_positional: bool = False
+    name_aliases: tuple[str, ...] = ()
+    short_aliases: tuple[str, ...] = ()
+    env_aliases: tuple[str, ...] = ()
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return (self.name, *self.name_aliases)
+
+    @property
+    def shorts(self) -> tuple[str, ...]:
+        return (() if self.short is None else (self.short,)) + self.short_aliases
+
+    @property
+    def envs(self) -> tuple[str, ...]:
+        return (() if self.env is None else (self.env,)) + self.env_aliases
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,11 +373,12 @@ class ProgramRegistration:
     command is a way to refer to a program rather than a thing described on its
     own. ``command`` is the command path it registers as, in the
     space-separated spelling a package manifest uses, absent for a program that
-    registers none.
+    registers none. ``command_aliases`` holds its alternate paths.
     """
 
     doc: str | None = None
     command: str | None = None
+    command_aliases: tuple[str, ...] = ()
 
 
 def invalid_program_command_path(path: str) -> str | None:
@@ -402,7 +420,7 @@ def _program_spec(name: str) -> AttributeSpec:
     return AttributeSpec(
         name=name,
         targets=frozenset({AttributeTarget.PROGRAM}),
-        arguments=AttributeArguments.ONE_TEXT,
+        arguments=AttributeArguments.TEXT_LIST,
     )
 
 
@@ -445,17 +463,17 @@ _SPECS: tuple[AttributeSpec, ...] = (
     ),
     _option_spec(
         OPTION_SHORT_ATTRIBUTE,
-        AttributeArguments.ONE_TEXT,
+        AttributeArguments.TEXT_LIST,
         pattern=OPTION_SHORT_PATTERN,
         expected=_OPTION_SHORT_EXPECTED,
     ),
     _option_spec(
         OPTION_NAME_ATTRIBUTE,
-        AttributeArguments.ONE_TEXT,
+        AttributeArguments.TEXT_LIST,
         pattern=OPTION_NAME_PATTERN,
         expected=_OPTION_NAME_EXPECTED,
     ),
-    _option_spec(OPTION_ENV_ATTRIBUTE, AttributeArguments.ONE_TEXT),
+    _option_spec(OPTION_ENV_ATTRIBUTE, AttributeArguments.TEXT_LIST),
     _option_spec(OPTION_METAVAR_ATTRIBUTE, AttributeArguments.ONE_TEXT),
     _option_spec(OPTION_HIDDEN_ATTRIBUTE, AttributeArguments.NONE),
     AttributeSpec(

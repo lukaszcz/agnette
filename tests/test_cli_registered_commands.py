@@ -1347,7 +1347,7 @@ def test_installed_package_dispatches_its_own_source_declared_command(
         '[package]\nname = "tools"\nversion = "1.0.0"\n', encoding="utf-8"
     )
     (source / MODULE_TREE_DIRNAME / "review.agl").write_text(
-        '@command("tools review")\n'
+        '@command("tools review", "tools inspect")\n'
         '@doc("Review changes")\n'
         "program def main(@arg-named level: text) -> unit = print level\n",
         encoding="utf-8",
@@ -1357,10 +1357,10 @@ def test_installed_package_dispatches_its_own_source_declared_command(
     install_directory(source, home=home, env={})
     monkeypatch.setenv("HOME", str(home))
 
-    result = invoke(CliRunner(), ["tools", "review", "--level", "set"])
-
-    assert result.exit_code == 0
-    assert result.stdout == "set\n"
+    for command in ("review", "inspect"):
+        result = invoke(CliRunner(), ["tools", command, "--level", "set"])
+        assert result.exit_code == 0
+        assert result.stdout == "set\n"
 
 
 def test_installed_legacy_dev_alias_does_not_break_commands_or_package_listing(

@@ -206,8 +206,11 @@ def recognize_program_registration(
         constants,
         constants.static_scope_path_of(node.node_id) or (),
     )
+    paths = _program_command_paths(recognized)
     return ProgramRegistration(
-        doc=recognized.text_of(DOC_ATTRIBUTE), command=_program_command_path(recognized)
+        doc=recognized.text_of(DOC_ATTRIBUTE),
+        command=paths[0] if paths else None,
+        command_aliases=paths[1:],
     )
 
 
@@ -598,7 +601,7 @@ class _Recognizer:
 
     def _command_registration(self, recognized: _Recognized) -> None:
         """Validate the ``@command`` path, if any."""
-        _program_command_path(recognized)
+        _program_command_paths(recognized)
 
     # ------------------------------------------------------------------
     # Fact builder: program config entries
@@ -807,11 +810,16 @@ def _validate_attribute_prefix(
 def _option_spec(
     name: str, recognized: _Recognized, *, cli_positional: bool = False
 ) -> ProgramOptionSpec:
-    external = recognized.text_of(OPTION_NAME_ATTRIBUTE)
+    names = recognized.lists.get(OPTION_NAME_ATTRIBUTE, ())
+    shorts = recognized.lists.get(OPTION_SHORT_ATTRIBUTE, ())
+    envs = recognized.lists.get(OPTION_ENV_ATTRIBUTE, ())
     return ProgramOptionSpec(
-        name=name if external is None else external,
-        short=recognized.text_of(OPTION_SHORT_ATTRIBUTE),
-        env=recognized.text_of(OPTION_ENV_ATTRIBUTE),
+        name=names[0] if names else name,
+        short=shorts[0] if shorts else None,
+        env=envs[0] if envs else None,
+        name_aliases=names[1:],
+        short_aliases=shorts[1:],
+        env_aliases=envs[1:],
         metavar=recognized.text_of(OPTION_METAVAR_ATTRIBUTE),
         hidden=OPTION_HIDDEN_ATTRIBUTE in recognized.nodes,
         doc=recognized.text_of(DOC_ATTRIBUTE),
@@ -827,31 +835,26 @@ def _claim_param_name(
     *claimed* maps the external names of one declaration route to the
     parameters declared under them; two could never be told apart by a host.
     """
-    owner = claimed.setdefault(spec.name, declared)
-    if owner != declared:
-        raise AglScopeError(
-            f"Attribute '@param' parameter {declared!r} has external name {spec.name!r}, "
-            f"which parameter {owner!r} of the same declaration route already has.",
-            span=span,
-        )
+    for name in spec.names:
+        owner = claimed.setdefault(name, declared)
+        if owner != declared:
+            raise AglScopeError(
+                f"Attribute '@param' parameter {declared!r} has external name {name!r}, "
+                f"which parameter {owner!r} of the same declaration route already has.",
+                span=span,
+            )
 
 
-def _program_command_path(recognized: _Recognized) -> str | None:
-    """Return the package command path an attribute prefix registers, or ``None``.
-
-    The path is held to the rule a package manifest's command paths answer
-    to, since both register into the same command tree; whether the path
-    reaches a CLI at all is a package fact, so a program outside a package is
-    simply never asked for its registration.
-    """
-    command = recognized.nodes.get(COMMAND_ATTRIBUTE)
-    if command is None:
-        return None
-    path = recognized.texts[COMMAND_ATTRIBUTE]
-    invalid = invalid_program_command_path(path)
-    if invalid is not None:
-        raise AglScopeError(f"Command path {path!r} {invalid}.", span=command.span)
-    return path
+def _program_command_paths(recognized: _Recognized) -> tuple[str, ...]:
+    """Return validated command paths in declaration order."""
+    paths = recognized.lists.get(COMMAND_ATTRIBUTE, ())
+    for path in paths:
+        invalid = invalid_program_command_path(path)
+        if invalid is not None:
+            raise AglScopeError(
+                f"Command path {path!r} {invalid}.", span=recognized.nodes[COMMAND_ATTRIBUTE].span
+            )
+    return paths
 
 
 def _check_text_pattern(

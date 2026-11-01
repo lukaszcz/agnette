@@ -237,9 +237,9 @@ Language-side definitions: [Program arguments](../agl/reference/host-environment
 | Attribute | Effect on the CLI |
 |---|---|
 | `@doc("prose")` | On the `program def`, the help's description; on a parameter, that option's help entry |
-| `@opt-name("flag-word")` | Renames the flag, its `--no-` negation, its config key, and its completion |
-| `@opt-short("t")` | Adds `-t` beside the long flag |
-| `@opt-env("VAR")` | Reads `VAR` when no CLI token supplies the parameter |
+| `@opt-name("flag-word", ...)` | Names the long flags, their negations, and config keys; the first is canonical |
+| `@opt-short("t", ...)` | Adds short flags beside the long flags |
+| `@opt-env("VAR", ...)` | Reads the first nonempty variable when no CLI token supplies the parameter |
 | `@opt-metavar("PATH")` | Replaces the value placeholder in usage and help |
 | `@opt-hidden` | Omits the parameter's `--name` entry from `--help` and from shell completion; a positional-capable parameter keeps its usage slot |
 

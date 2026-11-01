@@ -79,8 +79,6 @@ from agnette.host_params.projection import (
     param_spellings,
     project_option,
     project_param_option,
-    short_flag,
-    spelling_tuple,
     token_raw_value,
 )
 from agnette.host_params.surface import ParamSurface, ParamSurfaceEntry, build_param_surface
@@ -795,6 +793,7 @@ def _positive_option(
     visible flag because only its variable can fill it.
     """
     spec = param.cli
+    envvars: list[str] = list(spec.envs)
     flag_form = projected.value_form is ValueForm.BOOL
     is_flag = True if flag_form else None
     value_type = click.BOOL if flag_form else None
@@ -807,7 +806,7 @@ def _positive_option(
             metavar=metavar,
             default=None,
             multiple=True,
-            envvar=spec.env,
+            envvar=spec.env if not spec.env_aliases else envvars,
             hidden=True,
         )
     return _ProgramOption(
@@ -817,7 +816,7 @@ def _positive_option(
         metavar=metavar,
         default=None,
         multiple=True,
-        envvar=spec.env,
+        envvar=spec.env if not spec.env_aliases else envvars,
         help=None if spec.doc is None else keep_indented_paragraphs(spec.doc),
         hidden=spec.hidden,
     )
@@ -852,12 +851,14 @@ def _click_params(
     exclusivity :meth:`ProgramCommand.parse` checks once both are parsed;
     every other form is one value-taking option.
     """
-    short = spelling_tuple(short_flag(param))
+    short = tuple(f"-{name}" for name in param.cli.shorts)
     if projected.value_form is ValueForm.BOOL:
-        pair = f"{projected.flag}/{projected.negative_flag}"
-        return [_positive_option(index, param, projected, (pair, *short))]
-    positive = _positive_option(index, param, projected, (projected.flag, *short))
-    negative = spelling_tuple(projected.negative_flag)
+        pairs = tuple(f"--{name}/--no-{name}" for name in param.cli.names)
+        return [_positive_option(index, param, projected, (*pairs, *short))]
+    positive = _positive_option(
+        index, param, projected, (*(f"--{name}" for name in param.cli.names), *short)
+    )
+    negative = tuple(f"--no-{name}" for name in param.cli.names) if projected.negative_flag else ()
     if not negative:
         return [positive]
     return [positive, _negative_option(index, param, negative)]
@@ -872,7 +873,10 @@ def _surface_click_params(
     all; a parameter left with no positive spelling keeps its ``@opt-env``
     fallback through a synthetic declaration.
     """
-    positive = (*entry.positive_option_spellings, *spelling_tuple(entry.short_option))
+    positive = (
+        *entry.positive_option_spellings,
+        *(flag for flag in entry.option_spellings if not flag.startswith("--")),
+    )
     params: list[click.Parameter] = []
     if positive:
         params.append(_positive_option(index, entry.param, projected, positive))
@@ -893,7 +897,10 @@ def _surface_click_params(
 
 def _surface_help_record(entry: ParamSurfaceEntry, projected: ProjectedOption) -> tuple[str, str]:
     """Render one surface parameter: its shortest positive spelling beside its shortest negative."""
-    positive = (*entry.positive_option_spellings, *spelling_tuple(entry.short_option))
+    positive = (
+        *entry.positive_option_spellings,
+        *(flag for flag in entry.option_spellings if not flag.startswith("--")),
+    )
     labels: list[str] = []
     if positive:
         metavar = entry.param.cli.metavar or _default_metavar(entry.param, projected)
@@ -901,7 +908,7 @@ def _surface_help_record(entry: ParamSurfaceEntry, projected: ProjectedOption) -
     labels.extend(entry.negative_option_spellings[:1])
     help_text = keep_indented_paragraphs(entry.param.cli.doc or "")
     if entry.param.cli.env is not None:
-        environment = f"[env var: {entry.param.cli.env}]"
+        environment = f"[env var: {', '.join(entry.param.cli.envs)}]"
         help_text = f"{help_text}  {environment}" if help_text else environment
     return " / ".join(labels), help_text
 
@@ -1299,16 +1306,18 @@ class ProgramCommand:
         for param, projected in self.options:
             if param.cli.cli_positional:
                 continue
-            arity[projected.flag] = projected.takes_value
-            if projected.negative_flag is not None:
-                arity[projected.negative_flag] = False
-            short = short_flag(param)
-            if short is not None:
-                arity[short] = projected.takes_value
+            for name in param.cli.names:
+                arity[f"--{name}"] = projected.takes_value
+                if projected.negative_flag is not None:
+                    arity[f"--no-{name}"] = False
+            for short in param.cli.shorts:
+                arity[f"-{short}"] = projected.takes_value
         for entry, projected in self.surface_options:
             for spelling in entry.option_spellings:
                 arity[spelling] = projected.takes_value and (
-                    spelling in entry.positive_option_spellings or spelling == entry.short_option
+                    spelling in entry.positive_option_spellings
+                    or spelling.startswith("-")
+                    and not spelling.startswith("--")
                 )
         return arity
 
@@ -1325,13 +1334,24 @@ class ProgramCommand:
         for param, projected in self.options:
             if not projected.takes_value or param.cli.cli_positional:
                 continue
-            result.append((param, (projected.flag, *spelling_tuple(short_flag(param)))))
+            result.append(
+                (
+                    param,
+                    (
+                        *(f"--{name}" for name in param.cli.names),
+                        *(f"-{name}" for name in param.cli.shorts),
+                    ),
+                )
+            )
         for entry, projected in self.surface_options:
             if projected.takes_value:
                 result.append(
                     (
                         entry.param,
-                        (*entry.positive_option_spellings, *spelling_tuple(entry.short_option)),
+                        (
+                            *entry.positive_option_spellings,
+                            *(flag for flag in entry.option_spellings if not flag.startswith("--")),
+                        ),
                     )
                 )
         return tuple(result)
@@ -1349,7 +1369,9 @@ class ProgramCommand:
         for param, projected in self.options:
             if param.cli.cli_positional:
                 continue
-            for spelling in param_spellings(param, projected):
+            for spelling in param_spellings(
+                param, *(project_option(name, param.type) for name in param.cli.names)
+            ):
                 spelled_names[spelling] = param.name
 
         values: set[int] = set()
@@ -1442,7 +1464,11 @@ class ProgramCommand:
         for param, projected in self.options:
             if param.cli.hidden or param.cli.cli_positional:
                 continue
-            spellings.extend(param_spellings(param, projected))
+            spellings.extend(
+                param_spellings(
+                    param, *(project_option(name, param.type) for name in param.cli.names)
+                )
+            )
         for entry, _projected in self.surface_options:
             if not entry.hidden:
                 spellings.extend(entry.option_spellings)
@@ -1494,7 +1520,9 @@ def _check_reservation(
     """
     seen: dict[str, str] = {}
     for param, projected in options:
-        for flag in param_spellings(param, projected):
+        for flag in param_spellings(
+            param, *(project_option(name, param.type) for name in param.cli.names)
+        ):
             if flag in reserved_flags:
                 return ReservedFlagError(parameter=param.name, flag=flag)
             if flag in seen:

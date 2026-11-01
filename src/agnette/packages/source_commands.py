@@ -69,7 +69,7 @@ def package_with_source_commands(package: PackageInfo) -> PackageInfo:
     consistency rules. The returned package always carries
     ``commands_complete=True``.
     """
-    discovered, docs = _source_commands(package)
+    discovered, source_aliases, docs = _source_commands(package)
     manifest = package.manifest
     conflicting = sorted(
         path
@@ -85,8 +85,13 @@ def package_with_source_commands(package: PackageInfo) -> PackageInfo:
     commands = {
         path: _documented(spec, docs) for path, spec in {**manifest.commands, **discovered}.items()
     }
-    if commands != manifest.commands:
-        manifest = replace(manifest, commands=commands)
+    aliases = dict(manifest.aliases)
+    for alias, target in source_aliases.items():
+        if alias in aliases and aliases[alias] != target:
+            raise DisciplineError(f"command alias {alias!r} has conflicting targets")
+        aliases[alias] = target
+    if commands != manifest.commands or aliases != manifest.aliases:
+        manifest = replace(manifest, commands=commands, aliases=aliases)
     try:
         validate_command_set(manifest)
     except ManifestError as exc:
@@ -145,13 +150,16 @@ def _documented(spec: CommandSpec, docs: Mapping[str, str]) -> CommandSpec:
     return replace(spec, doc=docs[spec.program])
 
 
-def _source_commands(package: PackageInfo) -> tuple[dict[str, CommandSpec], dict[str, str]]:
+def _source_commands(
+    package: PackageInfo,
+) -> tuple[dict[str, CommandSpec], dict[str, str], dict[str, str]]:
     """Return *package*'s source-registered commands and its programs' documentation.
 
     The documentation is keyed by ``MODULE::DECL`` reference, so a command the
     manifest declares for one of these programs takes its prose too.
     """
     specs: dict[str, CommandSpec] = {}
+    aliases: dict[str, str] = {}
     docs: dict[str, str] = {}
     for module_id, path in package_module_files(package).items():
         for reference, registration in _module_programs(module_id, path):
@@ -166,7 +174,11 @@ def _source_commands(package: PackageInfo) -> tuple[dict[str, CommandSpec], dict
                     f"{owner.program!r} and {reference!r}"
                 )
             specs[registration.command] = CommandSpec(program=reference, doc=registration.doc)
-    return specs, docs
+            for alias in registration.command_aliases:
+                if alias in aliases:
+                    raise DisciplineError(f"command alias {alias!r} is registered more than once")
+                aliases[alias] = registration.command
+    return specs, aliases, docs
 
 
 def _module_programs(module_id: ModuleId, path: Path) -> Iterator[tuple[str, ProgramRegistration]]:

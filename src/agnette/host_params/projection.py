@@ -49,7 +49,6 @@ __all__ = [
     "param_spellings",
     "project_option",
     "project_param_option",
-    "short_flag",
     "spelling_tuple",
     "token_raw_value",
 ]
@@ -288,12 +287,6 @@ def decode_engine_config_value(name: str, raw: object, type_table: "TypeTable") 
     return decode_engine_raw(name, config_raw_value(param, raw), param.type, type_table)
 
 
-def short_flag(param: ProgramParamInfo | HostParamInfo) -> str | None:
-    """Return *param*'s ``-x`` short spelling, or ``None`` when it declares none."""
-    short = param.cli.short
-    return None if short is None else f"-{short}"
-
-
 def param_spellings(
     param: ProgramParamInfo | HostParamInfo, *projections: ProjectedOption
 ) -> list[str]:
@@ -312,5 +305,5 @@ def param_spellings(
             for projected in projections
             for flag in (projected.flag, *spelling_tuple(projected.negative_flag))
         ),
-        *spelling_tuple(short_flag(param)),
+        *(f"-{name}" for name in param.cli.shorts),
     ]

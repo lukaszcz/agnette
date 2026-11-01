@@ -45,6 +45,34 @@ def _write(package: PackageInfo, relative: str, text: str) -> None:
 
 
 class TestPackageWithSourceCommands:
+    def test_program_registers_multiple_paths(self, tmp_path: Path) -> None:
+        package = _package(tmp_path)
+        _write(
+            package,
+            "review.agl",
+            '@command("tools review", "tools inspect")\nprogram def main() -> unit = ()\n',
+        )
+        merged = package_with_source_commands(package)
+        assert merged.manifest.commands["tools review"].program == "tools/review::main"
+        assert merged.manifest.aliases["tools inspect"] == "tools review"
+
+    def test_source_alias_cannot_conflict_with_manifest_alias(self, tmp_path: Path) -> None:
+        package = _package(tmp_path, aliases={"tools inspect": "other"})
+        _write(
+            package,
+            "review.agl",
+            '@command("tools review", "tools inspect")\nprogram def main() -> unit = ()\n',
+        )
+        with pytest.raises(DisciplineError):
+            package_with_source_commands(package)
+
+    def test_programs_cannot_share_a_source_alias(self, tmp_path: Path) -> None:
+        package = _package(tmp_path)
+        _write(package, "a.agl", '@command("first", "same")\nprogram def main() -> unit = ()\n')
+        _write(package, "b.agl", '@command("second", "same")\nprogram def main() -> unit = ()\n')
+        with pytest.raises(DisciplineError):
+            package_with_source_commands(package)
+
     def test_a_package_without_registrations_is_returned_unchanged(self, tmp_path: Path) -> None:
         package = _package(tmp_path)
         _write(package, "main.agl", "program def main() -> unit = ()\n")

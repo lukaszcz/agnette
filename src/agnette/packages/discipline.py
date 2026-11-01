@@ -600,20 +600,16 @@ def _resolution_params(
     A function parameter's route is its function's qualified route.
     """
     for binding in resolution.param_bindings():
-        name = binding.cli.name
-        yield (
-            binding.scope_path,
-            name,
-            static_binding_key(module_id, binding.scope_path, name),
-        )
+        key = static_binding_key(module_id, binding.scope_path, binding.cli.name)
+        for name in binding.cli.names:
+            yield binding.scope_path, name, key
     for function_binding in resolution.function_param_bindings():
         function = function_binding.function.name
-        name = function_binding.cli.name
-        yield (
-            (*function_binding.scope_path, function),
-            name,
-            FunctionParamKey(module_id, function_binding.scope_path, function, name),
+        function_key = FunctionParamKey(
+            module_id, function_binding.scope_path, function, function_binding.cli.name
         )
+        for name in function_binding.cli.names:
+            yield (*function_binding.scope_path, function), name, function_key
 
 
 def _param_declarations(
@@ -657,9 +653,10 @@ def _program_argument_spellings(resolution: ModuleResolution, function: FuncDef)
     """Return the name-addressable argument spellings of *function*, a program of *resolution*."""
     attributes = resolution.attributes
     return frozenset(
-        attributes.program_options[param.node_id].name
+        name
         for param in function.params
         if attributes.param_zones[param.node_id] in NAME_ADDRESSABLE_ZONES
+        for name in attributes.program_options[param.node_id].names
     )
 
 

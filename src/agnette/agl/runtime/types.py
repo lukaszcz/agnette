@@ -250,9 +250,17 @@ class HostParamInfo:
         """Return every spelling that can address this parameter, before any claim is resolved."""
         from agnette.config.qualified_keys import param_spellings_for
 
-        return param_spellings_for(
+        primary = param_spellings_for(
             self.module.segments, self.route_path, self.cli.name, is_entry=self.module.is_entry
         )
+        aliases = tuple(
+            spelling
+            for alias in self.cli.name_aliases
+            for spelling in param_spellings_for(
+                self.module.segments, self.route_path, alias, is_entry=self.module.is_entry
+            )
+        )
+        return (*primary[:-1], *aliases, primary[-1])
 
 
 @dataclass(frozen=True, slots=True)
