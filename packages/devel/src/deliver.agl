@@ -163,6 +163,8 @@ def implement-tasks-prompt(plan-file: path, tasks-dir: path, impl-model: text, r
 
   The goal is not complete until all acceptance criteria of every task and of the plan are met.
 
+  Do NOT expand scope beyond what is specified in the plan and the tasks.
+
   ## Format of PROGRESS.md
 
   Only three sections:
