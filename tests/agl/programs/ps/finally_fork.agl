@@ -11,6 +11,7 @@ def child(mode: text) -> int =
     case mode of
       | "raise" => raise Boom(message = "child failed")
       | "exit" => os::exit(3)
+      | "cancel" => print(AgentCommand("builder").ask("x"))
       | _ => ()
     print "child body"
     1
@@ -25,6 +26,6 @@ program def main(mode: text) -> unit =
     catch Boom as e =>
       print "child raised %{e.message}"
     catch ProcessExitError as e =>
-      print "child exit %{e.exit-code}"
+      print "child exit %{e.exit-code} signal %{e.signal}"
   finally =>
     print "parent cleanup"

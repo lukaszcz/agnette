@@ -603,7 +603,7 @@
   "tests/agl/programs/partial/reorder.agl": "79cbc99df8434e3206372076a6f4bacc33c32c142b4e23012c1ffbabbde1904e",
   "tests/agl/programs/partial/value_calls.agl": "14d90a180f5fc9673e4b6a8f8b2df418c9bfc21abcb174d18fe1e593475b2d94",
   "tests/agl/programs/ps/errors.agl": "5b7b9d7a89e5f57d94d63c590a7975137f649da9fb4ab3c2c172809b8fb56de3",
-  "tests/agl/programs/ps/finally_fork.agl": "86b504f4ee93aac45d2ea15bca5ac1660c3a0269d9316f4b82e0a7ef5f59b206",
+  "tests/agl/programs/ps/finally_fork.agl": "7aa0e25948c5e008854ea452709d02a2f85057e7619d263a9241a843c55ca374",
   "tests/agl/programs/ps/forks.agl": "8bc1315e613ca5854d0f7a68ee1d782efe1f44b89587206070671785f095c9d8",
   "tests/agl/programs/ps/handles.agl": "67f387779750001f4fdb3615fa06b649e6572d1f134cb003fb49937451ac558e",
   "tests/agl/programs/ps/lifetime.agl": "8cc85a86794d3713fab2c9f0bde16badcc5c2de513845b3253fe7139ea677152",

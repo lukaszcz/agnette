@@ -27,8 +27,8 @@ _VALIDATION_SUMMARIES: dict[ValidationErrorCategory, str] = {
 _DEFAULT_VALIDATION_SUMMARY = "The response does not match the required output format."
 
 
-class AgentCancelled(Exception):
-    """Signal that a host agent call was interrupted."""
+class AgentCancelled(KeyboardInterrupt):
+    """Signal that a host agent call was interrupted: a ``KeyboardInterrupt`` naming the callee."""
 
     def __init__(self, callee: str) -> None:
         super().__init__(f"Agent call to {callee!r} cancelled (interrupted).")

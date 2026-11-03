@@ -1508,7 +1508,7 @@ _INTERRUPTS: dict[str, type[BaseException]] = {
     "KeyboardInterrupt": KeyboardInterrupt,
     "AgentCancelled": AgentCancelled,
 }
-_TERMINATIONS: tuple[type[BaseException], ...] = (SystemExit, *_INTERRUPTS.values())
+_TERMINATIONS = (SystemExit, KeyboardInterrupt)
 
 
 def _run_program(

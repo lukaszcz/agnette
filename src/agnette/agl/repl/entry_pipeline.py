@@ -1018,7 +1018,7 @@ class EntryPipeline:
             return partial_failure(
                 diagnostics=[host_failure_diagnostic(exc, lowered.program.sources)], error=None
             )
-        except (AgentCancelled, KeyboardInterrupt) as exc:
+        except KeyboardInterrupt as exc:
             cancellation_message = (
                 "Agent call cancelled — entry aborted."
                 if isinstance(exc, AgentCancelled)

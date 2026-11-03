@@ -700,7 +700,7 @@ def run(
                 param_seeds=argument_preflight.param_seeds,
                 function_param_seeds=argument_preflight.function_param_seeds,
             )
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:
             exit_for_agl_exception(exc)
             raise
 

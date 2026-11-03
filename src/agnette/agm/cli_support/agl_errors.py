@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from agnette.agl.runtime.types import ProgramDeclInfo
 
 
-def exit_for_agl_exception(error: Exception) -> None:
+def exit_for_agl_exception(error: BaseException) -> None:
     """Print a safe AgL error and exit, or return for an unrelated exception."""
     from agnette.agl.diagnostics import AglError, format_diagnostic
     from agnette.agl.runtime.boundary import AglException

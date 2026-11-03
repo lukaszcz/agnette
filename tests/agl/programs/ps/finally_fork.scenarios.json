@@ -21,7 +21,19 @@
       "isolated": true,
       "params": {"mode": "exit"},
       "forks": {"1": {"expect": {"ends": "terminate"}}},
-      "expect": {"stdout": "child cleanup\nchild exit Option::Some(value = 3)\nparent cleanup\n"}
+      "expect": {"stdout": "child cleanup\nchild exit Option::Some(value = 3) signal Option::None\nparent cleanup\n"}
+    },
+    {
+      "name": "a_child_ending_by_agent_cancellation_ends_as_an_interrupt",
+      "isolated": true,
+      "params": {"mode": "cancel"},
+      "forks": {
+        "1": {
+          "agents": {"builder": {"responses": ["a"], "interrupt_on_call": 1}},
+          "expect": {"ends": "terminate", "calls": {"builder": 1}}
+        }
+      },
+      "expect": {"stdout": "child cleanup\nchild exit Option::None signal Option::Some(value = 2)\nparent cleanup\n"}
     }
   ]
 }

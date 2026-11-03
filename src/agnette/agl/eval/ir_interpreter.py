@@ -160,7 +160,6 @@ from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
 from agnette.agl.runtime.processes import ProcessInfo
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
-from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.runtime.trace import TraceStore, noop_trace
@@ -318,10 +317,10 @@ _BASE_RECURSION_HEADROOM = 4000
 _MAX_PYTHON_RECURSION_LIMIT = 1_000_000
 
 
-# Host terminations: ``std/os::exit`` and SIGTERM/SIGHUP (``SystemExit``), Ctrl-C,
-# and the effects layer's form of an agent-call interrupt.  A ``finally`` body
-# runs on them, and they take precedence over any raise it makes.
-_HOST_TERMINATIONS = (KeyboardInterrupt, SystemExit, AgentCancelled)
+# Host terminations: ``std/os::exit`` and SIGTERM/SIGHUP (``SystemExit``), and Ctrl-C
+# (``KeyboardInterrupt``, including an interrupted agent call's ``AgentCancelled``).
+# A ``finally`` body runs on them, and they take precedence over any raise it makes.
+_HOST_TERMINATIONS = (KeyboardInterrupt, SystemExit)
 
 
 # ---------------------------------------------------------------------------

@@ -1587,7 +1587,7 @@ app.add_typer(tmux_app, name="tmux")
 def main() -> None:
     try:
         app()
-    except Exception as exc:
+    except (Exception, KeyboardInterrupt) as exc:
         from agnette.agm.cli_support.agl_errors import exit_for_agl_exception
 
         exit_for_agl_exception(exc)
