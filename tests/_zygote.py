@@ -291,11 +291,13 @@ def _await_release(held: int) -> None:
 def _serve_one(conn: socket.socket, pid: int, release: int) -> None:
     """Report forked child *pid* to its client, release it, wait for it, report how it ended.
 
-    A client that gave up (and killed the child) is gone by now; that is not an error.
+    A client that gave up (and killed the child, maybe before its release) is gone by now;
+    that is not an error.
     """
     with contextlib.suppress(OSError):
         send(conn, pickle.dumps(pid))
-    os.write(release, b"\0")
+    with contextlib.suppress(BrokenPipeError):
+        os.write(release, b"\0")
     os.close(release)
     _waited, status, usage = os.wait4(pid, 0)
     with contextlib.suppress(OSError):

@@ -436,6 +436,39 @@ def test_a_child_whose_zygote_dies_before_reporting_it_never_runs(tmp_path: Path
     assert run_callable(_request_runs_after_an_unreported_fork, tmp_path).value is False
 
 
+def _status_after_killing_an_unreleased_child(workdir: Path) -> int:
+    """The wait status a zygote reports for a child its client killed before its release."""
+    name = _zygote.unique_name("unreleased-kill")
+    send = _zygote.send
+
+    def send_then_await_the_kill(conn: socket.socket, payload: bytes, fds: Any = ()) -> None:
+        send(conn, payload, fds)
+        pid = pickle.loads(payload)
+        if isinstance(pid, int):
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+
+    server = os.fork()
+    if server == 0:
+        pytest.MonkeyPatch().setattr(_zygote, "send", send_then_await_the_kill)
+        _zygote.run_child(lambda: _zygote.serve(name, lambda: None, lambda *_: os._exit(0)) or 0)
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            while conn.connect_ex("\0" + name) != 0:
+                time.sleep(0.01)
+            _zygote.send(conn, pickle.dumps(None))
+            _zygote.kill_process(pickle.loads(_zygote.recv(conn)))
+            status: int = pickle.loads(_zygote.recv(conn))[0]
+            return status
+    finally:
+        _zygote.kill_process(server)
+        os.waitpid(server, 0)
+
+
+def test_a_zygote_survives_a_child_killed_before_its_release(tmp_path: Path) -> None:
+    status = run_callable(_status_after_killing_an_unreleased_child, tmp_path).value
+    assert os.WTERMSIG(status) == signal.SIGKILL
+
+
 _FORK_HARNESS_PROGRAM = """\
 import std/ps
 
