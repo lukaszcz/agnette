@@ -1437,15 +1437,14 @@ class TestParserHelpers:
         assert "agm open" in result
 
     @pytest.mark.parametrize("command", ["exec", "repl"])
-    def test_help_lists_the_engine_settings_section(self, command: str) -> None:
+    def test_help_lists_engine_settings_among_execution_options(self, command: str) -> None:
         output = io.StringIO()
         parser_helpers.print_help_for_command_path([command], file=output)
         result = output.getvalue()
 
         assert_lists_engine_settings(result)
         assert "--runner" not in result
-        assert result.index("Options:") < result.index("Engine settings:")
-        assert result.index("Engine settings:") < result.index("Execution options:")
+        assert_lists_execution_options(result)
 
     @pytest.mark.parametrize("command", ["exec", "repl"])
     def test_execution_options_follow_the_command_options(self, command: str) -> None:

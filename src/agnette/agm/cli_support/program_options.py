@@ -69,6 +69,7 @@ from agnette.agl.runtime.types import (
 from agnette.agl.zones import NAME_ADDRESSABLE_ZONES, ParamZone
 from agnette.agm.cli_support.execution_options import (
     EXECUTION_OPTION_NAMES,
+    EXECUTION_OPTIONS_SECTION,
     execution_option_flags,
     write_execution_options,
 )
@@ -110,9 +111,6 @@ __all__ = [
     "retain_end_of_options",
     "split_exec_tail",
 ]
-
-#: Help section listing the engine settings.
-ENGINE_SETTINGS_SECTION = "Engine settings"
 
 # Zones whose parameter fills a positional CLI slot.
 _POSITIONAL_ZONES = (ParamZone.POSITIONAL_ONLY, ParamZone.STANDARD)
@@ -916,24 +914,17 @@ def _surface_help_record(entry: ParamSurfaceEntry, projected: ProjectedOption) -
 def _help_section_title(entry: ParamSurfaceEntry) -> str:
     """Return the help section *entry* is listed under."""
     if entry.param.kind is HostParamKind.ENGINE:
-        return ENGINE_SETTINGS_SECTION
+        return EXECUTION_OPTIONS_SECTION
     return f"Parameters of {entry.section}"
 
 
-def _write_surface_section(
-    formatter: click.HelpFormatter,
-    title: str,
+def _surface_help_records(
     entries: Sequence[tuple[ParamSurfaceEntry, ProjectedOption]],
-    *,
-    col_max: int = 30,
-) -> None:
-    """Write *title* listing the visible *entries*, or nothing when none is."""
-    records = [
+) -> list[tuple[str, str]]:
+    """Return the help rows of the visible *entries*."""
+    return [
         _surface_help_record(entry, projected) for entry, projected in entries if not entry.hidden
     ]
-    if records:
-        with formatter.section(title):
-            formatter.write_dl(records, col_max=col_max)
 
 
 class _ProgramClickCommand(click.Command):
@@ -1068,9 +1059,19 @@ class _ProgramClickCommand(click.Command):
         if self.positional_help:
             with formatter.section("Arguments"):
                 formatter.write_dl(list(self.positional_help))
+        self.write_parameter_sections(formatter)
+
+    def write_parameter_sections(self, formatter: click.HelpFormatter) -> None:
+        """Write the parameter sections, then ``Execution options`` (engine settings first)."""
+        engine_rows: list[tuple[str, str]] = []
         for title, entries in self.surface_help_sections:
-            _write_surface_section(formatter, title, entries)
-        write_execution_options(formatter)
+            records = _surface_help_records(entries)
+            if title == EXECUTION_OPTIONS_SECTION:
+                engine_rows = records
+            elif records:
+                with formatter.section(title):
+                    formatter.write_dl(records, col_max=30)
+        write_execution_options(formatter, engine_rows)
 
 
 def _build_click_command(
@@ -1649,11 +1650,10 @@ def engine_command() -> ProgramCommand:
     return _engine_command
 
 
-def engine_settings_section(*, width: int) -> str:
-    """Render the ``Engine settings`` help section of the bare engine flags, wrapped to *width*."""
+def execution_options_section(*, width: int) -> str:
+    """Render the ``Execution options`` section over the bare engine flags, wrapped to *width*."""
     formatter = click.HelpFormatter(width=width)
-    for title, entries in engine_command().command.surface_help_sections:
-        _write_surface_section(formatter, title, entries)
+    engine_command().command.write_parameter_sections(formatter)
     return formatter.getvalue()
 
 

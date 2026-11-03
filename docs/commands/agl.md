@@ -279,8 +279,8 @@ shadowing, and precedence are specified in
   completion without disabling it.
 
 Selected-program help shows its usual options first, then one `Parameters of MODULE` section for
-each module declaring a reached module or function parameter, then an `Engine settings` section,
-then the shared execution options. Each visible parameter appears under its shortest resolving
+each module declaring a reached module or function parameter, then an `Execution options` section
+listing the engine settings and the shared execution options. Each visible parameter appears under its shortest resolving
 spelling, so a shadowed one shows only qualified spellings; one with no resolving spelling is
 omitted.
 

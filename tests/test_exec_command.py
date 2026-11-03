@@ -4405,7 +4405,7 @@ class TestProgramArgumentsDynamicHelp:
         assert "--count" in out
         assert "--tag" not in out
 
-    def test_help_for_a_program_without_value_parameters_shows_engine_and_execution_options(
+    def test_help_for_a_program_without_value_parameters_shows_execution_options(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         agl_file = tmp_path / "prog.agl"
@@ -4416,7 +4416,7 @@ class TestProgramArgumentsDynamicHelp:
         out = capsys.readouterr().out
         assert f"agm exec {agl_file}" in out
         assert "--help" in out
-        options, _, _ = out.partition("Engine settings:\n")
+        options, _, _ = out.partition("Execution options:\n")
         assert "--strict-json" not in options
         assert_lists_engine_settings(out)
         assert_lists_execution_options(out)

@@ -7,7 +7,6 @@ import textwrap
 from collections.abc import Sequence
 from typing import NoReturn, Protocol
 
-from agnette.agm.cli_support.execution_options import execution_options_section
 from agnette.command_catalog import COMMAND_OVERVIEW
 from agnette.core.env import help_width
 from agnette.util.text import first_paragraph, format_description_column
@@ -291,10 +290,10 @@ _EXECUTION_HELP_TEXTS: dict[str, tuple[str, str]] = {
         + _NO_STDLIB_ROW
         + _WARNING_ROW,
         textwrap.dedent("""\
-            Engine settings and execution options override config files; a
-            `std/config::KEY := VALUE` write overrides both from its program
-            point. A program parameter named like an engine setting shadows its
-            bare flag; `--std.config.NAME` always addresses the setting.
+            Execution options override config files; a `std/config::KEY := VALUE`
+            write overrides an engine setting from its program point. A program
+            parameter named like an engine setting shadows its bare flag;
+            `--std.config.NAME` always addresses the setting.
 
             Program arguments:
               The selected program's value parameters fill ARG slots (positional)
@@ -701,14 +700,10 @@ def _overview_text() -> str:
 def help_text_for(command: str) -> str | None:
     canonical = _HELP_ALIASES.get(command, command)
     if canonical in _EXECUTION_HELP_TEXTS:
-        from agnette.agm.cli_support.program_options import engine_settings_section
+        from agnette.agm.cli_support.program_options import execution_options_section
 
         before, after = _EXECUTION_HELP_TEXTS[canonical]
-        width = help_width()
-        return (
-            f"{before}\n{engine_settings_section(width=width)}"
-            f"\n{execution_options_section(width=width)}\n{after}"
-        )
+        return f"{before}\n{execution_options_section(width=help_width())}\n{after}"
     return _HELP_TEXTS.get(canonical)
 
 
