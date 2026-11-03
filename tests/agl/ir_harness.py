@@ -516,6 +516,16 @@ def evaluate_ir_graph_raises(
     return uncaught_error(run_inline_ir(entry_source, roots=roots))
 
 
+class RaisingAgent:
+    """A fake ``AgentFn`` raising *error* on every call."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def __call__(self, request: AgentRequest) -> AgentResponse:
+        raise self.error
+
+
 def _make_scripted_registry(
     scripts: dict[str, list[str]],
     *,

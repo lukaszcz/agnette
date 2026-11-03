@@ -29,11 +29,10 @@ from agnette.agl.pipeline import PipelineDriver, RunResult
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.repl.meta import MetaContext, dispatch_meta
 from agnette.agl.repl.session import ReplSession
-from agnette.agl.runtime.agents import AgentRequest, AgentResponse
 from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.semantics.values import IntValue
 from tests._agl_helpers import run_inline_code
-from tests.agl.ir_harness import run_inline_ir
+from tests.agl.ir_harness import RaisingAgent, run_inline_ir
 
 # A non-tail recursive helper plus a variant guarded by a ``try``/``catch``.
 _PRELUDE = """
@@ -44,13 +43,6 @@ def guarded(d: int) -> int =
   try sum-to(d)
   catch RecursionError as e => e.limit
 """
-
-
-class _InterruptingAgent:
-    """A fake ``AgentFn`` interrupted on every call."""
-
-    def __call__(self, request: AgentRequest) -> AgentResponse:
-        raise KeyboardInterrupt
 
 
 def _run(initializer: str, *, depth: int, max_call_depth: int):
@@ -154,7 +146,7 @@ class TestPythonRecursionErrorBackstop:
         with pytest.raises(AgentCancelled):
             run_inline_ir(
                 source,
-                agent_dispatcher=_InterruptingAgent(),
+                agent_dispatcher=RaisingAgent(KeyboardInterrupt()),
                 default_call_depth_limit=1_000_000,
             )
 

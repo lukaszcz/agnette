@@ -217,6 +217,7 @@ class _Finalizer:
     """A ``finally`` clause body, kept apart from the handlers until ``try_expr``."""
 
     body: syntax.Expr
+    span: SourceSpan
 
 
 @dataclass(frozen=True, slots=True)
@@ -2402,21 +2403,28 @@ class AstBuilder(Transformer):
     def finally_clause(self, meta: Meta, args: _Args) -> _Finalizer:
         """finally_clause: "finally" ARROW catch_body"""
         _arrow, body = args
-        return _Finalizer(cast(syntax.Expr, body))
+        return _Finalizer(cast(syntax.Expr, body), self._span_from_meta(meta))
 
     def try_expr(self, meta: Meta, args: _Args) -> syntax.Try:
-        """try_expr: "try" try_body (catch_clause+ finally_clause? | finally_clause)"""
-        handlers = [a for a in args if isinstance(a, syntax.CatchClause)]
-        finalizer = next((a.body for a in args if isinstance(a, _Finalizer)), None)
-        try_body = next(
-            a
-            for a in args
-            if a is not None and not isinstance(a, (Token, syntax.CatchClause, _Finalizer))
-        )
+        """try_expr: "try" try_body try_clause+; a ``finally`` must be the last clause."""
+        try_body, *clauses = (a for a in args if a is not None and not isinstance(a, Token))
+        handlers: list[syntax.CatchClause] = []
+        finalizer: _Finalizer | None = None
+        for clause in clauses:
+            if finalizer is not None:
+                raise AglSyntaxError(
+                    "a `finally` clause must be the last clause of a `try`; "
+                    "no `catch` or `finally` may follow it.",
+                    span=cast(syntax.CatchClause | _Finalizer, clause).span,
+                )
+            if isinstance(clause, _Finalizer):
+                finalizer = clause
+            else:
+                handlers.append(cast(syntax.CatchClause, clause))
         return syntax.Try(
             body=cast(syntax.Expr, try_body),
             handlers=tuple(handlers),
-            finalizer=finalizer,
+            finalizer=None if finalizer is None else finalizer.body,
             span=self._span_from_meta(meta),
             node_id=self._next_id(),
         )

@@ -740,17 +740,10 @@ class IrTry:
     - Evaluate the handler's ``body`` and return its value.
     - If no handler matches, re-raise the original ``AglRaise`` unchanged.
 
-    ``finalizer`` (``None`` when absent) is a discarded-value expression; a handler-less
-    ``IrTry`` always has one. It runs exactly once after the body or handler ends, whatever
-    ended it: a value, an exception (caught, uncaught, or raised in a handler),
-    ``return``/``break``/``continue``, or a host termination (exit, interrupt, cancellation).
-    When it completes, the pending outcome resumes unchanged (the try's value, the original
-    exception, the exit signal, the termination). When it raises, the new exception replaces the
-    pending outcome, except that a pending host termination wins and the raised exception is
-    discarded. A termination starting inside it replaces the pending outcome. Nested finalizers
-    run innermost first. Host failures that are not AgL outcomes run no finalizers. A forked
-    child runs only finalizers entered in its own function, not those pending in the parent at
-    the fork.
+    ``finalizer`` (``None`` when absent; never absent without handlers) is a discarded-value
+    expression run once whatever ends the body or handler — a value, a raise, an exit signal,
+    or a host termination — after which that outcome resumes. A raise from it replaces the
+    outcome unless a host termination is pending. Exact semantics: the AgL reference.
     """
 
     location: Location

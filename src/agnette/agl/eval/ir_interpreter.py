@@ -919,38 +919,19 @@ class IrInterpreter:
             )
         )
 
-    def _eval_handled(self, body: IrExpr, handlers: tuple[IrCatchHandler, ...]) -> Value:
-        """Evaluate a ``try`` body, running the first matching handler for an AgL raise."""
-        try:
-            return self._eval(body)
-        except RecursionError:
-            # Python's limit was hit before the AgL guard (its limit is
-            # capped); surface it as the same catchable AgL exception so
-            # a `catch RecursionError` handler still fires.
-            pending = self._recursion_error()
-        except AglRaise as exc:
-            pending = exc
+    def _matching_handler(
+        self, pending: AglRaise, handlers: tuple[IrCatchHandler, ...]
+    ) -> IrCatchHandler | None:
+        """The first of *handlers* that catches *pending*, or ``None``."""
+        nominal = pending.exc.nominal
         for handler in handlers:
             if (
                 handler.nominal is None
-                or handler.nominal == pending.exc.nominal
-                or nominal_conforms(self._program.nominals, pending.exc.nominal, (handler.nominal,))
+                or handler.nominal == nominal
+                or nominal_conforms(self._program.nominals, nominal, (handler.nominal,))
             ):
-                if handler.symbol is not None:
-                    self._frame[handler.symbol] = pending.exc
-                self._handled.append(pending)
-                try:
-                    return self._eval(handler.body)
-                finally:
-                    self._handled.pop()
-        raise pending
-
-    def _run_finalizer(self, finalizer: IrExpr) -> None:
-        """Evaluate a ``finally`` body; its own failure is always an ``AglRaise``."""
-        try:
-            self._eval(finalizer)
-        except RecursionError:
-            raise self._recursion_error() from None
+                return handler
+        return None
 
     def _check_call_depth(self) -> None:
         if self._call_depth >= self._max_call_depth:
@@ -1766,23 +1747,41 @@ class IrInterpreter:
                     raise _ReturnSignal(self._eval(value_expr))
 
                 case IrTry(body=body_expr, handlers=handlers, finalizer=finalizer):
-                    if finalizer is None:
-                        return self._eval_handled(body_expr, handlers)
+                    # Nested inline (not in a helper) so a `try` costs no Python frame.
                     try:
-                        value = self._eval_handled(body_expr, handlers)
-                    except (AglRaise, _ReturnSignal, _BreakSignal, _ContinueSignal):
-                        self._run_finalizer(finalizer)
+                        try:
+                            value = self._eval(body_expr)
+                            pending = None
+                        except RecursionError:
+                            # Python's limit was hit before the AgL guard (its limit is
+                            # capped); surface it as the same catchable AgL exception so
+                            # a `catch RecursionError` handler still fires.
+                            pending = self._recursion_error()
+                        except AglRaise as exc:
+                            pending = exc
+                        if pending is not None:
+                            handler = self._matching_handler(pending, handlers)
+                            if handler is None:
+                                raise pending
+                            if handler.symbol is not None:
+                                self._frame[handler.symbol] = pending.exc
+                            self._handled.append(pending)
+                            try:
+                                value = self._eval(handler.body)
+                            finally:
+                                self._handled.pop()
+                    except (AglRaise, RecursionError, _ReturnSignal, _BreakSignal, _ContinueSignal):
+                        if finalizer is not None:
+                            self._eval(finalizer)
                         raise
-                    except RecursionError:
-                        pending = self._recursion_error()
-                        self._run_finalizer(finalizer)
-                        raise pending from None
                     except _HOST_TERMINATIONS:
-                        # A raise from the finalizer is discarded: the termination wins.
-                        with suppress(AglRaise, RecursionError):
-                            self._run_finalizer(finalizer)
+                        if finalizer is not None:
+                            # A raise from the finalizer is discarded: the termination wins.
+                            with suppress(AglRaise, RecursionError):
+                                self._eval(finalizer)
                         raise
-                    self._run_finalizer(finalizer)
+                    if finalizer is not None:
+                        self._eval(finalizer)
                     return value
 
                 case IrCase(subject=subject_expr, arms=arms, default=default):

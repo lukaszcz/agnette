@@ -51,7 +51,7 @@ from agnette.agl.ir.program import (
 from agnette.agl.ir.validate import InvalidIrError, validate_ir
 from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
 from agnette.agl.pipeline import RunError, RunResult
-from agnette.agl.runtime.agents import AgentFn, AgentRequest, AgentResponse
+from agnette.agl.runtime.agents import AgentFn
 from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.semantics.values import (
     ExceptionValue,
@@ -63,6 +63,7 @@ from agnette.agl.semantics.values import (
 from agnette.agl.typecheck.env import AglTypeError
 from tests._agl_helpers import let_root_capture
 from tests.agl.ir_harness import (
+    RaisingAgent,
     _write_extern_entry,
     evaluate_ir,
     evaluate_ir_raises,
@@ -1054,16 +1055,6 @@ _FINALLY_DECLS = "import std/os\nextern def interrupt() -> unit\n"
 _FINALLY_COMPANION = "def interrupt():\n    raise KeyboardInterrupt()\n"
 
 
-class _RaisingAgent:
-    """A fake ``AgentFn`` raising *error* on every call."""
-
-    def __init__(self, error: BaseException) -> None:
-        self.error = error
-
-    def __call__(self, request: AgentRequest) -> AgentResponse:
-        raise self.error
-
-
 def _run_finally(
     tmp_path: Path, body: str, *, agent: AgentFn | None = None, max_call_depth: int | None = None
 ) -> tuple[str, RunResult | BaseException]:
@@ -1207,32 +1198,28 @@ def test_a_finally_raise_replaces_a_pending_return(tmp_path: Path) -> None:
 _TERMINATIONS: list[tuple[str, type[BaseException], AgentFn | None]] = [
     ("os::exit(3)", SystemExit, None),
     ("interrupt()", KeyboardInterrupt, None),
-    ('let _ = ask """x"""', AgentCancelled, _RaisingAgent(KeyboardInterrupt())),
+    ('let _ = ask """x"""', AgentCancelled, RaisingAgent(KeyboardInterrupt())),
 ]
 
 
+@pytest.mark.parametrize(
+    "template",
+    (
+        "try\n  {stmt}\n{fin}",
+        "try\n  {throw}\ncatch Abort =>\n  {stmt}\n{fin}",
+    ),
+    ids=("in-body", "in-handler"),
+)
 @pytest.mark.parametrize(("stmt", "error", "agent"), _TERMINATIONS)
 def test_finally_runs_once_on_a_host_termination(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    template: str,
     stmt: str,
     error: type[BaseException],
     agent: AgentFn | None,
 ) -> None:
-    _, outcome = _run_finally(tmp_path, f"try\n  {stmt}\n{_FIN}", agent=agent)
-    assert isinstance(outcome, error)
-    assert _marks(capsys) == ["fin"]
-
-
-@pytest.mark.parametrize(("stmt", "error", "agent"), _TERMINATIONS)
-def test_finally_runs_on_a_termination_inside_a_handler(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    stmt: str,
-    error: type[BaseException],
-    agent: AgentFn | None,
-) -> None:
-    body = f"try\n  {_THROW}\ncatch Abort =>\n  {stmt}\n{_FIN}"
+    body = template.format(stmt=stmt, throw=_THROW, fin=_FIN)
     _, outcome = _run_finally(tmp_path, body, agent=agent)
     assert isinstance(outcome, error)
     assert _marks(capsys) == ["fin"]
@@ -1272,7 +1259,7 @@ def test_a_non_agl_python_failure_skips_the_finally(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     body = f'try\n  let _ = ask """x"""\n{_FIN}'
-    _, outcome = _run_finally(tmp_path, body, agent=_RaisingAgent(KeyError("host")))
+    _, outcome = _run_finally(tmp_path, body, agent=RaisingAgent(KeyError("host")))
     assert isinstance(outcome, KeyError)
     assert _marks(capsys) == []
 

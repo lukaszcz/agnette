@@ -532,7 +532,11 @@ loop_end : "until" or_expr  -> loop_until
 inline_seq: (marked_item SEMICOLON)* marked_item
 
 // try expression
-try_expr: "try" try_body (catch_clause+ finally_clause? | finally_clause)
+// The clauses are parsed in any order; AstBuilder.try_expr requires a `finally`
+// to be the last one, which keeps clause-order mistakes out of LALR errors.
+try_expr: "try" try_body try_clause+
+
+?try_clause: catch_clause | finally_clause
 
 // try_body: the same marked-body sequence, terminated by `catch` or `finally`.
 // Unlike a loop's `until`/`done` — mandatory and exactly one per loop —
