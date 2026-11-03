@@ -1,0 +1,14 @@
+{
+  "scenarios": [
+    {
+      "name": "nested_finally_bodies_run_innermost_first",
+      "params": {"mode": "nested"},
+      "expect": {"stdout": "start\ninner\nouter\n", "interrupted": "KeyboardInterrupt"}
+    },
+    {
+      "name": "finally_raise_during_interrupt_is_discarded_and_not_caught",
+      "params": {"mode": "raising"},
+      "expect": {"stdout": "start\ncleanup\n", "interrupted": "KeyboardInterrupt"}
+    }
+  ]
+}

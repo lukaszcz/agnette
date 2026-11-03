@@ -1,0 +1,42 @@
+# `std/os::exit` runs the pending finally bodies. A termination keeps precedence over an
+# exception raised by a finally body, and an exit inside one replaces a pending exception.
+import std/os
+
+exception Boom
+
+program def main(mode: text) -> unit =
+  case mode of
+    | "exit" =>
+        try
+          print "body"
+          os::exit(3)
+          print "unreachable"
+        finally =>
+          print "cleanup"
+    | "raise-during-exit" =>
+        try
+          try
+            os::exit(4)
+          finally =>
+            print "cleanup"
+            raise Boom(message = "from finally")
+        catch _ =>
+          print "caught"
+    | "nested-exit" =>
+        try
+          try
+            os::exit(6)
+          finally =>
+            print "inner"
+        finally =>
+          print "outer"
+    | "exit-in-finally" =>
+        try
+          try
+            raise Boom(message = "pending")
+          finally =>
+            print "cleanup"
+            os::exit(5)
+        catch _ =>
+          print "caught"
+    | _ => ()

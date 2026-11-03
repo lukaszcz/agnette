@@ -1815,5 +1815,9 @@
   "tests/agl/rejections/scope/finally_break.agl": "6fdbad27d18e2935f663aff1f6e6238b97d7519f10af87e4cc095a94bd0bbad8",
   "tests/agl/rejections/scope/finally_continue.agl": "d6de0ecc3ccb99b0245249dbf67969e6ca90aa0cfd02f658338dee8f997a668c",
   "tests/agl/rejections/scope/finally_return.agl": "54c75170d5a8e5ea0361dfa2d41951c0522cd5133c6f3c6ae746f3cc1856ed1e",
-  "tests/agl/rejections/type/finally_non_unit.agl": "a88d630d67c6f49ac98fe458cfc03872f4b307132bc294216d95e30640030b02"
+  "tests/agl/rejections/type/finally_non_unit.agl": "a88d630d67c6f49ac98fe458cfc03872f4b307132bc294216d95e30640030b02",
+  "tests/agl/programs/calls/finally_agent_cancel.agl": "f0be5bc7e3873cd1b51d27bbf4848d0dfcc00917ae1895e3a7a62cf27772b25e",
+  "tests/agl/programs/externs/finally_interrupt.agl": "76ed97df93d5f80b23828703f4b9310d20a01261fbfd70c5424605d0612224dc",
+  "tests/agl/programs/ps/finally_fork.agl": "86b504f4ee93aac45d2ea15bca5ac1660c3a0269d9316f4b82e0a7ef5f59b206",
+  "tests/agl/programs/stdlib/finally_exit.agl": "25b09f00a4145a9bff6d9fb530699c4ac4eb134facd0348c6e0ba82bab981a31"
 }

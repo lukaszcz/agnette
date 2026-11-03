@@ -1,0 +1,14 @@
+# A cancelled agent call runs the pending finally bodies, and no `catch` intercepts it.
+program def main() -> unit =
+  let builder: Agent = AgentCommand("builder")
+  print "start"
+  try
+    try
+      let answer: text = builder.ask("One.")
+      print answer
+    finally =>
+      print "inner"
+  catch _ =>
+    print "caught"
+  finally =>
+    print "outer"

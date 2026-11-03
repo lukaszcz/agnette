@@ -1,0 +1,27 @@
+# A host interrupt runs the pending finally bodies, innermost first. An exception raised by
+# a finally body is discarded and no `catch` intercepts the interrupt.
+extern def interrupt() -> unit
+
+exception Boom
+
+program def main(mode: text) -> unit =
+  print "start"
+  case mode of
+    | "nested" =>
+        try
+          try
+            interrupt()
+          finally =>
+            print "inner"
+        finally =>
+          print "outer"
+    | "raising" =>
+        try
+          try
+            interrupt()
+          finally =>
+            print "cleanup"
+            raise Boom(message = "from finally")
+        catch _ =>
+          print "caught"
+    | _ => ()

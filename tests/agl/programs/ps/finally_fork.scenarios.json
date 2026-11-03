@@ -1,0 +1,27 @@
+{
+  "scenarios": [
+    {
+      "name": "a_child_ending_normally_finalizes_itself_once",
+      "isolated": true,
+      "params": {"mode": "normal"},
+      "forks": {"1": {"expect": {"ends": "settle"}}},
+      "expect": {
+        "stdout": "child body\nchild cleanup\nresult 1\nparent cleanup\n"
+      }
+    },
+    {
+      "name": "a_child_ending_by_exception_finalizes_itself_once",
+      "isolated": true,
+      "params": {"mode": "raise"},
+      "forks": {"1": {"expect": {"ends": "terminate"}}},
+      "expect": {"stdout": "child cleanup\nchild raised child failed\nparent cleanup\n"}
+    },
+    {
+      "name": "a_child_ending_by_exit_finalizes_itself_once",
+      "isolated": true,
+      "params": {"mode": "exit"},
+      "forks": {"1": {"expect": {"ends": "terminate"}}},
+      "expect": {"stdout": "child cleanup\nchild exit Option::Some(value = 3)\nparent cleanup\n"}
+    }
+  ]
+}

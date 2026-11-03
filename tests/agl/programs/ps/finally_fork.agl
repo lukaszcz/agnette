@@ -1,0 +1,30 @@
+# A forked child runs only the finally bodies entered inside its own function, never the
+# parent's pending ones.
+import std/os
+import std/ps
+import std/ps::ProcessExitError
+
+exception Boom extends Exception
+
+def child(mode: text) -> int =
+  try
+    case mode of
+      | "raise" => raise Boom(message = "child failed")
+      | "exit" => os::exit(3)
+      | _ => ()
+    print "child body"
+    1
+  finally =>
+    print "child cleanup"
+
+program def main(mode: text) -> unit =
+  try
+    let p = ps::fork(fn() => child(mode))
+    try
+      print "result %{ps::wait(p)}"
+    catch Boom as e =>
+      print "child raised %{e.message}"
+    catch ProcessExitError as e =>
+      print "child exit %{e.exit-code}"
+  finally =>
+    print "parent cleanup"

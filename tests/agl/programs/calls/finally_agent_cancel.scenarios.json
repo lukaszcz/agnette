@@ -1,0 +1,15 @@
+{
+  "scenarios": [
+    {
+      "name": "cancelled_call_runs_the_finally_bodies",
+      "agents": {
+        "builder": {"responses": [], "interrupt_on_call": 1}
+      },
+      "expect": {
+        "stdout": "start\ninner\nouter\n",
+        "calls": {"builder": 1},
+        "interrupted": "AgentCancelled"
+      }
+    }
+  ]
+}

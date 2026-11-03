@@ -1,0 +1,24 @@
+{
+  "scenarios": [
+    {
+      "name": "exit_in_try_runs_the_finally",
+      "params": {"mode": "exit"},
+      "expect": {"stdout": "body\ncleanup\n", "exit_code": 3}
+    },
+    {
+      "name": "finally_raise_during_exit_is_discarded_and_not_caught",
+      "params": {"mode": "raise-during-exit"},
+      "expect": {"stdout": "cleanup\n", "exit_code": 4}
+    },
+    {
+      "name": "exit_unwinds_nested_finally_bodies_innermost_first",
+      "params": {"mode": "nested-exit"},
+      "expect": {"stdout": "inner\nouter\n", "exit_code": 6}
+    },
+    {
+      "name": "exit_in_finally_replaces_a_pending_exception",
+      "params": {"mode": "exit-in-finally"},
+      "expect": {"stdout": "cleanup\n", "exit_code": 5}
+    }
+  ]
+}
