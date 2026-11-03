@@ -608,6 +608,49 @@ level under a deeper body."
               "def f() -> int =\n  try\n    risky()\n  catch A as e => 1\n  catch B as e => 2\n" 5)
              2)))
 
+(ert-deftest agl-ind-finally-aligns-after-an-inline-catch ()
+  (should (= (agl-ind--indent-of
+              "def f() -> int =\n  try\n    risky()\n  catch e => 1\n  finally => 2\n" 5)
+             2)))
+
+(ert-deftest agl-ind-finally-aligns-after-a-suite-catch ()
+  (should (= (agl-ind--indent-of
+              "def f() -> int =\n  try\n    risky()\n  catch e =>\n    1\n  finally => 2\n" 6)
+             2)))
+
+(ert-deftest agl-ind-finally-aligns-without-a-catch ()
+  (should (= (agl-ind--indent-of
+              "def f() -> int =\n  try\n    risky()\n  finally => 2\n" 4)
+             2)))
+
+(ert-deftest agl-ind-finally-skips-a-try-nested-in-a-catch-suite ()
+  (should (= (agl-ind--indent-of
+              (concat "try\n  risky()\ncatch e =>\n  try\n    g()\n  catch f => 1\n"
+                      "finally => 2\n")
+              7)
+             0)))
+
+(ert-deftest agl-ind-catch-skips-a-try-nested-in-a-catch-suite ()
+  (should (= (agl-ind--indent-of
+              (concat "try\n  risky()\ncatch E =>\n  try\n    g()\n  catch f => 1\n"
+                      "catch e => 2\n")
+              7)
+             0)))
+
+(ert-deftest agl-ind-else-skips-a-nested-else-chain ()
+  (should (= (agl-ind--indent-of
+              (concat "if a\n  if b\n    1\n  else\n    if c\n      2\n"
+                      "    else\n      3\nelse\n")
+              9)
+             0)))
+
+(ert-deftest agl-ind-else-if-chain-skips-a-nested-chain ()
+  (should (= (agl-ind--indent-of
+              (concat "if a\n  1\nelse if b\n  if c\n    2\n  else if d\n    3\n"
+                      "  else\n    4\nelse\n")
+              10)
+             0)))
+
 (ert-deftest agl-ind-else-aligns-with-an-inline-if ()
   ;; The `if' wrote its consequent inline, so it opens no block, but it is
   ;; still the header the `else' continues.

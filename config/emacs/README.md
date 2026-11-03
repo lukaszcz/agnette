@@ -95,9 +95,9 @@ final prompt appear. REPL input is highlighted like source buffers.
   `indent-region` keeps a line already at a valid level. `RET` indents the new line but
   never re-indents the one it ends.
 - Where the grammar fixes a line's level, that level wins: module items return to their
-  enclosing root or scope region; `until`, `done`, `catch`, and `else` align with their
-  header; a closing bracket aligns with its opening line; enum member fields hang one level
-  under the member. A line re-indents as soon as typing settles its construct (an `@` or
+  enclosing root or scope region; `until`, `done`, `catch`, `finally`, and `else` align
+  with their header; a closing bracket aligns with its opening line; enum member fields
+  hang one level under the member. A line re-indents as soon as typing settles its construct (an `@` or
   closing bracket, the space after a declaration keyword, a complete branch marker, or the
   newline after a lone `builtin`, `extern`, or `program`).
 

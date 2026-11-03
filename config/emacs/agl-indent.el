@@ -19,9 +19,9 @@
 ;;   itself, which starts after its `|', whether they are an indented block
 ;;   or a parenthesized payload opened at the end of the member's line.
 ;; - Branch-marker continuation: a line whose first token is `|', `else',
-;;   `catch', `until', or `done' continues the enclosing construct and
-;;   aligns with the line that opened it, or with the `|' sibling that
-;;   already stands at the branch column.
+;;   `catch', `finally', `until', or `done' continues the enclosing
+;;   construct and aligns with the line that opened it, or with the `|'
+;;   sibling that already stands at the branch column.
 ;; - Symbolic continuation: a line whose first token is `->', `=>', or `='
 ;;   wraps the line above it — a signature's return type, a body's or a
 ;;   binder's `=', a branch's arrow — and indents one level under the line
@@ -71,11 +71,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defconst agl--branch-marker-re
-  (concat "\\(?:|\\|" (regexp-opt '("else" "catch" "until" "done")) "\\)")
+  (concat "\\(?:|\\|" (regexp-opt '("else" "catch" "finally" "until" "done")) "\\)")
   "Regexp matching a branch marker that continues the enclosing construct.
 
-The markers are `|', `else', `catch', `until', and `done' (see the
-layout rules in docs/agl/reference/lexical-structure.md).  A scope
+The markers are `|', `else', `catch', `finally', `until', and `done'
+(see the layout rules in docs/agl/reference/lexical-structure.md).  A scope
 region's `end' also closes what a header opened, but it names the region
 it closes rather than continuing the nearest construct, so it is placed
 by `agl--scope-closer-indent' instead.")
@@ -583,11 +583,17 @@ named by the region\='s header or by a declaration already written there."
          (eq (char-after) ?|))))
 
 (defconst agl--marker-opener-alist
-  '(("else" "if")
-    ("catch" "try")
-    ("until" "for" "while" "do")
-    ("done" "for" "while" "do"))
-  "The header keywords each word marker continues.
+  '(("else" ("if") ("else"))
+    ("catch" ("try") ("catch"))
+    ("finally" ("try") ("catch"))
+    ("until" ("for" "while" "do") ("until"))
+    ("done" ("for" "while" "do") ("done")))
+  "For each word marker, (MARKER OPENERS SIBLINGS).
+
+OPENERS are the header keywords the marker continues; SIBLINGS are the
+markers that may stand between it and its header and already sit at the
+column it belongs to — a `finally\=' follows the `catch\=' clauses of
+its `try\='.
 
 `|\=' is absent: it introduces a branch of whatever construct encloses it
 — an `if\=', a `case\=', an `enum\=' — so its owner is found by position
@@ -608,32 +614,34 @@ merely begins with the letters of a marker."
 (defun agl--word-marker-owner (marker)
   "Return the column of the construct MARKER continues, or nil.
 
-MARKER is `else\=', `catch\=', `until\=', or `done\=', each of which names the
-headers it can continue, so the owner is found by walking out through
-the lines that enclose this one — those at a strictly smaller
-indentation than any seen so far — to the nearest such header.  A
-construct nested in the body passed on the way is never one of them,
-which is what the enclosing walk buys over stopping at the first
-shallower line.
+MARKER is `else\=', `catch\=', `finally\=', `until\=', or `done\=',
+each of which names the headers it can continue, so the owner is found
+by walking out through the lines that enclose this one — those at a
+strictly smaller indentation than any seen so far — to the nearest such
+header.  A construct nested in the body passed on the way is never one
+of them, which is what the enclosing walk buys over stopping at the
+first shallower line.
 
-A clause of the same word met on the way is a sibling — one `try\=' takes
-several `catch\=' clauses — and stands where this one belongs, but only
-until a header is found further out: the sibling may instead belong to a
-construct nested inside the one being continued."
-  (let ((openers (cdr (assoc marker agl--marker-opener-alist)))
-        (limit nil)
-        (sibling nil)
-        (column nil))
+A sibling clause met on the way — one `try\=' takes several `catch\='
+clauses, and its `finally\=' follows them — marks where this one
+belongs, but only if no header is found further out: the outermost
+sibling met is the fallback, since inner ones may belong to a construct
+nested inside the one being continued."
+  (let* ((entry (cdr (assoc marker agl--marker-opener-alist)))
+         (openers (car entry))
+         (siblings (cadr entry))
+         (limit nil)
+         (sibling nil)
+         (column nil))
     (save-excursion
       (beginning-of-line)
       (while (and (null column) (agl--goto-previous-code-line))
-        (let ((indent (current-indentation)))
+        (let ((indent (current-indentation))
+              (word (agl--line-first-word)))
           (when (or (null limit) (< indent limit))
             (setq limit indent)
-            (let ((word (agl--line-first-word)))
-              (cond ((member word openers) (setq column indent))
-                    ((and (equal word marker) (null sibling))
-                     (setq sibling indent))))))))
+            (cond ((member word openers) (setq column indent))
+                  ((member word siblings) (setq sibling indent)))))))
     (or column sibling)))
 
 (defun agl--positional-owner (pipe)
@@ -669,9 +677,9 @@ not."
 
 A `|' introduces a branch inside the construct's body, so it indents one
 level under a header that opens a suite.  The word markers `else',
-`catch', `until', and `done' close or continue the construct itself and
-align with its header, which they name: only when no such header stands
-above them is the header guessed from position instead."
+`catch', `finally', `until', and `done' close or continue the construct
+itself and align with its header, which they name: only when no such
+header stands above them is the header guessed from position instead."
   (let ((pipe (agl--pipe-marker-line-p)))
     (or (and (not pipe) (agl--word-marker-owner (agl--line-first-word)))
         (let* ((owner (agl--positional-owner pipe))
@@ -825,9 +833,9 @@ header: the first line is what chooses the level, so re-indenting it to
 the one computed target would rewrite well-formatted source.  That holds
 for a block body, for an enum member\='s field block, and equally for a
 `|\=' branch, whose markers commonly align under an inline first marker
-\(`if | a => x\=').  The terminators `else\=', `catch\=', `until\=', `done\='
-and `end\=' continue or close the construct itself rather than opening a
-body, so they stay subject to the levels above."
+\(`if | a => x\=').  The terminators `else\=', `catch\=', `finally\=',
+`until\=', `done\=' and `end\=' continue or close the construct itself
+rather than opening a body, so they stay subject to the levels above."
   (let ((column (current-indentation)))
     (or (memq column (agl--indent-levels))
         (save-excursion
@@ -948,10 +956,10 @@ Returns non-nil when a line moved."
   "Re-indent the current line once its first token settles where it belongs.
 
 Typing `|\=' or `@\=' at the start of a line, finishing one of the words
-`else\=', `catch\=', `until\=', `done\=', or `end\=' there, or separating a
-declaration keyword such as `def\=' from the name after it all decide
-which construct the line belongs to, so the line is re-indented
-immediately.  A newline settles the lone modifier line it ends, which no
+`else\=', `catch\=', `finally\=', `until\=', `done\=', or `end\=' there,
+or separating a declaration keyword such as `def\=' from the name after
+it all decide which construct the line belongs to, so the line is
+re-indented immediately.  A newline settles the lone modifier line it ends, which no
 keystroke of its own ever will, and the line it opens then follows."
   (when (and (eq major-mode 'agl-mode)
              (not (agl--opaque-line-p)))
