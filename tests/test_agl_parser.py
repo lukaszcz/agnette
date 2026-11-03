@@ -3197,6 +3197,143 @@ class TestTryExpr:
         assert isinstance(e.body, Block)
         assert len(e.body.items) == 2
 
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try x catch _ => 1 finally => 2",
+            "try x catch _ => 1\nfinally => 2",
+            "try\n  x\ncatch _ => 1\nfinally =>\n  y\n  z",
+        ),
+    )
+    def test_try_catch_finally(self, source: str) -> None:
+        e = first(parse(source))
+        assert isinstance(e, Try)
+        assert len(e.handlers) == 1
+        assert e.finalizer is not None
+
+    @pytest.mark.parametrize(
+        "source",
+        ("try x finally => 2", "try x\nfinally => 2", "try\n  x\nfinally =>\n  y"),
+    )
+    def test_catch_less_try(self, source: str) -> None:
+        e = first(parse(source))
+        assert isinstance(e, Try)
+        assert e.handlers == ()
+        assert e.finalizer is not None
+
+    def test_finally_forms_hold_the_body_and_the_suite(self) -> None:
+        e = first(parse("try\n  x\nfinally =>\n  let a = 1\n  a"))
+        assert isinstance(e, Try)
+        assert isinstance(e.body, Block)
+        assert isinstance(e.finalizer, Block)
+        inline = first(parse("try x catch _ => 1 finally => 2"))
+        assert isinstance(inline, Try)
+        assert isinstance(inline.finalizer, IntLit)
+
+    def test_try_without_finally_has_no_finalizer(self) -> None:
+        e = first(parse("try x catch _ => 1"))
+        assert isinstance(e, Try)
+        assert e.finalizer is None
+
+    def test_nested_try_in_a_finally_suite_and_in_a_body(self) -> None:
+        e = first(parse("try\n  try x finally => a\nfinally =>\n  try y finally => b"))
+        assert isinstance(e, Try)
+        assert isinstance(e.body, Block)
+        assert isinstance(e.body.items[0], Try)
+        assert isinstance(e.finalizer, Block)
+        inner = e.finalizer.items[0]
+        assert isinstance(inner, Try)
+        assert inner.finalizer is not None
+
+    @staticmethod
+    def _message(source: str) -> str:
+        with pytest.raises(AglSyntaxError) as exc_info:
+            parse(source)
+        return str(exc_info.value)
+
+    @pytest.mark.parametrize("source", ("try x", "try\n  x"))
+    def test_try_without_a_clause_names_the_missing_clause(self, source: str) -> None:
+        message = self._message(source)
+        assert "Unexpected" not in message
+        assert "catch" in message and "finally" in message
+
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try x finally => 1 catch _ => 2",
+            "try x catch _ => 1 finally => 2 catch _ => 3",
+            "try\n  x\nfinally =>\n  1\ncatch _ => 2",
+        ),
+    )
+    def test_catch_after_finally_is_diagnosed(self, source: str) -> None:
+        message = self._message(source)
+        assert "Unexpected" not in message
+        assert "catch" in message and "finally" in message
+        assert "nested" not in message
+
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try x finally => 1 finally => 2",
+            "try x catch _ => 1 finally => 2 finally => 3",
+            "try\n  try x finally => 1\n  finally => 2",
+        ),
+    )
+    def test_duplicate_finally_is_diagnosed(self, source: str) -> None:
+        message = self._message(source)
+        assert "Unexpected" not in message
+        assert "finally" in message
+        assert "nested" not in message
+
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try try x finally => 1",
+            "try try x catch _ => 1 finally => 2",
+            "try try x finally => 1 finally => 2",
+            "try try x finally => 1 catch _ => 2",
+            "try a; try x finally => 1 finally => 2",
+            "try let z = try y finally => 1 finally => 2",
+            "try fn() => try y finally => 1 finally => 2",
+        ),
+    )
+    def test_nested_try_ending_a_try_body_is_diagnosed(self, source: str) -> None:
+        assert "nested" in self._message(source)
+
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try x finally => - catch _ => 1",
+            "try x finally => not finally => 1",
+            "try x catch _ => 1 finally",
+            "try x finally",
+            "catch _ => 1",
+        ),
+    )
+    def test_unfinished_finally_body_is_not_a_clause_order_error(self, source: str) -> None:
+        message = self._message(source)
+        assert "Unexpected" in message
+        assert "nested" not in message
+
+    @pytest.mark.parametrize(
+        "source",
+        (
+            "try (try x finally => 1 finally => 2) catch _ => 3",
+            "try\n  try x finally => 1\n  finally => 2\ncatch _ => 3",
+        ),
+    )
+    def test_clause_order_inside_brackets_or_suites_is_not_a_nested_try_error(
+        self, source: str
+    ) -> None:
+        message = self._message(source)
+        assert "nested" not in message
+        assert "Unexpected" not in message
+
+    def test_parenthesized_nested_try_may_end_a_try_body(self) -> None:
+        e = first(parse("try (try x finally => a) finally => b"))
+        assert isinstance(e, Try)
+        assert isinstance(e.body, Try)
+
 
 # ---------------------------------------------------------------------------
 # raise_expr

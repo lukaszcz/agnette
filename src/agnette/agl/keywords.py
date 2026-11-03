@@ -47,6 +47,7 @@ KW_CASE = "case"
 KW_OF = "of"
 KW_TRY = "try"
 KW_CATCH = "catch"
+KW_FINALLY = "finally"
 KW_RAISE = "raise"
 KW_RETURN = "return"
 KW_AS = "as"
@@ -108,6 +109,7 @@ KEYWORDS: frozenset[str] = frozenset(
         KW_OF,
         KW_TRY,
         KW_CATCH,
+        KW_FINALLY,
         KW_RAISE,
         KW_RETURN,
         KW_AS,

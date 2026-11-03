@@ -716,13 +716,16 @@ class CatchClause:
 
 @dataclass(frozen=True, slots=True)
 class Try:
-    """``try body catch { handlers }`` expression.
+    """``try body {catch handler} [finally => finalizer]`` expression.
 
-    The type is the unified type of the body and all handler bodies.
+    The type is the unified type of the body and all handler bodies; the
+    finalizer (a discarded-value position) does not contribute. ``handlers``
+    is empty only when ``finalizer`` is set.
     """
 
     body: Expr
     handlers: tuple[CatchClause, ...]
+    finalizer: Expr | None
     span: SourceSpan = dc_field(compare=False)
     node_id: int = dc_field(compare=False)
 

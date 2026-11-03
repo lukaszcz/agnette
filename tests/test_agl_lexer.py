@@ -1676,6 +1676,13 @@ class TestPipeContinuation:
             if types[j] not in ("_DEDENT",):
                 break
 
+    def test_finally_suppresses_newline(self) -> None:
+        # A line opening with ``finally`` continues the ``try`` before it.
+        types = [t for t, _ in tok("try\n  pass\nfinally =>\n  pass")]
+        finally_idx = types.index("finally")
+        assert types[finally_idx - 1] == "_DEDENT"
+        assert "_NEWLINE" not in types[:finally_idx]
+
     def test_else_suppresses_newline(self) -> None:
         # ``else`` may omit its leading pipe, so at the start of a line it
         # continues the enclosing if expression like ``|`` does.

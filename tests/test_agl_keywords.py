@@ -14,6 +14,6 @@ def test_is_plain_name_accepts_ordinary_and_soft_keyword_spellings(name: str) ->
     assert is_plain_name(name)
 
 
-@pytest.mark.parametrize("name", ("if", "let", "true", "false", "null", ""))
+@pytest.mark.parametrize("name", ("if", "let", "catch", "finally", "true", "false", "null", ""))
 def test_is_plain_name_rejects_reserved_words(name: str) -> None:
     assert not is_plain_name(name)

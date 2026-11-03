@@ -30,6 +30,7 @@ import re
 from typing import TYPE_CHECKING, Sequence
 
 from lark import Tree
+from lark.lexer import Token
 
 from agnette.agl.diagnostics import AglSyntaxError as AglSyntaxError
 from agnette.agl.diagnostics import dollar_spacing_hint, piping_hint
@@ -105,7 +106,7 @@ _ZERO_WIDTH_TOKEN_NAMES: dict[str, str] = {
 _INLINE_BODY_OPENERS: frozenset[str] = frozenset({"let", "var"})
 
 # Tokens that end a `try` body.  Arriving at one while `catch` is still
-# expected means the `try` has no `catch` clause of its own.
+# expected means the `try` has no `catch` or `finally` clause of its own.
 _TRY_BODY_ENDERS: frozenset[str] = frozenset({"_NEWLINE", "_DEDENT", "$END"})
 
 
@@ -176,6 +177,57 @@ def _completed_try(exc: UnexpectedToken) -> bool:
     """
     top = exc.interactive_parser.parser_state.value_stack[-1]
     return isinstance(top, Tree) and top.data == "try_expr"
+
+
+# Tokens that open a bracketed or indented scope; while one is unreduced, an
+# enclosing `try` body cannot be what a following clause keyword is meant for.
+_SCOPE_OPENERS: frozenset[str] = frozenset({"_INDENT", "LPAR", "LSQB", "LBRACE", "INTERP_START"})
+
+
+def _completed_finally(exc: UnexpectedToken) -> bool:
+    """Whether the parser had just read a ``finally`` clause's body.
+
+    The clause is still unreduced when a following token is rejected, so it
+    shows as ``FINALLY ARROW catch_body`` on top of the stack.
+    """
+    stack = exc.interactive_parser.parser_state.value_stack
+    if len(stack) < 3:
+        return False
+    body, arrow, keyword = stack[-1], stack[-2], stack[-3]
+    return (
+        isinstance(body, Tree)
+        and body.data == "catch_body"
+        and isinstance(arrow, Token)
+        and arrow.type == "ARROW"
+        and isinstance(keyword, Token)
+        and keyword.type == "FINALLY"
+    )
+
+
+def _try_body_open_below(stack: Sequence[object]) -> bool:
+    """Whether the innermost unreduced ``try`` in ``stack`` still reads its body.
+
+    True when no bracket or indented scope was opened since that ``try``, so the
+    items above it belong to its body and a clause keyword would be its own.
+    """
+    for entry in reversed(stack):
+        if isinstance(entry, Token):
+            if entry.type == "TRY":
+                return True
+            if entry.type in _SCOPE_OPENERS:
+                return False
+    return False
+
+
+def _nested_try_closed_clauses(exc: UnexpectedToken) -> bool:
+    """Whether a just-read ``finally`` clause closed a ``try`` ending an enclosing body.
+
+    The inner ``try`` took the clauses meant for the enclosing ``try``, whose
+    body is still open below it.
+    """
+    stack = exc.interactive_parser.parser_state.value_stack
+    inner = max(i for i, v in enumerate(stack) if isinstance(v, Token) and v.type == "TRY")
+    return _try_body_open_below(stack[:inner])
 
 
 def _inline_body_guidance(value: str, source_text: str, token_pos: int) -> str | None:
@@ -330,6 +382,14 @@ def syntax_error_from_lark(
     return AglSyntaxError(f"{error}{hint}", span=error.span)
 
 
+def _nested_try_error(span: SourceSpan) -> AglSyntaxError:
+    return AglSyntaxError(
+        "a nested `try` at the end of a `try` body takes the enclosing "
+        "`catch`/`finally` clauses; parenthesize it.",
+        span=span,
+    )
+
+
 def _unexpected_token_error(exc: UnexpectedToken, *, source_text: str) -> AglSyntaxError:
     """Build the syntax error for an unexpected token, without the spacing hint."""
     tok = exc.token
@@ -381,15 +441,23 @@ def _unexpected_token_error(exc: UnexpectedToken, *, source_text: str) -> AglSyn
     # The `try` body ended while a `catch` was still expected.
     if tok.type in _TRY_BODY_ENDERS and "CATCH" in exc.expected:
         return AglSyntaxError(
-            "a `try` expression requires at least one `catch` clause.",
+            "a `try` expression requires a `catch` or `finally` clause.",
             span=span,
         )
     # A nested `try` closed a marked body's final item: it consumed every
-    # `catch`, so the enclosing `try` has none and the body has no value.
+    # `catch`/`finally`, so the enclosing `try` has none and the body has no value.
     if tok.type in _TRY_BODY_ENDERS and "SEMICOLON" in exc.expected and _completed_try(exc):
+        return _nested_try_error(span)
+    # A clause after a completed `finally`, which closes its `try`: either the
+    # nested `try` of an enclosing body (as above, with its clauses consumed)
+    # or a genuine clause-order mistake.
+    if tok.type in {"CATCH", "FINALLY"} and _completed_finally(exc):
+        if _nested_try_closed_clauses(exc):
+            return _nested_try_error(span)
         return AglSyntaxError(
-            "a nested `try` at the end of a `try` body takes the enclosing "
-            "`catch` clauses; parenthesize it.",
+            "a `finally` clause must be the last clause of a `try`."
+            if tok.type == "FINALLY"
+            else "a `catch` clause cannot follow a `finally` clause.",
             span=span,
         )
     if tok.type == "_INDENT" and bool(_ITEM_ENDERS & set(exc.expected)):

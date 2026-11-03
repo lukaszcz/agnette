@@ -621,6 +621,8 @@ def _walk_try(node: Try, callback: Callback) -> None:
     walk(node.body, callback)
     for clause in node.handlers:
         walk(clause, callback)
+    if node.finalizer is not None:
+        walk(node.finalizer, callback)
 
 
 def _walk_raise(node: Raise, callback: Callback) -> None:

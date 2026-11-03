@@ -5,10 +5,10 @@ An inline body is the form written on the same line after ``=>`` (or after
 
 A ``;`` sequence is admissible exactly where a body-specific token marks the
 body's end: ``)`` for a parenthesized block, ``until``/``done`` for a loop body,
-and ``catch`` for a try body. An inline ``def`` body is exactly one expression;
+and ``catch`` or ``finally`` for a try body. An inline ``def`` body is exactly one expression;
 a following newline or ``;`` starts the next enclosing block item. A body after
-``=>`` has no marker — a following ``|``, ``else``, or ``catch`` could belong to
-either the body or the enclosing form — so it holds exactly one item.
+``=>`` has no marker — a following ``|``, ``else``, ``catch``, or ``finally`` could
+belong to either the body or the enclosing form — so it holds exactly one item.
 
 Covers:
 - ``:=``, ``raise``, and ``return`` as whole inline ``=>`` bodies.
@@ -308,13 +308,24 @@ class TestInlineDefBody:
 
 
 class TestTryBodyMatchesTheOtherMarkedBodies:
-    """`catch` marks the try body's end, so it takes the same sequence."""
+    """`catch` or `finally` marks the try body's end, so it takes the same sequence."""
 
     def test_assignment_and_binder_in_inline_try_body(self) -> None:
         ok, out, diags = _run(
             """\
 var i: int = 0
 let v = try i := 1; let z = i + 1; z catch _ => 0
+print v
+"""
+        )
+        assert ok, diags
+        assert out.strip() == "2"
+
+    def test_assignment_and_binder_in_inline_try_body_before_finally(self) -> None:
+        ok, out, diags = _run(
+            """\
+var i: int = 0
+let v = try i := 1; let z = i + 1; z finally => ()
 print v
 """
         )

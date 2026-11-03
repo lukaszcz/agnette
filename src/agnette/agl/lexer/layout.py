@@ -18,8 +18,8 @@ Key rules
   stack top.  Deeper → emit ``_INDENT``.  Same → emit ``_NEWLINE`` as-is.
   Shallower → emit one or more ``_DEDENT`` s and verify alignment.
 - Continuation rule: when the first significant token on the next line cannot
-  begin a construct — ``|``, ``else``, ``catch``, ``until``, ``done``, ``->``,
-  ``=>``, or ``=`` — the ``_NEWLINE`` is suppressed and only the ``_DEDENT`` s
+  begin a construct — ``|``, ``else``, ``catch``, ``finally``, ``until``,
+  ``done``, ``->``, ``=>``, or ``=`` — the ``_NEWLINE`` is suppressed and only the ``_DEDENT`` s
   needed to pop the stack to levels strictly greater than that token's column
   are emitted.  These lines never push an indent.  This is what lets branch
   markers and loop terminators align with the construct that owns them, and
@@ -65,6 +65,7 @@ from agnette.agl.keywords import (
     KW_DONE,
     KW_ELSE,
     KW_EXPORT,
+    KW_FINALLY,
     KW_IMPORT,
     KW_UNTIL,
     KW_USE,
@@ -96,6 +97,7 @@ _CONTINUATION = {
     PIPE,
     KW_ELSE,
     KW_CATCH,
+    KW_FINALLY,
     KW_UNTIL,
     KW_DONE,
     THIN_ARROW,

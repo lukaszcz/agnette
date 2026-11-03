@@ -2745,6 +2745,7 @@ class TestDirectASTConstruction:
         try_node = Try(
             body=_make_intlit(1),
             handlers=(clause,),
+            finalizer=None,
             span=_sp(),
             node_id=_nid(),
         )
@@ -2762,6 +2763,7 @@ class TestDirectASTConstruction:
         try_node = Try(
             body=_make_intlit(1),
             handlers=(clause,),
+            finalizer=None,
             span=_sp(),
             node_id=_nid(),
         )

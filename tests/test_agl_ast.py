@@ -1002,7 +1002,7 @@ class TestTryNode:
 
     def test_try_no_handlers(self) -> None:
         body = IntLit(value=1, span=self._s(), node_id=2)
-        node = Try(body=body, handlers=(), span=self._s(), node_id=1)
+        node = Try(body=body, handlers=(), finalizer=None, span=self._s(), node_id=1)
         assert node.body is body
         assert node.handlers == ()
 
@@ -1037,14 +1037,14 @@ class TestTryNode:
         clause = CatchClause(
             exc_type="Error", binding="e", body=handler_body, span=self._s(), node_id=4
         )
-        node = Try(body=body, handlers=(clause,), span=self._s(), node_id=1)
+        node = Try(body=body, handlers=(clause,), finalizer=None, span=self._s(), node_id=1)
         assert isinstance(node.handlers, tuple)
         assert len(node.handlers) == 1
 
     def test_try_equality_ignores_span_node_id(self) -> None:
         body = IntLit(value=1, span=span(1, 0, 1, 1), node_id=5)
-        a = Try(body=body, handlers=(), span=span(1, 0, 1, 10), node_id=1)
-        b = Try(body=body, handlers=(), span=span(9, 0, 9, 10), node_id=99)
+        a = Try(body=body, handlers=(), finalizer=None, span=span(1, 0, 1, 10), node_id=1)
+        b = Try(body=body, handlers=(), finalizer=None, span=span(9, 0, 9, 10), node_id=99)
         assert a == b
 
 
@@ -1610,7 +1610,7 @@ class TestWalk:
         catch_clause = CatchClause(
             exc_type="MyError", binding="e", body=catch_body, span=s, node_id=514
         )
-        try_node = Try(body=int_lit, handlers=(catch_clause,), span=s, node_id=515)
+        try_node = Try(body=int_lit, handlers=(catch_clause,), finalizer=None, span=s, node_id=515)
 
         # Raise
         raise_node = Raise(exc=var_ref, span=s, node_id=516)
@@ -2143,7 +2143,7 @@ class TestWalk:
         try_body = IntLit(value=1, span=s, node_id=2)
         handler_body = IntLit(value=0, span=s, node_id=3)
         clause = CatchClause(exc_type=None, binding=None, body=handler_body, span=s, node_id=4)
-        node = Try(body=try_body, handlers=(clause,), span=s, node_id=1)
+        node = Try(body=try_body, handlers=(clause,), finalizer=None, span=s, node_id=1)
 
         visited: list[object] = []
         walk(node, visited.append)
@@ -2152,6 +2152,22 @@ class TestWalk:
         assert visited[1] is try_body
         assert visited[2] is clause
         assert visited[3] is handler_body
+
+    def test_walk_try_visits_the_finalizer_after_the_handlers(self) -> None:
+        """walk(Try) visits body, handlers, then the finalizer."""
+        from agnette.agl.syntax.visitor import walk
+
+        s = self._s()
+        try_body = IntLit(value=1, span=s, node_id=2)
+        handler_body = IntLit(value=0, span=s, node_id=3)
+        clause = CatchClause(exc_type=None, binding=None, body=handler_body, span=s, node_id=4)
+        finalizer = IntLit(value=2, span=s, node_id=5)
+        node = Try(body=try_body, handlers=(clause,), finalizer=finalizer, span=s, node_id=1)
+
+        visited: list[object] = []
+        walk(node, visited.append)
+
+        assert visited == [node, try_body, clause, handler_body, finalizer]
 
     def test_walk_func_t_visits_param_types_then_result(self) -> None:
         """walk(FuncT) visits each param type then the result type."""

@@ -532,25 +532,27 @@ loop_end : "until" or_expr  -> loop_until
 inline_seq: (marked_item SEMICOLON)* marked_item
 
 // try expression
-try_expr: "try" try_body (catch_clause)+
+try_expr: "try" try_body (catch_clause+ finally_clause? | finally_clause)
 
-// try_body: the same marked-body sequence, terminated by `catch`.  Unlike a
-// loop's `until`/`done` — mandatory and exactly one per loop — `catch` is a
-// repeatable clause, so try_tail bars the two forms that would contest it:
+// try_body: the same marked-body sequence, terminated by `catch` or `finally`.
+// Unlike a loop's `until`/`done` — mandatory and exactly one per loop —
+// `catch` is a repeatable clause and `finally` an optional one, so try_tail
+// bars the two forms that would contest it:
 //
-//   try     a nested `try` last here consumes EVERY following catch clause,
-//           leaving none for this body's own `try`, which requires one.  The
-//           form can never parse, so barring it only moves the error earlier.
+//   try     a nested `try` last here consumes EVERY following catch/finally
+//           clause, leaving none for this body's own `try`, which requires
+//           one.  The form can never parse, so barring it only moves the
+//           error earlier.
 //   lambda  a lambda body is introduced by `=>` and is itself unmarked, so it
-//           extends rightwards; a following `catch` is contested whenever that
-//           body ends in a `try`.  Unlike the case above this one does cost a
-//           spelling — `try fn(...) => e catch ...` — in exchange for keeping
-//           the grammar conflict-free.
+//           extends rightwards; a following `catch`/`finally` is contested
+//           whenever that body ends in a `try`.  Unlike the case above this
+//           one does cost a spelling — `try fn(...) => e catch ...` — in
+//           exchange for keeping the grammar conflict-free.
 //
 // Both stay admissible in any earlier position of the sequence, and in the
 // final one once parenthesized, which restores the marker. A final binder uses
 // the same closed RHS alternatives: an unparenthesized nested `try` or lambda
-// would likewise contest the following `catch`.
+// would likewise contest the following `catch`/`finally`.
 try_body: suite_expr | (marked_item SEMICOLON)* try_tail
 
 ?try_tail: or_expr | inline_assign | try_letvar_decl | raise_expr | return_expr
@@ -563,6 +565,9 @@ try_body: suite_expr | (marked_item SEMICOLON)* try_tail
 
 catch_clause: "catch" catch_pattern ARROW catch_body
 
+// finally_clause: runs after the body and handlers; same body forms.
+finally_clause: "finally" ARROW catch_body
+
 // catch_pattern: name ("as" name)?
 // "_" arrives as NAME; transformer checks value for wildcard.
 catch_pattern: name ("as" name)?
@@ -571,15 +576,15 @@ catch_pattern: name ("as" name)?
 // Suite form starts with _INDENT; no inline alternative starts with _INDENT.
 //
 // A body after `=>` is exactly ONE closed_item.  Nothing marks where such a
-// body ends: a following `|`, `else`, or `catch` could belong either to the
-// body or to the enclosing branch list.  So no `;` sequence is admissible
+// body ends: a following `|`, `else`, `catch`, or `finally` could belong
+// either to the body or to the enclosing branch list.  So no `;` sequence is admissible
 // here, and neither are the open forms (if/case/try/do) or lambdas, whose
 // own branch lists would swallow the enclosing form's continuation.
 //
 // This is the one body position without an end marker. The marked inline
 // bodies — `)` for a parenthesized block, `until`/`done` for a loop body, and
-// `catch` for a try body — admit a full `;` sequence. An inline `def` also
-// takes one expr, but its newline or `;` is the enclosing block separator and
+// `catch`/`finally` for a try body — admit a full `;` sequence. An inline
+// `def` also takes one expr, but its newline or `;` is the enclosing block separator and
 // starts the next block item rather than a body sequence. To write a sequence
 // after `=>`, parenthesize it or use the suite form.
 catch_body: suite_expr | closed_item
@@ -587,8 +592,8 @@ catch_body: suite_expr | closed_item
 branch_body: suite_expr | closed_item
 
 // closed_item: the items that cannot extend rightwards into a trailing
-// `|`/`else`/`catch`.  Used as the whole of an `=>` body, and as the final
-// item of the `catch`-terminated try body.
+// `|`/`else`/`catch`/`finally`.  Used as the whole of an `=>` body, and as the
+// final item of the `catch`/`finally`-terminated try body.
 ?closed_item: or_expr | inline_assign | raise_expr | return_expr
 
 // inline_assign: the assignment form admissible in an inline body.  Unlike

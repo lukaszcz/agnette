@@ -213,6 +213,13 @@ _RawInfixChain: TypeAlias = syntax.RawInfixChain
 
 
 @dataclass(frozen=True, slots=True)
+class _Finalizer:
+    """A ``finally`` clause body, kept apart from the handlers until ``try_expr``."""
+
+    body: syntax.Expr
+
+
+@dataclass(frozen=True, slots=True)
 class _InfixPriority:
     """Transformer-internal priority specification for ``infix`` declarations."""
 
@@ -2392,17 +2399,24 @@ class AstBuilder(Transformer):
             node_id=self._next_id(),
         )
 
+    def finally_clause(self, meta: Meta, args: _Args) -> _Finalizer:
+        """finally_clause: "finally" ARROW catch_body"""
+        _arrow, body = args
+        return _Finalizer(cast(syntax.Expr, body))
+
     def try_expr(self, meta: Meta, args: _Args) -> syntax.Try:
-        """try_expr: "try" try_body (catch_clause)+"""
+        """try_expr: "try" try_body (catch_clause+ finally_clause? | finally_clause)"""
         handlers = [a for a in args if isinstance(a, syntax.CatchClause)]
+        finalizer = next((a.body for a in args if isinstance(a, _Finalizer)), None)
         try_body = next(
             a
             for a in args
-            if a is not None and not isinstance(a, Token) and not isinstance(a, syntax.CatchClause)
+            if a is not None and not isinstance(a, (Token, syntax.CatchClause, _Finalizer))
         )
         return syntax.Try(
             body=cast(syntax.Expr, try_body),
             handlers=tuple(handlers),
+            finalizer=finalizer,
             span=self._span_from_meta(meta),
             node_id=self._next_id(),
         )

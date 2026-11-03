@@ -290,6 +290,8 @@ class TestIsIncomplete:
             "enum E",
             "case x of",
             "try",
+            "try\n  x",
+            "try x\nfinally =>",
             "do agent",
             "if x == 1 =>",
             "1 +",
@@ -318,6 +320,13 @@ class TestIsIncomplete:
     def test_blank_input_force_submits(self, source: str) -> None:
         # Blank / whitespace-only input force-submits so Enter on an empty prompt
         # gives a fresh prompt instead of inserting a newline.
+        assert is_incomplete(source) is False
+
+    @pytest.mark.parametrize(
+        "source",
+        ["try x finally => y", "try\n  x\nfinally =>\n  y\n", "try x catch _ => 1\nfinally => 2"],
+    )
+    def test_complete_try_finally_submits(self, source: str) -> None:
         assert is_incomplete(source) is False
 
     def test_blank_line_force_submits_incomplete(self) -> None:
