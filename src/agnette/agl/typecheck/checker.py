@@ -1360,12 +1360,11 @@ class _Checker:
         for item in block.items:
             is_final = item is last
             if not is_final and isinstance(item, Expr):
-                item_type = self._check_item(item, expected=UnitType(), static_root=static_root)
-                self._assert_assignable_from(item_type, UnitType(), item.span, item)
-            else:
-                item_type = self._check_item(
-                    item, expected=expected if is_final else None, static_root=static_root
-                )
+                self._check_discarded(item)
+                continue
+            item_type = self._check_item(
+                item, expected=expected if is_final else None, static_root=static_root
+            )
             if is_final:
                 result_type = item_type
         if isinstance(last, Expr):
@@ -4626,13 +4625,17 @@ class _Checker:
             while_type = self._check_expr(node.while_cond, expected=None)
             with self._frame_direct_candidate_use(exprs=(node.while_cond,)):
                 self._require_bool_condition(while_type, node.while_cond.span, "while")
-        body_type = self._check_expr(node.body, expected=UnitType())
-        self._assert_assignable_from(body_type, UnitType(), node.body.span, node.body)
+        self._check_discarded(node.body)
         if node.until_cond is not None:
             cond_type = self._check_expr(node.until_cond, expected=None)
             with self._frame_direct_candidate_use(exprs=(node.until_cond,)):
                 self._require_bool_condition(cond_type, node.until_cond.span, "until")
         return UnitType()
+
+    def _check_discarded(self, expr: Expr) -> None:
+        """Check *expr* as a discarded-value position: it must be `unit` or bottom."""
+        expr_type = self._check_expr(expr, expected=UnitType())
+        self._assert_assignable_from(expr_type, UnitType(), expr.span, expr)
 
     # --- try ---
 
@@ -4662,6 +4665,8 @@ class _Checker:
         self._set_inferred_return_expr_provenance(
             node.node_id, self._provenance_for_result(result, (node.body, *handler_bodies))
         )
+        if node.finalizer is not None:
+            self._check_discarded(node.finalizer)
         return result
 
     def _check_catch_clause(

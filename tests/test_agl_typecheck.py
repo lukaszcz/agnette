@@ -5648,6 +5648,36 @@ class TestDo:
 # ---------------------------------------------------------------------------
 
 
+class TestTryFinally:
+    @staticmethod
+    def _try_type(source: str) -> Type:
+        r = resolve_and_check_repl_entry(source)
+        node = r.resolved.program.body.items[-1]
+        assert isinstance(node, Try)
+        return r.node_types[node.node_id]
+
+    def test_non_unit_finally_body_is_rejected(self) -> None:
+        reject_type("try 1 finally => 2")
+        reject_type("try 1 catch _ => 2 finally => 3")
+
+    @pytest.mark.parametrize(
+        "finalizer",
+        ["()", 'raise Abort(message = "x")', "(let y = 1)", "(var y = 1)", "\n  let z = 1\n  ()"],
+    )
+    def test_unit_or_bottom_finally_body_is_accepted(self, finalizer: str) -> None:
+        assert self._try_type(f"try 1 catch _ => 2 finally => {finalizer}") == IntType()
+
+    def test_catch_less_try_takes_body_type(self) -> None:
+        assert self._try_type('try "a" finally => ()') == TextType()
+
+    def test_diverging_finally_does_not_change_type(self) -> None:
+        assert self._try_type('try 1 finally => raise Abort(message = "x")') == IntType()
+
+    def test_expected_type_does_not_flow_into_finalizer(self) -> None:
+        # Checked against `int`, the unit branches of this `if` would be rejected.
+        resolve_and_check_repl_entry("let x: int = try 1 finally => (if true => () | else => ())")
+
+
 class TestTryCatch:
     def test_try_catch_wildcard(self) -> None:
         r = resolve_and_check_repl_entry("try 1 catch _ => 2")
