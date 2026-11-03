@@ -5,7 +5,9 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import pickle
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -394,6 +396,44 @@ def test_a_zygote_that_dies_during_a_run_fails_it_and_is_replaced(
 
     second = run_callable(_parent_pid, tmp_path).value
     assert second not in (first, os.getpid())
+
+
+def _request_runs_after_an_unreported_fork(workdir: Path) -> bool:
+    """Whether a zygote's child runs its request although the zygote died before naming it.
+
+    Serves one request from a zygote that is killed right after the fork, before it reports
+    the child's pid: the client cannot kill a child it cannot name, so the child must not run.
+    """
+    name = _zygote.unique_name("unreported-fork")
+    ran = workdir / "ran"
+
+    def child(request: object, fds: list[int]) -> Any:
+        ran.write_text("")
+        os._exit(0)
+
+    server = os.fork()
+    if server == 0:
+        pytest.MonkeyPatch().setattr(
+            _zygote, "_serve_one", lambda *_: os.kill(os.getpid(), signal.SIGKILL)
+        )
+        _zygote.run_child(lambda: _zygote.serve(name, lambda: None, child) or 0)
+    # The child holds the write end until it exits: EOF on the read end means it is gone.
+    held, holder = os.pipe()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        while conn.connect_ex("\0" + name) != 0:
+            time.sleep(0.01)
+        _zygote.send(conn, pickle.dumps(None), [holder])
+        os.close(holder)
+        assert _zygote.recv(conn) == b""
+    os.waitpid(server, 0)
+    while os.read(held, 1):
+        pass
+    os.close(held)
+    return ran.exists()
+
+
+def test_a_child_whose_zygote_dies_before_reporting_it_never_runs(tmp_path: Path) -> None:
+    assert run_callable(_request_runs_after_an_unreported_fork, tmp_path).value is False
 
 
 _FORK_HARNESS_PROGRAM = """\

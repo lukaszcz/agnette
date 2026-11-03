@@ -263,23 +263,40 @@ def serve(
                 # Nothing of this process may reach the child half-written.
                 sys.stdout.flush()
                 sys.stderr.flush()
+                held, release = os.pipe()
                 pid = os.fork()
                 if pid == 0:
                     server.close()
                     conn.close()
+                    os.close(release)
+                    _await_release(held)
                     child(request, fds)
+                os.close(held)
                 for fd in fds:
                     os.close(fd)
-                _serve_one(conn, pid)
+                _serve_one(conn, pid, release)
 
 
-def _serve_one(conn: socket.socket, pid: int) -> None:
-    """Report forked child *pid* to its client, wait for it, and report how it ended.
+def _await_release(held: int) -> None:
+    """Block a new child until the zygote has reported its pid; exit if the zygote died first.
+
+    A client kills only a child it can name, so an unreported one must never run.
+    """
+    released = os.read(held, 1)
+    os.close(held)
+    if not released:
+        os._exit(1)
+
+
+def _serve_one(conn: socket.socket, pid: int, release: int) -> None:
+    """Report forked child *pid* to its client, release it, wait for it, report how it ended.
 
     A client that gave up (and killed the child) is gone by now; that is not an error.
     """
     with contextlib.suppress(OSError):
         send(conn, pickle.dumps(pid))
+    os.write(release, b"\0")
+    os.close(release)
     _waited, status, usage = os.wait4(pid, 0)
     with contextlib.suppress(OSError):
         send(conn, pickle.dumps((status, usage.ru_utime + usage.ru_stime)))
