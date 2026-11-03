@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -28,8 +29,11 @@ from agnette.agl.pipeline import PipelineDriver, RunResult
 from agnette.agl.recursion import NestingTooDeepError, frontend_recursion_boundary
 from agnette.agl.repl.meta import MetaContext, dispatch_meta
 from agnette.agl.repl.session import ReplSession
+from agnette.agl.runtime.agents import AgentRequest, AgentResponse
+from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.semantics.values import IntValue
 from tests._agl_helpers import run_inline_code
+from tests.agl.ir_harness import run_inline_ir
 
 # A non-tail recursive helper plus a variant guarded by a ``try``/``catch``.
 _PRELUDE = """
@@ -40,6 +44,13 @@ def guarded(d: int) -> int =
   try sum-to(d)
   catch RecursionError as e => e.limit
 """
+
+
+class _InterruptingAgent:
+    """A fake ``AgentFn`` interrupted on every call."""
+
+    def __call__(self, request: AgentRequest) -> AgentResponse:
+        raise KeyboardInterrupt
 
 
 def _run(initializer: str, *, depth: int, max_call_depth: int):
@@ -90,6 +101,62 @@ class TestPythonRecursionErrorBackstop:
         assert not result.ok
         assert result.error is not None
         assert result.error.type_name == "RecursionError"
+
+    def test_finally_runs_after_a_backstop_recursion_error_in_the_body(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = (
+            f'{_PRELUDE}try\n  try\n    let _ = sum-to(1000000)\n  finally =>\n    print("fin")\n'
+            'catch RecursionError =>\n  print("handler")\n'
+        )
+        run = run_inline_ir(source, default_call_depth_limit=1_000_000, capture_stdout=False)
+        assert run[0].ok
+        assert capsys.readouterr().out.split() == ["fin", "handler"]
+
+    def test_finally_runs_after_a_backstop_recursion_error_in_a_handler(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = (
+            f'{_PRELUDE}try\n  try\n    raise Abort(message = "x")\n'
+            "  catch Abort =>\n    let _ = sum-to(1000000)\n"
+            '  finally =>\n    print("fin")\n'
+            'catch RecursionError =>\n  print("handler")\n'
+        )
+        run = run_inline_ir(source, default_call_depth_limit=1_000_000, capture_stdout=False)
+        assert run[0].ok
+        assert capsys.readouterr().out.split() == ["fin", "handler"]
+
+    def test_a_backstop_recursion_error_in_the_finally_becomes_the_agl_one(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        source = (
+            f'{_PRELUDE}try\n  try\n    print("body")\n  finally =>\n    let _ = sum-to(1000000)\n'
+            'catch RecursionError =>\n  print("handler")\n'
+        )
+        run = run_inline_ir(source, default_call_depth_limit=1_000_000, capture_stdout=False)
+        assert run[0].ok
+        assert capsys.readouterr().out.split() == ["body", "handler"]
+
+    def test_a_pending_termination_survives_a_failing_finally_recursion_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Even when building the AgL ``RecursionError`` itself overflows, no catch intercepts."""
+
+        def overflow(self: object) -> NoReturn:
+            raise RecursionError
+
+        monkeypatch.setattr(ir_interpreter.IrInterpreter, "_recursion_error", overflow)
+        source = (
+            f'{_PRELUDE}try\n  try\n    let _ = ask """x"""\n  finally =>\n'
+            "    let _ = sum-to(1000000)\n"
+            "catch _ =>\n  print(1)\n"
+        )
+        with pytest.raises(AgentCancelled):
+            run_inline_ir(
+                source,
+                agent_dispatcher=_InterruptingAgent(),
+                default_call_depth_limit=1_000_000,
+            )
 
     def test_backstop_during_a_repl_root_initializer_is_catchable(self) -> None:
         """A REPL session's root `let` runs as a module initializer, not a program invocation.

@@ -15,7 +15,7 @@ Direct, indirect, extern, and program-entry calls share parameter-order argument
 
 ## Control Flow
 
-`break`, `continue`, and `return` are internal signals caught only by their owning construct, so they unwind through `try`/`catch`, which catches only AgL raises. Matched handlers push their carrier on a stack for bare `raise`, restoring it on exit. A specific `catch` matches by nominal conformance along the `base` chain. Recursion is bounded by `max_call_depth`, raising a catchable `RecursionError` before Python's limit. A span-less raise takes the location of the innermost IR node it unwinds through.
+`break`, `continue`, and `return` are internal signals caught only by their owning construct, so they unwind through `try`/`catch`, which catches only AgL raises. Matched handlers push their carrier on a stack for bare `raise`, restoring it on exit. A `finally` body runs exactly once after any AgL outcome (value, raise, `return`/`break`/`continue`) and after host terminations (`KeyboardInterrupt`, `SystemExit`, `AgentCancelled`); a finalizer raise replaces an AgL outcome but is discarded under a termination, which takes precedence; a termination starting in the finalizer replaces any pending outcome. Other host failures skip finalizers. A specific `catch` matches by nominal conformance along the `base` chain. Recursion is bounded by `max_call_depth`, raising a catchable `RecursionError` before Python's limit. A span-less raise takes the location of the innermost IR node it unwinds through.
 
 ## Host-Backed Operations
 

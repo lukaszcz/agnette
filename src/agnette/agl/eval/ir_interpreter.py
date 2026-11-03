@@ -21,7 +21,7 @@ from __future__ import annotations
 import decimal
 import os
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from functools import partial
 from typing import TYPE_CHECKING, ContextManager, TypeVar, assert_never, cast
 from weakref import proxy
@@ -60,6 +60,7 @@ from agnette.agl.ir.nodes import (
     IrBuiltinLoad,
     IrBuiltinStore,
     IrCase,
+    IrCatchHandler,
     IrCoerce,
     IrCompare,
     IrConstBool,
@@ -159,6 +160,7 @@ from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
 from agnette.agl.runtime.processes import ProcessInfo
 from agnette.agl.runtime.render import render_key_value_syntax, render_value
+from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.runtime.serialize import AglNonDataValue, encode_scalar
 from agnette.agl.runtime.sessions import AgentDispatcherSessionHost
 from agnette.agl.runtime.trace import TraceStore, noop_trace
@@ -314,6 +316,12 @@ def _make_literal_key_value(key: IrLiteralCaseKey, *, int_subject: bool) -> Valu
 _PYTHON_FRAMES_PER_AGL_CALL = 80
 _BASE_RECURSION_HEADROOM = 4000
 _MAX_PYTHON_RECURSION_LIMIT = 1_000_000
+
+
+# Host terminations: ``std/os::exit`` and SIGTERM/SIGHUP (``SystemExit``), Ctrl-C,
+# and the effects layer's form of an agent-call interrupt.  A ``finally`` body
+# runs on them, and they take precedence over any raise it makes.
+_HOST_TERMINATIONS = (KeyboardInterrupt, SystemExit, AgentCancelled)
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +918,39 @@ class IrInterpreter:
                 },
             )
         )
+
+    def _eval_handled(self, body: IrExpr, handlers: tuple[IrCatchHandler, ...]) -> Value:
+        """Evaluate a ``try`` body, running the first matching handler for an AgL raise."""
+        try:
+            return self._eval(body)
+        except RecursionError:
+            # Python's limit was hit before the AgL guard (its limit is
+            # capped); surface it as the same catchable AgL exception so
+            # a `catch RecursionError` handler still fires.
+            pending = self._recursion_error()
+        except AglRaise as exc:
+            pending = exc
+        for handler in handlers:
+            if (
+                handler.nominal is None
+                or handler.nominal == pending.exc.nominal
+                or nominal_conforms(self._program.nominals, pending.exc.nominal, (handler.nominal,))
+            ):
+                if handler.symbol is not None:
+                    self._frame[handler.symbol] = pending.exc
+                self._handled.append(pending)
+                try:
+                    return self._eval(handler.body)
+                finally:
+                    self._handled.pop()
+        raise pending
+
+    def _run_finalizer(self, finalizer: IrExpr) -> None:
+        """Evaluate a ``finally`` body; its own failure is always an ``AglRaise``."""
+        try:
+            self._eval(finalizer)
+        except RecursionError:
+            raise self._recursion_error() from None
 
     def _check_call_depth(self) -> None:
         if self._call_depth >= self._max_call_depth:
@@ -1724,32 +1765,25 @@ class IrInterpreter:
                 case IrReturn(value=value_expr):
                     raise _ReturnSignal(self._eval(value_expr))
 
-                case IrTry(body=body_expr, handlers=handlers):
+                case IrTry(body=body_expr, handlers=handlers, finalizer=finalizer):
+                    if finalizer is None:
+                        return self._eval_handled(body_expr, handlers)
                     try:
-                        return self._eval(body_expr)
+                        value = self._eval_handled(body_expr, handlers)
+                    except (AglRaise, _ReturnSignal, _BreakSignal, _ContinueSignal):
+                        self._run_finalizer(finalizer)
+                        raise
                     except RecursionError:
-                        # Python's limit was hit before the AgL guard (its limit is
-                        # capped); surface it as the same catchable AgL exception so
-                        # a `catch RecursionError` handler still fires.
                         pending = self._recursion_error()
-                    except AglRaise as exc:
-                        pending = exc
-                    for handler in handlers:
-                        if (
-                            handler.nominal is None
-                            or handler.nominal == pending.exc.nominal
-                            or nominal_conforms(
-                                self._program.nominals, pending.exc.nominal, (handler.nominal,)
-                            )
-                        ):
-                            if handler.symbol is not None:
-                                self._frame[handler.symbol] = pending.exc
-                            self._handled.append(pending)
-                            try:
-                                return self._eval(handler.body)
-                            finally:
-                                self._handled.pop()
-                    raise pending
+                        self._run_finalizer(finalizer)
+                        raise pending from None
+                    except _HOST_TERMINATIONS:
+                        # A raise from the finalizer is discarded: the termination wins.
+                        with suppress(AglRaise, RecursionError):
+                            self._run_finalizer(finalizer)
+                        raise
+                    self._run_finalizer(finalizer)
+                    return value
 
                 case IrCase(subject=subject_expr, arms=arms, default=default):
                     subject_val = self._eval(subject_expr)

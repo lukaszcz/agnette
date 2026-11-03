@@ -10,12 +10,15 @@ Covers IrIf, IrRaise, IrTry with all cases:
 - first-match ordering in try handlers
 - try body does not raise → body value
 - no handler matches → re-raise
+- finally clauses: one run per outcome kind, raise/termination replacement
 - negative validate tests
 - golden lowering tests
 
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
@@ -47,20 +50,26 @@ from agnette.agl.ir.program import (
 )
 from agnette.agl.ir.validate import InvalidIrError, validate_ir
 from agnette.agl.modules.ids import ENTRY_ID, STD_PRELUDE_ID
+from agnette.agl.pipeline import RunError, RunResult
+from agnette.agl.runtime.agents import AgentFn, AgentRequest, AgentResponse
+from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.semantics.values import (
     ExceptionValue,
     IntValue,
     TextValue,
     UnitValue,
+    Value,
 )
 from agnette.agl.typecheck.env import AglTypeError
 from tests._agl_helpers import let_root_capture
 from tests.agl.ir_harness import (
+    _write_extern_entry,
     evaluate_ir,
     evaluate_ir_raises,
     inline_main_items,
     lower_inline_ir,
     nominal_id_for,
+    run_inline_ir,
 )
 
 # ---------------------------------------------------------------------------
@@ -1035,3 +1044,243 @@ x
     ir = evaluate_ir(source)
     assert "y" not in ir
     assert ir["x"] == IntValue(6)
+
+
+# ---------------------------------------------------------------------------
+# IR evaluation tests — finally clauses
+# ---------------------------------------------------------------------------
+
+_FINALLY_DECLS = "import std/os\nextern def interrupt() -> unit\n"
+_FINALLY_COMPANION = "def interrupt():\n    raise KeyboardInterrupt()\n"
+
+
+class _RaisingAgent:
+    """A fake ``AgentFn`` raising *error* on every call."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def __call__(self, request: AgentRequest) -> AgentResponse:
+        raise self.error
+
+
+def _run_finally(
+    tmp_path: Path, body: str, *, agent: AgentFn | None = None, max_call_depth: int | None = None
+) -> tuple[str, RunResult | BaseException]:
+    """Run inline *body*; return the full source and the result or the escaping termination.
+
+    Finalizers record their runs with ``print``, read through ``capsys``.
+    """
+    source = _FINALLY_DECLS + body
+    entry = _write_extern_entry(source, _FINALLY_COMPANION, tmp_path)
+    try:
+        run = run_inline_ir(
+            source,
+            entry_path=entry,
+            agent_dispatcher=agent,
+            default_call_depth_limit=max_call_depth,
+            capture_stdout=False,
+        )
+    except BaseException as exc:
+        return source, exc
+    return source, run[0]
+
+
+def _marks(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    return capsys.readouterr().out.split()
+
+
+def _completed(outcome: RunResult | BaseException) -> dict[str, Value]:
+    assert isinstance(outcome, RunResult)
+    assert outcome.ok, (outcome.diagnostics, outcome.error)
+    return outcome.bindings
+
+
+def _uncaught(outcome: RunResult | BaseException) -> RunError:
+    assert isinstance(outcome, RunResult)
+    assert outcome.error is not None, outcome.diagnostics
+    return outcome.error
+
+
+def _line_of(source: str, text: str) -> int:
+    return source.splitlines().index(text) + 1
+
+
+_THROW = 'raise Abort(message = "x")'
+_FIN = 'finally =>\n  print("fin")\n'
+
+
+def test_finally_runs_once_after_a_value_and_preserves_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, outcome = _run_finally(tmp_path, f"let v = try\n  7\n{_FIN}")
+    assert _completed(outcome)["v"] == IntValue(7)
+    assert _marks(capsys) == ["fin"]
+
+
+def test_finally_runs_once_after_an_uncaught_raise_which_survives(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source, outcome = _run_finally(tmp_path, f'try\n  print("body")\n  {_THROW}\n{_FIN}')
+    error = _uncaught(outcome)
+    assert error.fields["message"] == "x"
+    assert error.line == _line_of(source, f"  {_THROW}")
+    assert _marks(capsys) == ["body", "fin"]
+
+
+def test_finally_runs_once_after_a_caught_raise(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = f'try\n  {_THROW}\ncatch Abort =>\n  print("handler")\n{_FIN}'
+    _, outcome = _run_finally(tmp_path, body)
+    _completed(outcome)
+    assert _marks(capsys) == ["handler", "fin"]
+
+
+def test_finally_runs_once_after_a_raise_in_a_handler(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = (
+        f'try\n  {_THROW}\ncatch Abort =>\n  print("handler")\n  raise Abort(message = "y")\n{_FIN}'
+    )
+    _, outcome = _run_finally(tmp_path, body)
+    assert _uncaught(outcome).fields["message"] == "y"
+    assert _marks(capsys) == ["handler", "fin"]
+
+
+@pytest.mark.parametrize(
+    ("exit_stmt", "marks", "result"),
+    [("return 1", ["fin"], 1), ("break", ["fin"], 0), ("continue", ["fin", "fin"], 0)],
+)
+def test_finally_runs_once_per_return_break_or_continue(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    exit_stmt: str,
+    marks: list[str],
+    result: int,
+) -> None:
+    body = (
+        "def f() -> int =\n"
+        "  for i in [1, 2] do\n"
+        f"    try\n      {exit_stmt}\n"
+        '    finally =>\n      print("fin")\n'
+        "  done\n"
+        "  0\n"
+        "let r = f()\n"
+    )
+    _, outcome = _run_finally(tmp_path, body)
+    assert _completed(outcome)["r"] == IntValue(result)
+    assert _marks(capsys) == marks
+
+
+def test_finally_runs_exactly_once_per_level_of_a_depth_limit_raise(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    limit = 20
+    body = (
+        "def deep(n: int) -> int =\n"
+        "  try\n    deep(n + 1)\n  finally =>\n    print(n)\n"
+        "let r = try\n  deep(0)\ncatch RecursionError =>\n  1\n"
+    )
+    _, outcome = _run_finally(tmp_path, body, max_call_depth=limit)
+    assert _completed(outcome)["r"] == IntValue(1)
+    # The entry itself occupies one level of the limit.
+    assert _marks(capsys) == [str(n) for n in reversed(range(limit - 1))]
+
+
+def test_a_finally_raise_replaces_a_pending_agl_raise(tmp_path: Path) -> None:
+    body = f'try\n  {_THROW}\nfinally =>\n  raise Abort(message = "fin")\n'
+    _, outcome = _run_finally(tmp_path, body)
+    assert _uncaught(outcome).fields["message"] == "fin"
+
+
+def test_a_finally_raise_replaces_a_pending_return(tmp_path: Path) -> None:
+    body = (
+        "def f() -> int =\n  try\n    return 1\n  finally =>\n"
+        '    raise Abort(message = "fin")\n'
+        "let r = f()\n"
+    )
+    _, outcome = _run_finally(tmp_path, body)
+    assert _uncaught(outcome).fields["message"] == "fin"
+
+
+_TERMINATIONS: list[tuple[str, type[BaseException], AgentFn | None]] = [
+    ("os::exit(3)", SystemExit, None),
+    ("interrupt()", KeyboardInterrupt, None),
+    ('let _ = ask """x"""', AgentCancelled, _RaisingAgent(KeyboardInterrupt())),
+]
+
+
+@pytest.mark.parametrize(("stmt", "error", "agent"), _TERMINATIONS)
+def test_finally_runs_once_on_a_host_termination(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    stmt: str,
+    error: type[BaseException],
+    agent: AgentFn | None,
+) -> None:
+    _, outcome = _run_finally(tmp_path, f"try\n  {stmt}\n{_FIN}", agent=agent)
+    assert isinstance(outcome, error)
+    assert _marks(capsys) == ["fin"]
+
+
+@pytest.mark.parametrize(("stmt", "error", "agent"), _TERMINATIONS)
+def test_finally_runs_on_a_termination_inside_a_handler(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    stmt: str,
+    error: type[BaseException],
+    agent: AgentFn | None,
+) -> None:
+    body = f"try\n  {_THROW}\ncatch Abort =>\n  {stmt}\n{_FIN}"
+    _, outcome = _run_finally(tmp_path, body, agent=agent)
+    assert isinstance(outcome, error)
+    assert _marks(capsys) == ["fin"]
+
+
+@pytest.mark.parametrize(("stmt", "error", "agent"), _TERMINATIONS)
+def test_a_finally_raise_is_discarded_under_a_pending_termination(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    stmt: str,
+    error: type[BaseException],
+    agent: AgentFn | None,
+) -> None:
+    body = (
+        "try\n  try\n"
+        f'    {stmt}\n  finally =>\n    print("fin")\n    {_THROW}\n    print("unreached")\n'
+        'catch _ =>\n  print("caught")\n'
+    )
+    _, outcome = _run_finally(tmp_path, body, agent=agent)
+    assert isinstance(outcome, error)
+    assert _marks(capsys) == ["fin"]
+
+
+def test_a_termination_in_the_finally_replaces_a_pending_raise(tmp_path: Path) -> None:
+    body = f"try\n  {_THROW}\nfinally =>\n  os::exit(3)\n"
+    _, outcome = _run_finally(tmp_path, body)
+    assert isinstance(outcome, SystemExit)
+
+
+def test_a_termination_in_the_finally_replaces_a_pending_termination(tmp_path: Path) -> None:
+    body = "try\n  interrupt()\nfinally =>\n  os::exit(3)\n"
+    _, outcome = _run_finally(tmp_path, body)
+    assert isinstance(outcome, SystemExit)
+
+
+def test_a_non_agl_python_failure_skips_the_finally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = f'try\n  let _ = ask """x"""\n{_FIN}'
+    _, outcome = _run_finally(tmp_path, body, agent=_RaisingAgent(KeyError("host")))
+    assert isinstance(outcome, KeyError)
+    assert _marks(capsys) == []
+
+
+def test_a_bare_raise_in_a_finally_nested_in_a_handler_rethrows_the_handled_exception(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = f'try\n  {_THROW}\ncatch Abort =>\n  try\n    print("inner")\n  finally =>\n    raise\n'
+    _, outcome = _run_finally(tmp_path, body)
+    assert _uncaught(outcome).fields["message"] == "x"
+    assert _marks(capsys) == ["inner"]

@@ -268,8 +268,13 @@ def run_inline_ir(
     process_environment: dict[str, str] | None = None,
     shell_exec_timeout: float | None = None,
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
+    default_call_depth_limit: int | None = None,
+    capture_stdout: bool = True,
 ) -> tuple[RunResult, str]:
     """Run *source* as ``agm exec -c`` through :class:`PipelineDriver`, capturing stdout.
+
+    With ``capture_stdout=False`` output is left to the caller (e.g. ``capsys``),
+    which survives a ``SystemExit``/``KeyboardInterrupt`` escaping the run.
 
     The driver receives only the test's own agent dispatcher; without one, an
     agent call fails instead of reaching a real agent.
@@ -278,10 +283,11 @@ def run_inline_ir(
         resolve_agent_spec=None,
         agent_dispatcher=agent_dispatcher,
         shell_exec_timeout=shell_exec_timeout,
+        default_call_depth_limit=default_call_depth_limit,
         get_sandbox_context=get_sandbox_context,
     )
     output = io.StringIO()
-    with contextlib.redirect_stdout(output):
+    with contextlib.redirect_stdout(output) if capture_stdout else contextlib.nullcontext():
         result = run_inline_code(
             runtime,
             source,

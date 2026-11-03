@@ -7395,6 +7395,15 @@ class TestAgentCancellation:
         assert "cancelled" in message
         assert "interrupted" not in message, "an agent cancellation is not a bare interrupt"
 
+    def test_finally_runs_when_an_entry_is_interrupted(self) -> None:
+        s = open_session(agent_dispatcher=_InterruptAgent())
+        assert s.eval_entry("var flag = false").ok
+        r = s.eval_entry('try\n  let g = ask """do it"""\nfinally =>\n  flag := true')
+        assert not r.ok
+        assert r.error is None
+        assert "cancelled" in r.diagnostics[0].message.lower()
+        assert s.eval_entry("flag").value == BoolValue(True)
+
     def test_cancelled_agent_leaves_bindings_unchanged(self) -> None:
         s = open_session(agent_dispatcher=_InterruptAgent())
         s.eval_entry("let keep = 7")
