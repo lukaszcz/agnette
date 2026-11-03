@@ -698,7 +698,8 @@ class IrReturn:
 
     Implemented by raising an internal ``_ReturnSignal`` Python exception in the
     evaluator; the signal propagates through loops and ``IrTry`` bodies to the
-    function-call boundary, where its payload becomes the call result.
+    function-call boundary, where its payload becomes the call result. Each
+    ``IrTry`` finalizer it leaves runs on the way out.
     """
 
     location: Location
@@ -728,7 +729,7 @@ class IrCatchHandler:
 
 @dataclass(frozen=True, slots=True)
 class IrTry:
-    """IR try/catch: evaluate ``body``; on ``AglRaise``, match handlers in order.
+    """IR try/catch/finally: evaluate ``body``; on ``AglRaise``, match handlers in order.
 
     - Evaluate ``body``; if it completes normally, return its value.
     - On ``AglRaise``, iterate ``handlers`` in order; the first handler that
@@ -738,11 +739,24 @@ class IrTry:
       caught ``ExceptionValue`` in the current frame under that symbol.
     - Evaluate the handler's ``body`` and return its value.
     - If no handler matches, re-raise the original ``AglRaise`` unchanged.
+
+    ``finalizer`` (``None`` when absent) is a discarded-value expression; a handler-less
+    ``IrTry`` always has one. It runs exactly once after the body or handler ends, whatever
+    ended it: a value, an exception (caught, uncaught, or raised in a handler),
+    ``return``/``break``/``continue``, or a host termination (exit, interrupt, cancellation).
+    When it completes, the pending outcome resumes unchanged (the try's value, the original
+    exception, the exit signal, the termination). When it raises, the new exception replaces the
+    pending outcome, except that a pending host termination wins and the raised exception is
+    discarded. A termination starting inside it replaces the pending outcome. Nested finalizers
+    run innermost first. Host failures that are not AgL outcomes run no finalizers. A forked
+    child runs only finalizers entered in its own function, not those pending in the parent at
+    the fork.
     """
 
     location: Location
     body: "IrExpr"
     handlers: "tuple[IrCatchHandler, ...]"
+    finalizer: "IrExpr | None"
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +869,8 @@ class IrBreak:
 
     Implemented by raising an internal ``_BreakSignal`` Python exception in the
     evaluator; the signal propagates through ``IrTry`` bodies (which catch only
-    ``AglRaise``) to the enclosing ``IrLoop`` handler.
+    ``AglRaise``) to the enclosing ``IrLoop`` handler, running each ``IrTry``
+    finalizer it leaves.
     """
 
     location: Location
@@ -868,7 +883,7 @@ class IrContinue:
     Implemented by raising an internal ``_ContinueSignal`` Python exception in
     the evaluator; the signal propagates through ``IrTry`` bodies to the
     enclosing ``IrLoop`` handler where it is caught and used to ``continue``
-    the Python ``while True`` loop.
+    the Python ``while True`` loop, running each ``IrTry`` finalizer it leaves.
     """
 
     location: Location

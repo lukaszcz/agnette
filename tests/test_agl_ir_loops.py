@@ -404,6 +404,7 @@ def test_break_bypasses_irtry() -> None:
                 ),
             ),
         ),
+        finalizer=None,
     )
     prog, _ = _make_counter_program(
         body_items=(
@@ -473,6 +474,7 @@ def test_continue_bypasses_irtry() -> None:
                 ),
             ),
         ),
+        finalizer=None,
     )
     symbols = {
         count_sym: SymbolDescriptor(

@@ -2740,6 +2740,7 @@ def test_rethrow_keeps_the_original_exception_and_location() -> None:
                 _LOC,
                 IrRaise(_LOC, value),
                 (IrCatchHandler(None, None, IrRaise(handler_location, None)),),
+                None,
             ),
         )
     )

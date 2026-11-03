@@ -4056,3 +4056,67 @@ class TestRangeForDesugar:
         fields = create_seeded_type_table().exception_fields(exc)
         assert set(fields.keys()) == {"message"}
         assert isinstance(fields["message"], _TextType)
+
+
+def _try_in_function(source: str) -> IrTry:
+    bodies = (_function_body(desc) for desc in _lower(source).functions.values())
+    return next(
+        item
+        for body in bodies
+        if isinstance(body, IrBlock)
+        for item in body.items
+        if isinstance(item, IrTry)
+    )
+
+
+def test_finally_body_is_lowered() -> None:
+    ir_try = _try_in_function(
+        "def f() -> int =\n"
+        "  var n = 0\n"
+        "  try\n"
+        "    n := 1\n"
+        "  catch _ =>\n"
+        "    ()\n"
+        "  finally =>\n"
+        "    n := 2\n"
+        "  n\n"
+        "f()"
+    )
+    assert ir_try.finalizer is not None
+
+
+def test_closure_captures_variable_used_only_in_its_finalizer() -> None:
+    bodies = (
+        _function_body(desc)
+        for desc in _lower(
+            "def f() -> int =\n"
+            "  var n = 0\n"
+            "  let g = fn() -> unit => try () finally => n := 2\n"
+            "  g()\n"
+            "  n\n"
+            "f()"
+        ).functions.values()
+    )
+    closure = next(
+        item.value
+        for body in bodies
+        if isinstance(body, IrBlock)
+        for item in body.items
+        if isinstance(item, IrBind) and isinstance(item.value, IrMakeClosure)
+    )
+    assert [capture.by_cell for capture in closure.captures] == [True]
+
+
+def test_catchless_try_lowers_to_handlerless_try_with_finalizer() -> None:
+    ir_try = _try_in_function(
+        "def f() -> int =\n  var n = 0\n  try\n    n := 1\n  finally =>\n    n := 2\n  n\nf()"
+    )
+    assert ir_try.handlers == ()
+    assert ir_try.finalizer is not None
+
+
+def test_try_without_finally_lowers_with_no_finalizer() -> None:
+    ir_try = _try_in_function(
+        "def f() -> int =\n  var n = 0\n  try\n    n := 1\n  catch _ =>\n    ()\n  n\nf()"
+    )
+    assert ir_try.finalizer is None

@@ -49,6 +49,7 @@ from agnette.agl.ir.nodes import (
     IrCapture,
     IrCase,
     IrCaseArm,
+    IrCatchHandler,
     IrCoerce,
     IrConstBool,
     IrConstDecimal,
@@ -80,6 +81,7 @@ from agnette.agl.ir.nodes import (
     IrSequence,
     IrTemplateText,
     IrTemplateValue,
+    IrTry,
     UseDefault,
 )
 from agnette.agl.ir.operations import IndexKind, IntToDecimal
@@ -2691,3 +2693,21 @@ class TestIrExecValidation:
         prog = self._make_prog_with_contract(node, {cid: contract})
         with pytest.raises(InvalidIrError, match="duplicate.*A"):
             validate_ir(prog, deep=True)
+
+
+class TestIrTryValidation:
+    def test_handlerless_try_requires_a_finalizer(self) -> None:
+        node = IrTry(location=LOC, body=_int(), handlers=(), finalizer=None)
+        with pytest.raises(InvalidIrError):
+            validate_ir(_make_program(initializers=(node,)), deep=False)
+
+    def test_handlerless_try_with_finalizer_is_valid(self) -> None:
+        node = IrTry(location=LOC, body=_int(), handlers=(), finalizer=_int())
+        validate_ir(_make_program(initializers=(node,)))
+
+    def test_invalid_finalizer_subtree_is_reported(self) -> None:
+        bad = IrConstInt(location=loc(start_offset=-1, end_offset=0), value=1)
+        handler = IrCatchHandler(nominal=None, symbol=None, body=_int())
+        node = IrTry(location=LOC, body=_int(), handlers=(handler,), finalizer=bad)
+        with pytest.raises(InvalidIrError):
+            validate_ir(_make_program(initializers=(node,)), deep=False)

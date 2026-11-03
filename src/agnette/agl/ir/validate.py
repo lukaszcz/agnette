@@ -7,6 +7,7 @@ Two tiers (validate_ir runs ONLY when explicitly called):
       ``start_col >= 0``, ``start_offset <= end_offset``.
     * ``IrSequence`` and ``IrBlock`` must be non-empty.
     * ``IrContract`` appears only among a direct call's leading operands.
+    * An ``IrTry`` with no handlers has a finalizer.
 
 - **deep** — cheap checks PLUS cross-reference checks against the
   ``ExecutableProgram`` tables:
@@ -1254,11 +1255,15 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             _validate_location(node.location, ctx)
             _validate_expr(value, ctx)
 
-        case IrTry(body=body, handlers=handlers):
+        case IrTry(body=body, handlers=handlers, finalizer=finalizer):
             _validate_location(node.location, ctx)
+            if not handlers and finalizer is None:
+                raise InvalidIrError("IrTry without handlers must have a finalizer")
             _validate_expr(body, ctx)
             for handler in handlers:
                 _validate_catch_handler(handler, ctx)
+            if finalizer is not None:
+                _validate_expr(finalizer, ctx)
 
         case IrCase():
             _validate_case(node, ctx)

@@ -791,7 +791,7 @@ def test_ir_try_handler_binding_stored_in_frame() -> None:
         symbol=exc_sym,
         body=IrConstInt(location=loc, value=99),
     )
-    ir_try = IrTry(location=loc, body=raise_node, handlers=(handler,))
+    ir_try = IrTry(location=loc, body=raise_node, handlers=(handler,), finalizer=None)
     result_bind = IrBind(location=loc, symbol=result_sym, value=ir_try)
 
     symbols = {
@@ -843,6 +843,7 @@ def test_validate_ir_try_handler_nominal_missing() -> None:
         location=loc,
         body=IrConstInt(loc, 1),
         handlers=(handler,),
+        finalizer=None,
     )
     prog = _make_program((ir_try,))
     with pytest.raises(InvalidIrError, match="not in program.nominals"):
@@ -862,6 +863,7 @@ def test_validate_ir_try_handler_nominal_not_exception() -> None:
         location=loc,
         body=IrConstInt(loc, 1),
         handlers=(handler,),
+        finalizer=None,
     )
     nominals = {
         record_nominal: NominalDescriptor(
@@ -894,6 +896,7 @@ def test_validate_ir_try_handler_symbol_missing() -> None:
         location=loc,
         body=IrConstInt(loc, 1),
         handlers=(handler,),
+        finalizer=None,
     )
     nominals = {
         exc_nominal: NominalDescriptor(
@@ -941,7 +944,7 @@ def test_validate_ir_try_cheap_ok() -> None:
         symbol=None,
         body=IrConstUnit(loc),
     )
-    ir_try = IrTry(location=loc, body=IrConstInt(loc, 1), handlers=(handler,))
+    ir_try = IrTry(location=loc, body=IrConstInt(loc, 1), handlers=(handler,), finalizer=None)
     # No nominals registered — deep=False so nominal cross-ref check is skipped.
     prog = _make_program((ir_try,))
     validate_ir(prog, deep=False)

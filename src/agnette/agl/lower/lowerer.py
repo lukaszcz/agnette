@@ -984,6 +984,8 @@ class _Lowerer:
                     if clause.binding is not None:
                         local_ids.add(clause.node_id)
                     self._scan_captures(clause.body, local_ids, captured)
+                if node.finalizer is not None:
+                    self._scan_captures(node.finalizer, local_ids, captured)
             case Loop():
                 if node.for_iter is not None:
                     self._scan_captures(node.for_iter, local_ids, captured)
@@ -1611,8 +1613,8 @@ class _Lowerer:
                     else self.lower_coerced(value_expr, expected),
                 )
 
-            case Try(body=body_expr, handlers=handlers, span=span):
-                return self._lower_try(body_expr, handlers, span)
+            case Try(body=body_expr, handlers=handlers, finalizer=finalizer, span=span):
+                return self._lower_try(body_expr, handlers, finalizer, span)
 
             # ----------------------------------------------------------
             # Case expression
@@ -2670,7 +2672,7 @@ class _Lowerer:
             symbol=exc_sym,
             body=err_value,
         )
-        return IrTry(location=loc, body=try_body, handlers=(handler,))
+        return IrTry(location=loc, body=try_body, handlers=(handler,), finalizer=None)
 
     def _is_session_builtin_method(self, method: MethodDef) -> bool:
         """Report whether *method* belongs to the canonical ``Session`` receiver."""
@@ -3252,12 +3254,14 @@ class _Lowerer:
         self,
         body_expr: "Expr",
         handlers: "tuple[CatchClause, ...]",
+        finalizer: "Expr | None",
         span: "SourceSpan",
     ) -> IrTry:
         return IrTry(
             location=self._loc(span),
             body=self.lower_expr(body_expr),
             handlers=tuple(self._lower_catch_clause(c) for c in handlers),
+            finalizer=None if finalizer is None else self.lower_expr(finalizer),
         )
 
     def _lower_catch_clause(self, clause: "CatchClause") -> IrCatchHandler:
