@@ -499,7 +499,7 @@ class TestConfigStringsReadAlikeAtEveryDepth:
             '  { level = "n/a", origin = { x = "3", y = 4 }, label = "3" },\n'
             '  "Settings(level = Info, origin = Point(5, 6), label = \\"x\\")",\n'
             "]\n"
-            'sandboxes = ["Native", { "$case" = "Disabled" }, '
+            'sandboxes = ["Native", { "$case" = "none" }, '
             '{ "$case" = "Sandbox", memory = \'Some("8G")\' }]\n'
             'workers = ["claude/opus:high", "runner --flag"]\n'
             'limits = { low = "1", high = 2 }\n',

@@ -1547,7 +1547,7 @@
   "tests/agl/rejections/warnings/denied_unquoted_exec_hole.agl": "8bd06801f6c6bdd476f040a9a0b83404c0032a3c9dba39bda83678862b8ad9cd",
   "tests/agl/rejections/warnings/denied_unquoted_exec_hole_in_package.agl": "cd58cf5a011cceffbba2fdc6492829003d619a0cc8b9081d757c64817804c147",
   "tests/agl/rejections/warnings/denied_unquoted_hole_in_quotes.agl": "447dbd5f73bd35d5b5827c4b8bb8f14c04859fd6d38459c18ac26b3ccaa8ea18",
-  "packages/stdlib/src/agent.agl": "43f885b8588a2b802a22a40925c2765194324c30558bf6165b9388dc7606f189",
+  "packages/stdlib/src/agent.agl": "fb5ff4bb102b1997f3a6886af629ea4df7d2f2003257283b0978cb7fd574e3b2",
   "packages/stdlib/src/array.agl": "1a51ff97d2e2b472f5581712c75a3c41a45601039c309d7a5d30d7b8614401f2",
   "packages/stdlib/src/config.agl": "d146110858005fdf580d435945584cc0fbdfdd0635db2ced72bd31844d637b5d",
   "packages/stdlib/src/dict.agl": "4d3a3fe97c7e46171277d43f9afdede0875de0493f57cda36ca7b8cf56efe30d",
