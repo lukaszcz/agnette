@@ -19,6 +19,7 @@ Resolution runs in three phases over all modules: prepare (placement, declaratio
 
 - Function defaults see enclosing bindings and earlier parameters; the body sees all parameters.
 - Module-level `let`/`var` of a static-root module (any but a REPL entry or a wrapped `-c` entry) are pre-populated like `def`s; those two keep textual visibility. Either way the name claims its scope path in the shared declaration registry, so collisions are order-independent.
+- `return`, `break` and `continue` read a per-target exit context (absent, open, or finally); a `finally` body turns each open target into finally, so an exit leaving it is a dedicated error, while a function or loop inside the body opens its own.
 - An alias declares no scope: declaring beneath an own alias name, or a method receiver through an alias, is an error. A path beneath an alias reads literally through its target, at the alias's site, under one re-entrancy guard.
 - `TypeOwnerIndex` (`scope/type_owners.py`) holds one owner per type path: an enum owns its inline members, an alias the member table its target selects (minus its `hiding`). Inline enum members are nominal record declarations beneath the enum's scope. Retained REPL aliases keep declaration identity; reachability follows the current use view while their target spelling still selects that declaration, otherwise freezing at declaration time.
 - Enum members are injected as bare names by one rule wherever a spelling of their enum reaches a step; in value positions a record or exception of the same name at that step wins.

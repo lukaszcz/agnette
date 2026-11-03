@@ -1363,6 +1363,10 @@ def reject_unreadable_binding_name(
         )
 
 
+class FinallyExitError(AglScopeError):
+    """A ``return``, ``break`` or ``continue`` leaving a ``finally`` body."""
+
+
 class NoVisibleConstructorError(AglScopeError):
     """A bare pattern or ``is`` spelling that no visible constructor has."""
 

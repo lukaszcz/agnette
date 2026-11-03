@@ -47,6 +47,7 @@ from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
+from enum import Enum, auto
 from functools import partial
 from itertools import takewhile
 from typing import TYPE_CHECKING, TypeVar, assert_never, cast
@@ -122,6 +123,7 @@ from agnette.agl.scope.symbols import (
     DeclarationSelection,
     DeclInfo,
     DuplicateDeclarationError,
+    FinallyExitError,
     HostParam,
     Layers,
     ModuleResolution,
@@ -528,6 +530,22 @@ def _head_arguments(head: TypeExpr | None) -> tuple[TypeExpr, ...]:
     return head.args if isinstance(head, AppliedT) else ()
 
 
+class _ExitContext(Enum):
+    """Whether a ``return`` / ``break`` / ``continue`` target is reachable from here.
+
+    ``FINALLY``: the target exists but lies outside the enclosing ``finally`` body.
+    """
+
+    ABSENT = auto()
+    OPEN = auto()
+    FINALLY = auto()
+
+
+def _finalizing(context: _ExitContext) -> _ExitContext:
+    """The exit context a ``finally`` body sees: an open target is out of reach."""
+    return _ExitContext.FINALLY if context is _ExitContext.OPEN else context
+
+
 # ---------------------------------------------------------------------------
 # Resolver class
 # ---------------------------------------------------------------------------
@@ -800,13 +818,12 @@ class _Resolver(ModuleSources):
         self._pattern_slots: dict[int, PatternSlot] = {}
         self._match_site_pattern_slots_by_node: dict[int, tuple[int, ...]] = {}
         self._next_pattern_slot_id: int = 0
-        # Loop-context flag: True when resolving inside a loop body (while_cond,
-        # body, or until_cond). Reset to False across fn/def boundaries so that
-        # `break`/`continue` cannot cross a function boundary into an outer loop.
-        self._in_loop: bool = False
-        # Function-body flag: True only while resolving a def/fn body (not parameter
-        # defaults). Used to reject `return` outside the nearest function boundary.
-        self._in_function: bool = False
+        # Exit contexts of the nearest loop (`break`/`continue` target) and function
+        # (`return` target): OPEN in a loop interior or def, fn or root-statement body;
+        # ABSENT across fn/def boundaries and in defaults; FINALLY inside a `finally`
+        # body (see `_finalizing`).
+        self._loop_exit = _ExitContext.ABSENT
+        self._function_exit = _ExitContext.ABSENT
         self._in_handler = False
         # Whether this module declares a ``program def`` of its own, which
         # decides how a static-root rejection is explained.
@@ -2077,8 +2094,8 @@ class _Resolver(ModuleSources):
     def _resolution_flags_ctx(
         self,
         *,
-        in_loop: bool | None = None,
-        in_function: bool | None = None,
+        loop_exit: _ExitContext | None = None,
+        function_exit: _ExitContext | None = None,
         in_handler: bool | None = None,
     ) -> Iterator[None]:
         """Resolve a region with its lexical control-flow flags.
@@ -2087,17 +2104,27 @@ class _Resolver(ModuleSources):
         on the way out, so nested regions and the code after one see the flags
         their own position dictates.
         """
-        previous = (self._in_loop, self._in_function, self._in_handler)
-        if in_loop is not None:
-            self._in_loop = in_loop
-        if in_function is not None:
-            self._in_function = in_function
+        previous = (self._loop_exit, self._function_exit, self._in_handler)
+        if loop_exit is not None:
+            self._loop_exit = loop_exit
+        if function_exit is not None:
+            self._function_exit = function_exit
         if in_handler is not None:
             self._in_handler = in_handler
         try:
             yield
         finally:
-            self._in_loop, self._in_function, self._in_handler = previous
+            self._loop_exit, self._function_exit, self._in_handler = previous
+
+    def _check_exit(
+        self, context: _ExitContext, keyword: str, target: str, span: SourceSpan
+    ) -> None:
+        """Reject a *keyword* exit whose *target* context is not open."""
+        if context is _ExitContext.OPEN:
+            return
+        if context is _ExitContext.FINALLY:
+            raise FinallyExitError(f"'{keyword}' cannot leave a 'finally' body.", span=span)
+        raise AglScopeError(f"'{keyword}' used outside a {target}.", span=span)
 
     def _define(self, name: str, ref: BindingRef) -> None:
         """Define *name* in the current scope; error on redeclaration.
@@ -2312,7 +2339,9 @@ class _Resolver(ModuleSources):
             if id(item) not in statement_ids:
                 self._resolve_block_items((item,))
                 continue
-            with self._resolution_flags_ctx(in_loop=False, in_function=True):
+            with self._resolution_flags_ctx(
+                loop_exit=_ExitContext.ABSENT, function_exit=_ExitContext.OPEN
+            ):
                 self._resolve_block_items((item,))
 
     def _resolve_headers(self, items: tuple[Item, ...]) -> None:
@@ -2737,25 +2766,13 @@ class _Resolver(ModuleSources):
                         "Bare 'raise' used outside a catch handler.", span=expr.span
                     )
             case Return():
-                if not self._in_function:
-                    raise AglScopeError(
-                        "'return' used outside a function.",
-                        span=expr.span,
-                    )
+                self._check_exit(self._function_exit, "return", "function", expr.span)
                 if expr.value is not None:
                     self._resolve_expr(expr.value)
             case Break():
-                if not self._in_loop:
-                    raise AglScopeError(
-                        "'break' used outside a loop.",
-                        span=expr.span,
-                    )
+                self._check_exit(self._loop_exit, "break", "loop", expr.span)
             case Continue():
-                if not self._in_loop:
-                    raise AglScopeError(
-                        "'continue' used outside a loop.",
-                        span=expr.span,
-                    )
+                self._check_exit(self._loop_exit, "continue", "loop", expr.span)
             case FieldAccess():
                 self._resolve_field_access(expr)
             case RecordUpdate():
@@ -3419,15 +3436,15 @@ class _Resolver(ModuleSources):
 
         Then a single child scope is opened and ``for_var`` (if any) is bound
         immutably into it.  The loop interior (``while_cond``, body,
-        ``until_cond``) is resolved in that child scope with ``_in_loop``
-        set to ``True``.  If the body is a ``Block``, its items are resolved
+        ``until_cond``) is resolved in that child scope with the loop
+        exit context ``OPEN``.  If the body is a ``Block``, its items are resolved
         directly in the child scope so body bindings are visible to
         ``until_cond``.
 
-        ``_in_loop`` is left at its enclosing value when resolving ``bound``
+        The loop exit context is left at its enclosing value when resolving ``bound``
         and the range-clause expressions (all evaluated before loop entry, in
         the enclosing frame — ``break`` there is valid only if an outer loop
-        already has ``_in_loop`` set).
+        is already open).
         """
         # Resolve bound, for_iter, and the range-clause expressions in the enclosing
         # scope (before the loop variable is bound), so none of them can see the
@@ -3442,7 +3459,7 @@ class _Resolver(ModuleSources):
         if node.for_range_step is not None:
             self._resolve_expr(node.for_range_step)
         with self._child_scope(node.node_id) as loop_scope:
-            with self._resolution_flags_ctx(in_loop=True):
+            with self._resolution_flags_ctx(loop_exit=_ExitContext.OPEN):
                 # Bind for_var (immutable) before resolving while_cond/body/until_cond.
                 if node.for_var is not None:
                     self._check_not_reserved(node.for_var, node.span)
@@ -3472,6 +3489,13 @@ class _Resolver(ModuleSources):
         # Each catch clause gets its own scope.
         for clause in node.handlers:
             self._resolve_catch_clause(clause)
+        if node.finalizer is not None:
+            # Exits whose target lies outside the finalizer would skip the rest of it.
+            with self._resolution_flags_ctx(
+                loop_exit=_finalizing(self._loop_exit),
+                function_exit=_finalizing(self._function_exit),
+            ):
+                self._resolve_expr_or_block(node.finalizer)
 
     def _resolve_catch_clause(self, clause: CatchClause) -> None:
         if clause.exc_type is not None:
@@ -3498,10 +3522,12 @@ class _Resolver(ModuleSources):
     def _resolve_params_and_body(self, node: FuncDef | Lambda) -> None:
         """Resolve defaults with earlier parameters visible, then the body with all parameters.
 
-        ``_in_loop`` is reset so that neither a ``break``/``continue`` in a
+        The loop exit context is reset so that neither a ``break``/``continue`` in a
         default nor one in the body can cross the function boundary.
         """
-        with self._resolution_flags_ctx(in_loop=False, in_function=False, in_handler=False):
+        with self._resolution_flags_ctx(
+            loop_exit=_ExitContext.ABSENT, function_exit=_ExitContext.ABSENT, in_handler=False
+        ):
             with self._child_scope(node.node_id) as param_scope:
                 for param in node.params:
                     if param.default is not None:
@@ -3519,7 +3545,7 @@ class _Resolver(ModuleSources):
                         raise DuplicateDeclarationError(param.name, span=param.span)
                     param_scope.define(param.name, ref)
                 if node.body is not None:
-                    with self._resolution_flags_ctx(in_function=True):
+                    with self._resolution_flags_ctx(function_exit=_ExitContext.OPEN):
                         self._resolve_expr_or_block(node.body)
 
     # ------------------------------------------------------------------

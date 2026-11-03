@@ -26,6 +26,7 @@ from agnette.agl.scope.symbols import (
     BinderKind,
     BindingRef,
     DeclaredOrigin,
+    FinallyExitError,
     ReceiverOwner,
     ScopeNode,
     UnknownMemberError,
@@ -3853,3 +3854,64 @@ class TestScopedNominalAliases:
         [constructed] = resolved.constructor_refs.values()
         assert constructed.owner_name == "Alias"
         assert constructed.owner_path == ("A",)
+
+
+# ---------------------------------------------------------------------------
+# Finally bodies
+# ---------------------------------------------------------------------------
+
+_FINALLY_REJECTED = [
+    "def f() -> int =\n  try 1 finally => return 1\n",
+    "for x in [1] do\n  try 1 finally => break\ndone\n",
+    "for x in [1] do\n  try 1 finally => continue\ndone\n",
+    "def f() -> int =\n  try 1 catch _ => 2 finally => return 3\n",
+    "for x in [1] do\n  try 1 catch _ => 2 finally => continue\ndone\n",
+    "def f() -> int =\n  try 1 catch _ => (try 2 finally => return 3)\n",
+    "def f() -> int =\n  try 1 finally => (for x in [1] do return 2 done)\n  1\n",
+    "try 1 finally => return 1\n",
+    "for x in [1] do\n  try 1 catch _ => (try 2 finally => break)\ndone\n",
+]
+
+_FINALLY_ACCEPTED = [
+    "try 1 finally => (for x in [1] do break done)",
+    "try 1 finally => (for x in [1] do continue done)",
+    "try 1 finally => (let g = fn() => (return 1); ())",
+    "for x in [1] do\n  try 1 finally => (let g = fn() => (return 1); ())\ndone\n",
+    "for x in [1] do\n  try 1 finally => (for y in [2] do break done)\ndone\n",
+]
+
+
+class TestFinallyScope:
+    @pytest.mark.parametrize("source", _FINALLY_REJECTED)
+    def test_exit_leaving_a_finally_body_is_rejected(self, source: str) -> None:
+        with pytest.raises(FinallyExitError):
+            parse_and_resolve(source)
+
+    @pytest.mark.parametrize("source", _FINALLY_ACCEPTED)
+    def test_exit_with_its_target_inside_the_finally_body_is_accepted(self, source: str) -> None:
+        parse_and_resolve(source)
+
+    def test_exit_outside_any_target_keeps_its_own_diagnostic(self) -> None:
+        err = reject_scope("try 1 finally => 2\nbreak\n")
+        assert not isinstance(err, FinallyExitError)
+
+    def test_bare_raise_in_a_finally_body_needs_an_enclosing_handler(self) -> None:
+        err = reject_scope("try 1 finally => raise\n")
+        assert not isinstance(err, FinallyExitError)
+        parse_and_resolve("try 1 catch _ =>\n  try 2 finally => raise\n")
+        for source in (
+            "try 1 catch _ => 2 finally => raise\n",
+            "try 1 catch _ =>\n  let g = fn() => (try 2 finally => raise)\n  ()\n",
+        ):
+            assert not isinstance(reject_scope(source), FinallyExitError)
+
+    def test_finally_body_sees_the_enclosing_scope_only(self) -> None:
+        parse_and_resolve("let outer = 1\ntry 1 finally => outer\n")
+        parse_and_resolve("try 1\ncatch _ =>\n  let inner = 2\n  inner\nfinally => ()\n")
+        for source in (
+            "try\n  let inner = 1\n  inner\nfinally => inner\n",
+            "try 1 catch _ as err => 2 finally => err\n",
+            "try 1\ncatch _ =>\n  let inner = 2\n  inner\nfinally => inner\n",
+        ):
+            with pytest.raises(AglScopeError):
+                parse_and_resolve(source)
