@@ -1,16 +1,20 @@
-"""Shared declarations and help display for the AgL options that are not engine settings.
+"""Shared declarations and help display for the AgL execution options.
 
-Engine settings are host parameters (``host_params/surface.py``), not
-execution options.
+The host-owned flags are declared here. Engine settings are host parameters
+(``host_params/surface.py``), declared there, and listed in the same help section.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import click
 
 from agnette.config.general import EXEC_OPTION_KEYS
+
+#: Help section listing the host-owned execution flags and the engine settings.
+EXECUTION_OPTIONS_SECTION = "Execution options"
 
 #: Widest option label kept on its description's line, at most half the help width.
 _LABEL_COLUMN_MAX = 34
@@ -80,16 +84,12 @@ def _execution_option_rows() -> tuple[tuple[str, str], ...]:
     return tuple(rows)
 
 
-def write_execution_options(formatter: click.HelpFormatter) -> None:
-    """Write the ``Execution options`` section to *formatter*."""
-    with formatter.section("Execution options"):
+def write_execution_options(
+    formatter: click.HelpFormatter, engine_rows: Sequence[tuple[str, str]] = ()
+) -> None:
+    """Write the ``Execution options`` section: *engine_rows*, then the host-owned flags."""
+    with formatter.section(EXECUTION_OPTIONS_SECTION):
         formatter.write_dl(
-            _execution_option_rows(), col_max=min(_LABEL_COLUMN_MAX, formatter.width // 2)
+            [*engine_rows, *_execution_option_rows()],
+            col_max=min(_LABEL_COLUMN_MAX, formatter.width // 2),
         )
-
-
-def execution_options_section(*, width: int) -> str:
-    """Render the ``Execution options`` section, wrapped to *width*."""
-    formatter = click.HelpFormatter(width=width)
-    write_execution_options(formatter)
-    return formatter.getvalue()

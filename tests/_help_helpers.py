@@ -30,12 +30,19 @@ def execution_options_is_last(text: str) -> bool:
     return "\n\n" not in text.partition("Execution options:\n")[2].rstrip("\n")
 
 
+def _is_engine_flag(flag: str) -> bool:
+    """Report whether *flag* spells an engine setting, bare or qualified, positive or negative."""
+    name = flag.removeprefix("--").removeprefix("no-").removeprefix("std.config.")
+    return name in ENGINE_KEY_NAMES
+
+
 def assert_lists_execution_options(text: str) -> None:
-    """Assert *text*'s ``Execution options`` section lists exactly the shared flags."""
+    """Assert *text*'s ``Execution options`` lists the shared flags and engine settings only."""
     section = execution_options_section(text)
     listed = {token for token in section.split() if token.startswith("--")}
-    assert listed == EXECUTION_OPTION_FLAGS
-    assert "--help" not in section
+    assert EXECUTION_OPTION_FLAGS <= listed
+    assert all(flag in EXECUTION_OPTION_FLAGS or _is_engine_flag(flag) for flag in listed)
+    assert "Engine settings:" not in text
 
 
 def print_exec_help(
@@ -59,20 +66,12 @@ def print_exec_help(
     return cli._exec_print_help(discovery, tokens=tokens, file=file, code=code, program=program)
 
 
-def engine_settings_section(text: str) -> str:
-    """Return the body of *text*'s ``Engine settings`` section."""
-    _, heading, rest = text.partition("Engine settings:\n")
-    assert heading, "no Engine settings section"
-    section, _, _ = rest.partition("\n\n")
-    return section
-
-
 #: The engine settings that also have a negative flag, rendered beside the positive one.
 _NEGATABLE_ENGINE_SETTINGS = ("trace", "strict-json", "timeout", "debug")
 
 
 def assert_lists_engine_settings(text: str, *, qualified: Collection[str] = ()) -> None:
-    """Assert *text*'s ``Engine settings`` section lists every engine setting.
+    """Assert *text*'s ``Execution options`` section lists every engine setting.
 
     Each setting is listed under its bare flag, or, for a name in *qualified*,
     under its ``--std.config.`` flag; a negatable one lists its negative beside it.
@@ -81,12 +80,13 @@ def assert_lists_engine_settings(text: str, *, qualified: Collection[str] = ()) 
     def flag(name: str, prefix: str = "") -> str:
         return f"--{prefix}std.config.{name}" if name in qualified else f"--{prefix}{name}"
 
-    tokens = engine_settings_section(text).split()
-    listed = {
-        t
+    tokens = execution_options_section(text).split()
+    pairs = [
+        (t, before)
         for t, before in zip(tokens, ["", *tokens], strict=False)
-        if t.startswith("--") and before != "/"
-    }
-    negatives = {t for t, before in zip(tokens, ["", *tokens], strict=False) if before == "/"}
+        if t.startswith("--") and t not in EXECUTION_OPTION_FLAGS
+    ]
+    listed = {t for t, before in pairs if before != "/"}
+    negatives = {t for t, before in pairs if before == "/"}
     assert listed == {flag(name) for name in ENGINE_KEY_NAMES}
     assert negatives == {flag(name, "no-") for name in _NEGATABLE_ENGINE_SETTINGS}

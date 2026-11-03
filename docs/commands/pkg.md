@@ -158,8 +158,8 @@ program = "review-tools/main::batch"
 - `doc` is the command's prose. A command naming a program never states it: that program's source
   `@doc` supplies it, and an installed manifest records the result. Command help shows it, then
   signature options, then one `Parameters of MODULE` section for each module declaring a visible
-  reached module or function parameter, then an `Engine settings` section. Parameter `@doc`
-  attributes describe their options.
+  reached module or function parameter, then an `Execution options` section listing the engine
+  settings and the shared execution options. Parameter `@doc` attributes describe their options.
 - Omit `program` for a command group (must have descendant commands), whose only prose is its own
   `doc` (TOML multiline strings work; a paragraph holding an indented line keeps its layout in
   help). Undeclared parent groups work automatically, with generated help listing their
