@@ -37,9 +37,7 @@ def _age(path: Path, seconds: int) -> None:
 
 def _settle() -> None:
     """Wait for any background prune, so assertions never race it."""
-    for thread in threading.enumerate():
-        if thread.name == artifact_storage._PRUNE_THREAD_NAME:
-            thread.join()
+    artifact_storage.finish_prune()
 
 
 def _prune_now(cache: Path) -> None:

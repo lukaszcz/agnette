@@ -40,6 +40,7 @@ from agnette.agent.session.protocol import (
 from agnette.agent.session.rpc import PiRpcSessionBackend
 from agnette.agent.session.service import AglSessionHost, SessionService
 from agnette.agent.spec import AgentCommand, AgentPi
+from agnette.agl import artifact_storage
 from agnette.agl.modules.ids import ENTRY_ID
 from agnette.agl.runtime.externs import ExternRegistry, ExternRuntimeState
 from agnette.agl.runtime.fork_participants import (
@@ -493,6 +494,31 @@ def test_fork_is_refused_while_another_python_thread_exists(tmp_path: Path) -> N
     assert result["accepted"] == ["D", "x"]
     # The refused attempt prepared nothing.
     assert [line for line in result["log"] if line.startswith("P prepare")] == ["P prepare :a"]
+
+
+def _fork_during_a_cache_prune(workdir: Path) -> dict[str, Any]:
+    """Fork while the artifact cache's background prune still runs."""
+    pruned = threading.Event()
+
+    def slow_prune(directory: Path) -> None:
+        time.sleep(0.5)
+        pruned.set()
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("XDG_CACHE_HOME", str(workdir))
+        patch.setattr(artifact_storage, "_PRUNE_SCHEDULED", False)
+        patch.setattr(artifact_storage, "_prune", slow_prune)
+        entry, identity = artifact_storage.artifact_entry(b"key", "ir")
+        artifact_storage.write_payload(entry, identity, b"payload")
+        with _host() as host:
+            outcome = _show(host.outcome(host.fork(lambda: b"x", ()).id))
+    return {"outcome": outcome, "pruned_first": pruned.is_set()}
+
+
+def test_a_fork_waits_for_the_artifact_cache_prune(tmp_path: Path) -> None:
+    result = run_callable(_fork_during_a_cache_prune, tmp_path, timeout=RUN_TIMEOUT).value
+
+    assert result == {"outcome": ["D", "x"], "pruned_first": True}
 
 
 def _fork_failure(workdir: Path) -> dict[str, Any]:

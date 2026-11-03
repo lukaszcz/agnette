@@ -34,7 +34,7 @@ Imported modules are precompiled on demand and reused in memory and across proce
 - **Identity.** `modules/parsed_module_cache.py` assigns content-addressed node namespaces, so unchanged declarations keep identity across processes. AST-only callers (package command discovery) parse through the same cache.
 - **Checked bodies** retain one owned immutable type interface per completed module, their reference summaries ([frontend/types.md](frontend/types.md#the-typecheck-pass)), and a mutation journal. Images persist these, never the whole-program environment; restore reuses the validated interface and replays the journal onto the current environment. Only active recording windows allocate facts; replay retains the original entries.
 - **Lowered modules** (`lower/module.py`) persist bodies and linkable tables; linking reassembles them per invocation. Companion imports, configuration values, initializer evaluation, and runtime state stay per invocation.
-- **Storage.** `artifact_storage.py` owns the versioned on-disk slot under `$XDG_CACHE_HOME/agm/agl`, compiler-digest validation, atomic writes, and reclamation: a daily background prune drops entries unused for 30 days, then the least recently used above 256 MB. Any unusable or evicted entry falls back to ordinary compilation.
+- **Storage.** `artifact_storage.py` owns the versioned on-disk slot under `$XDG_CACHE_HOME/agm/agl`, compiler-digest validation, atomic writes, and reclamation: a daily background prune drops entries unused for 30 days, then the least recently used above 256 MB (a `ps` fork awaits it, as forking needs a single thread). Any unusable or evicted entry falls back to ordinary compilation.
 
 ## Code Entry Points
 

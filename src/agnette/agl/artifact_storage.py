@@ -3,7 +3,8 @@
 Locates a slot for a caller-chosen key under the disposable AgL cache, keys
 identity by compiler digest plus that key and an optional validator, and
 reads/writes payloads atomically. Reclaims unused entries on a background
-thread, so a prune never delays compilation. Shared by the AgL disk caches;
+thread, so a prune never delays compilation; :func:`finish_prune` awaits it, as
+a fork must. Shared by the AgL disk caches;
 imports no other Agnette modules.
 """
 
@@ -21,6 +22,7 @@ from tempfile import NamedTemporaryFile
 
 _COMPILER_DIGEST: bytes | None = None
 _PRUNE_SCHEDULED = False
+_PRUNE_THREAD: threading.Thread | None = None
 
 _DAY_SECONDS = 24 * 60 * 60
 _MAX_ENTRY_AGE_SECONDS = 30 * _DAY_SECONDS
@@ -99,7 +101,7 @@ def _mark_used(entry: Path) -> None:
 
 def _schedule_prune(directory: Path) -> None:
     """Start this process's only prune; a process unable to start one skips it."""
-    global _PRUNE_SCHEDULED
+    global _PRUNE_SCHEDULED, _PRUNE_THREAD
     if _PRUNE_SCHEDULED:
         return
     _PRUNE_SCHEDULED = True
@@ -108,6 +110,13 @@ def _schedule_prune(directory: Path) -> None:
     )
     with suppress(RuntimeError):
         thread.start()
+        _PRUNE_THREAD = thread
+
+
+def finish_prune() -> None:
+    """Wait until this process's background prune, if any, has ended (e.g. before a fork)."""
+    if _PRUNE_THREAD is not None:
+        _PRUNE_THREAD.join()
 
 
 def _prune(directory: Path) -> None:

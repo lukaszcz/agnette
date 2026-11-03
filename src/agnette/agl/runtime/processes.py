@@ -43,6 +43,7 @@ from types import FrameType
 from typing import ClassVar, NamedTuple, NoReturn, TypeAlias
 from uuid import uuid4
 
+from agnette.agl.artifact_storage import finish_prune
 from agnette.agl.runtime.process_records import (
     Delivered,
     Ended,
@@ -318,9 +319,10 @@ class ProcessHost:
 
         *child* returns the payload, or a :class:`Delivered` marking it as a failure.
 
-        Raises :class:`ProcessHostError` unless this is the only Python thread, if the OS
-        refuses the fork, or if a ``parent`` hook fails (the child is then killed and
-        reaped). The returned process stays attached until detached.
+        Waits for the artifact cache's background prune first, which would otherwise be a
+        second thread. Raises :class:`ProcessHostError` unless this is the only Python thread,
+        if the OS refuses the fork, or if a ``parent`` hook fails (the child is then killed
+        and reaped). The returned process stays attached until detached.
 
         Terminating signals are held from the OS fork until the fork is consistent: in the
         parent until the child is attached, in the child until its handlers are installed.
@@ -328,6 +330,7 @@ class ProcessHost:
         failure aborts the prepared states once no child is left.
         """
         self._reap_detached()
+        finish_prune()
         if len(sys._current_frames()) != 1:
             raise ProcessHostError("cannot fork: the process has other threads")
         request = ForkRequest(tuple(sessions))
