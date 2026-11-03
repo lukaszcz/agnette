@@ -49,6 +49,7 @@ from agnette.agm.cli_support.agl_errors import fail_with_diagnostics
 from agnette.agm.cli_support.args import ReplArgs
 from agnette.agm.cli_support.engine_seeds import (
     engine_seed_values,
+    host_agent_sandbox_resolver,
     host_agent_spec_resolver,
     parse_engine_flags,
     resolve_strict_json,
@@ -253,10 +254,16 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
                 for diagnostic in open_diagnostics:
                     print(f"Error: {format_diagnostic(diagnostic)}", file=sys.stderr)
                 raise SystemExit(1)
+            decoders = session.engine_setting_decoders()
             declaration_valued = _decode_engine_settings(
-                engine_values, session.engine_setting_decoders(), DECLARATION_VALUED_ENGINE_KEYS
+                engine_values, decoders, DECLARATION_VALUED_ENGINE_KEYS
             )
-            session.seed_engine_settings(declaration_valued.values)
+            session.seed_engine_settings(
+                declaration_valued.values,
+                resolve_agent_sandbox=host_agent_sandbox_resolver(
+                    merged_config, declaration_valued, decoders
+                ),
+            )
 
             history_path = agm_home_dir(home=ctx.home) / "repl_history"
             history_path.parent.mkdir(parents=True, exist_ok=True)

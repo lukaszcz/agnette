@@ -781,6 +781,7 @@ class EntryPipeline:
                 lowered.program,
                 get_sandbox_context=host_env.get_sandbox_context,
                 resolve_agent_spec=host_env.resolve_agent_spec,
+                resolve_agent_sandbox=self._ctx._resolve_agent_sandbox,
                 strict_json=self._ctx._default_strict_json,
                 max_call_depth=self._ctx._default_call_depth_limit,
                 shell_exec_timeout=(

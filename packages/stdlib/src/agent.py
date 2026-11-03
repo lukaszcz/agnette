@@ -6,10 +6,15 @@ from typing import cast
 
 from agl import AglException, json, nominals, runtime
 
+from agnette.agent.spec import AgentSpec
 from agnette.agent.values import agent_spec_shape
 from agnette.agl.runtime.agents import decode_agent_value, run_agent_chat
-from agnette.agl.runtime.boundary import decode_boundary_value
-from agnette.agl.runtime.host_agents import current_agent_services
+from agnette.agl.runtime.boundary import (
+    current_descriptors,
+    decode_boundary_value,
+    encode_boundary_value,
+)
+from agnette.agl.runtime.host_agents import HostAgentServices, current_agent_services
 from agnette.agl.runtime.request import AgentCallHostError, AgentRequest
 from agnette.agl.runtime.sandbox_values import decode_agent_sandbox, permission_mode_and_limits
 from agnette.agl.semantics.values import DictValue, RecordValue, TextValue
@@ -17,12 +22,24 @@ from agnette.agl.semantics.values import DictValue, RecordValue, TextValue
 AgentCallError = nominals.std.agent.AgentCallError
 
 
+def _resolved_spec(services: HostAgentServices, agent: object) -> AgentSpec:
+    """Decode boundary *agent* and apply the host's configured agent defaults."""
+    spec = decode_agent_value(cast(RecordValue, decode_boundary_value(agent)), services.nominals)
+    return spec if services.resolve_agent_spec is None else services.resolve_agent_spec(spec)
+
+
+def default_sandbox(agent: object) -> object:
+    """Return *agent*'s default sandboxing; see `std/agent::default-sandbox`."""
+    services = current_agent_services()
+    return encode_boundary_value(
+        services.default_sandbox(_resolved_spec(services, agent)), current_descriptors()
+    )
+
+
 def chat(prompt: str, agent: object, sandbox: object, env: object) -> None:
     """Hand the terminal to a fresh agent conversation; see `std/agent::chat`."""
     services = current_agent_services()
-    spec = decode_agent_value(cast(RecordValue, decode_boundary_value(agent)), services.nominals)
-    if services.resolve_agent_spec is not None:
-        spec = services.resolve_agent_spec(spec)
+    spec = _resolved_spec(services, agent)
     mode, limits = permission_mode_and_limits(
         decode_agent_sandbox(cast(RecordValue, decode_boundary_value(sandbox)), services.nominals)
     )

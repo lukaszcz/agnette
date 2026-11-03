@@ -108,11 +108,9 @@ def test_session_open_lowers_omitted_and_explicit_options() -> None:
     assert omitted.transport is None
     assert isinstance(omitted.name, IrConstText)
     assert omitted.name.value == ""
-    # An omitted sandbox operand falls through to the current
-    # ``sandbox`` engine setting, read afresh at open, exactly like
-    # ``ask``'s own omitted sandbox operand.
-    assert isinstance(omitted.sandbox, IrBuiltinLoad)
-    assert omitted.sandbox.key == builtin_var_key(STD_CONFIG_ID, (), "sandbox")
+    # An omitted sandbox operand stays absent: the evaluator resolves the
+    # agent's default at open, exactly like ``ask``'s own omitted operand.
+    assert omitted.sandbox is None
     assert isinstance(explicit, IrSessionOpen)
     assert isinstance(explicit.transport, IrMakeRecord)
     assert isinstance(explicit.name, IrConstText)

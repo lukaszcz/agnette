@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from agnette.agl.ir.static_keys import FunctionParamKey, HostParamKey, Reachable
     from agnette.agl.modules.ids import ModuleId
     from agnette.agl.runtime.agents import AgentFn
+    from agnette.agl.runtime.engine_config import AgentSandboxResolver
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.semantics.types import Type as AglType
@@ -52,6 +53,10 @@ class HostEnvironment:
         `agnette.agent.spec_defaults.configured_defaults_resolver`) to every
         decoded ``Agent`` spec before it is dispatched. ``None`` dispatches
         specs as decoded.
+    ``resolve_agent_sandbox``
+        The configured ``[agent]`` sandbox mode of a call omitting ``sandbox``
+        (see `agnette.agl.runtime.engine_config.agent_sandbox_resolver`).
+        ``None`` when none applies.
     ``extern_registry``
         The ``ExternRegistry`` used to import extern-def companion modules
         and resolve their callables.  Built empty; the pipeline populates it
@@ -63,6 +68,7 @@ class HostEnvironment:
     extern_registry: "ExternRegistry"
     get_sandbox_context: "Callable[[], SandboxContext] | None" = None
     resolve_agent_spec: "AgentSpecResolver | None" = None
+    resolve_agent_sandbox: "AgentSandboxResolver | None" = None
 
 
 @dataclass(frozen=True, slots=True)

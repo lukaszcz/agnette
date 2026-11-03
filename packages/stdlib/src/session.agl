@@ -1,4 +1,4 @@
-import std/agent::{Agent, AgentSandbox}
+import std/agent::{Agent, AgentSandbox, default-sandbox}
 import std/config
 import std/env::Environ
 import std/errors::Exception
@@ -34,7 +34,7 @@ builtin def Session::open(
   agent: Agent,
   transport: Option[SessionTransport] = None,
   name: text = "",
-  sandbox: AgentSandbox = std/config::sandbox,
+  sandbox: AgentSandbox = default-sandbox(agent),
   env: Environ = std/env::environ,
 ) -> Session
 

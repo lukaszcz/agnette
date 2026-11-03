@@ -75,7 +75,7 @@ builtin def Session::open(
   agent: Agent,
   transport: Option[SessionTransport] = None,
   name: text = "",
-  sandbox: AgentSandbox = std/config::sandbox,
+  sandbox: AgentSandbox = default-sandbox(agent),
   env: Environ = std/env::environ,
 ) -> Session
 

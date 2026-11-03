@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from agnette.agl.modules.roots import RootSet
     from agnette.agl.parser import ProgramTree
     from agnette.agl.runtime.agents import AgentFn
+    from agnette.agl.runtime.engine_config import AgentSandboxResolver
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.agl.runtime.types import HostParamInfo
@@ -489,6 +490,10 @@ class ReplSession:
         # :meth:`reset`. ``_default_strict_json`` is a read-only view onto
         # this map rather than a separately stored copy.
         self._current: dict[str, Value] = dict(self._engine_seed)
+        # The ``[agent]`` sandbox resolver, seeded by :meth:`seed_engine_settings`, carried
+        # like ``_current`` (an entry's ``sandbox`` write drops it) and restored by :meth:`reset`.
+        self._agent_sandbox_seed: AgentSandboxResolver | None = None
+        self._resolve_agent_sandbox: AgentSandboxResolver | None = None
         self._host_settings_policy = host_settings_policy
         # Trace destination: when set, each evaluated entry opens a fresh
         # ``TraceStore`` appending JSONL records to this one file. The COMMAND
@@ -709,13 +714,20 @@ class ReplSession:
             )
         )
 
-    def seed_engine_settings(self, values: "Mapping[str, Value]") -> None:
+    def seed_engine_settings(
+        self,
+        values: "Mapping[str, Value]",
+        *,
+        resolve_agent_sandbox: "AgentSandboxResolver | None" = None,
+    ) -> None:
         """Add host engine-setting *values* to the seed, as ``engine_base`` entries are.
 
-        For settings a host decodes after :meth:`open`; call before the first entry.
+        For settings a host decodes after :meth:`open`, with the ``[agent]`` sandbox
+        resolver they decode alongside; call before the first entry.
         """
         self._engine_seed.update(values)
         self._current.update(values)
+        self._agent_sandbox_seed = self._resolve_agent_sandbox = resolve_agent_sandbox
 
     def _open_image(self) -> tuple[Diagnostic, ...]:
         """Load and promote the library image; return its rejection diagnostics."""
@@ -1551,6 +1563,7 @@ class ReplSession:
         """
         snapshot = self._engine_snapshot(interp)
         self._current.update(interp.builtin_host_settings)
+        self._resolve_agent_sandbox = interp.resolve_agent_sandbox
         self._current["timeout"] = snapshot["timeout"]
         if "strict-json" in self._current or "strict-json" in self._engine_seed:
             self._current["strict-json"] = snapshot["strict-json"]
@@ -2654,6 +2667,7 @@ class ReplSession:
         # Host callbacks own this live register, not the session itself.
         self._current.clear()
         self._current.update(self._engine_seed)
+        self._resolve_agent_sandbox = self._agent_sandbox_seed
         self._shell_exec_timeout = self._seeded_timeout_seconds()
         self._trace_path = self._initial_trace_path
         self._builtin_var_values = dict(self._builtin_var_seed)

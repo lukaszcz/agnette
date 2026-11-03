@@ -1348,7 +1348,8 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             _validate_expr(agent_expr, ctx)
             _validate_expr(prompt_expr, ctx)
             _validate_expr(retries_expr, ctx)
-            _validate_expr(sandbox_expr, ctx)
+            if sandbox_expr is not None:
+                _validate_expr(sandbox_expr, ctx)
             _validate_expr(env_expr, ctx)
             if ctx.deep:
                 if contract_id not in ctx.program.contracts:
@@ -1369,7 +1370,8 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             if transport_expr is not None:
                 _validate_expr(transport_expr, ctx)
             _validate_expr(name_expr, ctx)
-            _validate_expr(sandbox_expr, ctx)
+            if sandbox_expr is not None:
+                _validate_expr(sandbox_expr, ctx)
             _validate_expr(env_expr, ctx)
 
         case IrSessionDefault(env=env_expr):
@@ -1419,7 +1421,8 @@ def _validate_expr_node(node: IrExpr, ctx: _Context) -> None:
             _validate_expr(agent_expr, ctx)
             _validate_expr(prompt_expr, ctx)
             _validate_expr(retries_expr, ctx)
-            _validate_expr(sandbox_expr, ctx)
+            if sandbox_expr is not None:
+                _validate_expr(sandbox_expr, ctx)
             if ctx.deep:
                 if contract_id not in ctx.program.contracts:
                     raise InvalidIrError(

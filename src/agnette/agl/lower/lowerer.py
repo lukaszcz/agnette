@@ -2566,7 +2566,7 @@ class _Lowerer:
                         if operands.name is None
                         else operands.name
                     ),
-                    sandbox=operands.sandbox or self._default_sandbox_operand(loc),
+                    sandbox=operands.sandbox,
                     env=operands.env or self._default_environ_operand(loc),
                 )
 
@@ -3522,13 +3522,6 @@ class _Lowerer:
     # Ask/ask-request lowering
     # ------------------------------------------------------------------
 
-    def _default_sandbox_operand(self, loc: Location) -> IrExpr:
-        """Read ``std/config::sandbox`` per call."""
-        return IrBuiltinLoad(
-            location=loc,
-            key=builtin_var_key(STD_CONFIG_ID, (), "sandbox"),
-        )
-
     def _default_parse_error_retries_operand(self, loc: Location) -> IrExpr:
         """Read ``std/config::parse-error-retries`` per call."""
         return IrBuiltinLoad(
@@ -3566,9 +3559,6 @@ class _Lowerer:
         )
         contract_id = self._alloc_contract(contract_req)
 
-        def selected_sandbox() -> IrExpr:
-            return sandbox or self._default_sandbox_operand(loc)
-
         def selected_env() -> IrExpr:
             return env or self._default_environ_operand(loc)
 
@@ -3585,7 +3575,7 @@ class _Lowerer:
                 prompt=prompt,
                 contract_id=contract_id,
                 parse_error_retries=retries,
-                sandbox=selected_sandbox(),
+                sandbox=sandbox,
             )
         if session is not None:
             # Session asks carry no per-call sandbox operand: the session's
@@ -3603,7 +3593,7 @@ class _Lowerer:
             prompt=prompt,
             contract_id=contract_id,
             parse_error_retries=retries,
-            sandbox=selected_sandbox(),
+            sandbox=sandbox,
             env=selected_env(),
         )
 

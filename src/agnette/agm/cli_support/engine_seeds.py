@@ -8,21 +8,30 @@ back from them, so a run's log file and its readable ``trace`` setting can never
 :func:`~agnette.host_params.config.programless_engine_values` ranks its CLI flags
 over ``[exec]``, the declaration route, through the same ranking and decoding into the same
 settings.
-:func:`host_agent_spec_resolver` builds the dispatch-time agent defaults both hosts apply
-from ``[agent]``.
+:func:`host_agent_spec_resolver` and :func:`host_agent_sandbox_resolver` build the
+dispatch-time agent defaults both hosts apply from ``[agent]``.
 """
 
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
-from agnette.agent.spec_defaults import AgentSpecResolver, configured_defaults_resolver
+from agnette.agent.spec_defaults import (
+    AgentConfig,
+    AgentSpecResolver,
+    configured_defaults_resolver,
+)
 from agnette.agl.ir.builtin_nominals import NO_BUILTIN_DECLARATIONS
 from agnette.agl.ir.static_keys import HostParamKey, StaticBindingKey, static_binding_key
 from agnette.agl.modules.ids import STD_CONFIG_ID
 from agnette.agl.runtime.arguments import ParamTier
-from agnette.agl.runtime.engine_config import EngineSettings, split_engine_values
+from agnette.agl.runtime.engine_config import (
+    AgentSandboxResolver,
+    EngineSettings,
+    agent_sandbox_resolver,
+    split_engine_values,
+)
 from agnette.agl.runtime.option import option_text
 from agnette.agl.semantics.values import BoolValue, RecordValue
 from agnette.agm.cli_support.program_options import engine_command
@@ -35,13 +44,16 @@ from agnette.core.log import TraceDecision
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Set as AbstractSet
 
+    from agnette.agl.ir.contracts import ParamDecoder
     from agnette.agl.semantics.values import Value
     from agnette.core.toml import TomlDict
     from agnette.host_params.surface import ParamSurfaceEntry
 
 __all__ = [
     "engine_seed_values",
+    "host_agent_sandbox_resolver",
     "host_agent_spec_resolver",
     "parse_engine_flags",
     "reject_register_conflicts",
@@ -109,8 +121,40 @@ def host_agent_spec_resolver(merged_config: "TomlDict") -> AgentSpecResolver:
     try:
         return configured_defaults_resolver(merged_config)
     except ValueError as exc:
-        print(f"Error: invalid agent configuration: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        _invalid_agent_configuration(exc)
+
+
+def host_agent_sandbox_resolver(
+    merged_config: "TomlDict",
+    settings: EngineSettings,
+    decoders: "Mapping[str, ParamDecoder]",
+    *,
+    from_manifest: "AbstractSet[HostParamKey]" = frozenset(),
+) -> AgentSandboxResolver | None:
+    """Build the ``[agent]`` sandbox defaults, decoded through the ``sandbox`` decoder.
+
+    ``None`` when *settings* rank ``sandbox`` above ``[exec]``: any tier above the
+    declaration route, or a manifest value (*from_manifest*). Every configured value is
+    validated regardless; exit 1 naming the key when one is invalid.
+    """
+    try:
+        resolver = agent_sandbox_resolver(
+            AgentConfig.from_merged(merged_config), decoders["sandbox"]
+        )
+    except ValueError as exc:
+        _invalid_agent_configuration(exc)
+    rank = settings.ranks.get("sandbox")
+    if rank is None or (
+        rank is ParamTier.DECLARED
+        and static_binding_key(STD_CONFIG_ID, (), "sandbox") not in from_manifest
+    ):
+        return resolver
+    return None
+
+
+def _invalid_agent_configuration(error: ValueError) -> NoReturn:
+    print(f"Error: invalid agent configuration: {error}", file=sys.stderr)
+    raise SystemExit(1) from error
 
 
 def _trace_file_text(values: "Mapping[str, Value]") -> str | None:

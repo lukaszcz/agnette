@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from agnette.agl.modules.loader import ModuleGraph
     from agnette.agl.modules.roots import RootSet
     from agnette.agl.runtime.arguments import InheritedParamValue
+    from agnette.agl.runtime.engine_config import AgentSandboxResolver
     from agnette.agl.runtime.externs import ExternRegistry
     from agnette.agl.runtime.host_settings import HostSettingsPolicy
     from agnette.agl.runtime.sessions import SessionHost
@@ -477,6 +478,10 @@ class PipelineDriver:
         dispatch (see `agnette.agent.spec_defaults.configured_defaults_resolver`).
         Required, like ``get_sandbox_context``; ``None`` dispatches specs as
         decoded.
+    resolve_agent_sandbox : callable or None
+        The configured ``[agent]`` sandbox mode of a call omitting ``sandbox``, while
+        ``std/config::sandbox`` holds its host seed (see
+        `agnette.agl.runtime.engine_config.agent_sandbox_resolver`); ``None``: none.
     warning_policy : WarningPolicy or None
         The static-warning levels (``None``: the catalog defaults). Applied per
         invocation after type checking: a denied warning is a static error, so
@@ -494,6 +499,7 @@ class PipelineDriver:
         extern_registry: "ExternRegistry | None" = None,
         get_sandbox_context: "Callable[[], SandboxContext] | None",
         resolve_agent_spec: "AgentSpecResolver | None",
+        resolve_agent_sandbox: "AgentSandboxResolver | None" = None,
         warning_policy: WarningPolicy | None = None,
     ) -> None:
         self._default_strict_json = default_strict_json
@@ -502,6 +508,7 @@ class PipelineDriver:
         self._shell_exec_timeout = shell_exec_timeout
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
+        self._resolve_agent_sandbox = resolve_agent_sandbox
         self._warning_policy = warning_policy if warning_policy is not None else WarningPolicy()
         self._default_call_depth_limit = (
             default_call_depth_limit
@@ -525,6 +532,7 @@ class PipelineDriver:
         shell_exec_timeout: float | None,
         get_sandbox_context: "Callable[[], SandboxContext] | None",
         resolve_agent_spec: "AgentSpecResolver | None",
+        resolve_agent_sandbox: "AgentSandboxResolver | None" = None,
     ) -> None:
         """Replace this driver's execution-time services before ``run_prepared``.
 
@@ -550,6 +558,7 @@ class PipelineDriver:
         self._shell_exec_timeout = shell_exec_timeout
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
+        self._resolve_agent_sandbox = resolve_agent_sandbox
         self._host_env_cache = None
 
     def host_environment(self) -> HostEnvironment:
@@ -570,6 +579,7 @@ class PipelineDriver:
             ),
             get_sandbox_context=self._get_sandbox_context,
             resolve_agent_spec=self._resolve_agent_spec,
+            resolve_agent_sandbox=self._resolve_agent_sandbox,
         )
         return self._host_env_cache
 
@@ -804,6 +814,7 @@ class PipelineDriver:
                 session_host=host_env.session_host,
                 get_sandbox_context=host_env.get_sandbox_context,
                 resolve_agent_spec=host_env.resolve_agent_spec,
+                resolve_agent_sandbox=host_env.resolve_agent_sandbox,
                 strict_json=self._default_strict_json,
                 echo_agent_output=options.echo_agent_output,
                 shell_exec_timeout=self._shell_exec_timeout,
