@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from agnette.agl.eval.ir_interpreter import IrInterpreter
     from agnette.agl.infix import Fixity
     from agnette.agl.ir.builtin_vars import BuiltinVarKey
+    from agnette.agl.ir.contracts import ParamDecoder
     from agnette.agl.ir.ids import SymbolId
     from agnette.agl.ir.program import ValueDescriptors
     from agnette.agl.ir.static_keys import HostParamKey
@@ -689,6 +690,32 @@ class ReplSession:
         diagnostics = self._open_image()
         self._open_failure = diagnostics
         return diagnostics
+
+    def engine_setting_decoders(self) -> "dict[str, ParamDecoder]":
+        """Return the engine-setting decoders honoring the loaded ``builtin`` declarations.
+
+        Reflects the library image :meth:`open` loaded; a host decodes the settings whose
+        values name those declarations' members through them.
+        """
+        from agnette.agl.type_schema import engine_setting_decoders
+        from agnette.agl.typecheck.builtin_contracts import loaded_builtin_names
+
+        return engine_setting_decoders(
+            loaded_builtin_names(
+                {
+                    module_id: module.resolved
+                    for module_id, module in self._retained_resolved_modules.items()
+                }
+            )
+        )
+
+    def seed_engine_settings(self, values: "Mapping[str, Value]") -> None:
+        """Add host engine-setting *values* to the seed, as ``engine_base`` entries are.
+
+        For settings a host decodes after :meth:`open`; call before the first entry.
+        """
+        self._engine_seed.update(values)
+        self._current.update(values)
 
     def _open_image(self) -> tuple[Diagnostic, ...]:
         """Load and promote the library image; return its rejection diagnostics."""

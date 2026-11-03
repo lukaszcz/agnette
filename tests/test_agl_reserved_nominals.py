@@ -19,7 +19,6 @@ from agnette.agl.ir.reserved_nominals import (
     require_reserved_enum_member_id,
     reserved_nominal_id,
 )
-from agnette.agl.runtime.engine_config import convert_host_value
 from agnette.agl.semantics.type_table import (
     BUILTIN_EXCEPTION_TYPE_DEFS,
     BUILTIN_PRELUDE_TYPE_DEFS,
@@ -40,7 +39,13 @@ from agnette.agl.semantics.types import (
     Type,
 )
 from agnette.agl.semantics.values import Value
-from tests._agl_helpers import agl_roots, run_inline_code, run_program, shapes_match
+from tests._agl_helpers import (
+    agl_roots,
+    convert_host_value,
+    run_inline_code,
+    run_program,
+    shapes_match,
+)
 
 
 def _decl_id(t: Type) -> int:

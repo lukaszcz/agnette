@@ -65,7 +65,7 @@ from agnette.util.ident import is_identifier
 from agnette.util.text import normalize_newlines
 
 if TYPE_CHECKING:
-    from agnette.agl.semantics.type_table import TypeTable
+    from agnette.agl.ir.contracts import ParamDecoder
 
 T = TypeVar("T")
 _ModuleResolutions = Mapping[ModuleId, ModuleResolution]
@@ -690,7 +690,8 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
     """
     if not manifest.config:
         return
-    from agnette.agl.semantics.type_table import create_seeded_type_table
+    from agnette.agl.type_schema import engine_setting_decoders
+    from agnette.agl.typecheck.builtin_contracts import loaded_builtin_names
 
     registered = registered_command_paths(manifest)
     param_spellings = _closure_param_spellings(resolutions)
@@ -705,11 +706,13 @@ def _validate_manifest_config(manifest: PackageManifest, resolutions: _ModuleRes
         param_spellings,
         arguments,
         engine_spellings,
-        create_seeded_type_table(),
+        engine_setting_decoders(loaded_builtin_names(resolutions)),
     )
 
 
-def _validate_manifest_engine_leaf(name: str, raw: object, type_table: "TypeTable") -> object:
+def _validate_manifest_engine_leaf(
+    name: str, raw: object, decoders: "Mapping[str, ParamDecoder]"
+) -> object:
     """Decode one manifest ``[config]`` engine leaf as a config table does, raising ``ValueError``.
 
     Unlike a config file, which reads a non-scalar ``Option[text]`` value as absent, a manifest
@@ -721,7 +724,7 @@ def _validate_manifest_engine_leaf(name: str, raw: object, type_table: "TypeTabl
         isinstance(raw, bool) or not isinstance(raw, (str, int, float, Decimal))
     ):
         raise ValueError(f"Setting {name!r}: expected a string or number, got {raw!r}.")
-    return decode_engine_config_value(name, raw, type_table)
+    return decode_engine_config_value(name, raw, decoders)
 
 
 def _validate_config_level(
@@ -731,7 +734,7 @@ def _validate_config_level(
     param_spellings: frozenset[str],
     arguments: Mapping[tuple[str, ...], frozenset[str]],
     engine_spellings: Mapping[str, str],
-    type_table: "TypeTable",
+    decoders: "Mapping[str, ParamDecoder]",
 ) -> None:
     level_arguments = _level_argument_spellings(arguments, prefix)
     for key, value in table.items():
@@ -759,12 +762,12 @@ def _validate_config_level(
                 param_spellings,
                 arguments,
                 engine_spellings,
-                type_table,
+                decoders,
             )
             continue
         if key in engine_spellings and key not in level_arguments:
             try:
-                _validate_manifest_engine_leaf(engine_spellings[key], value, type_table)
+                _validate_manifest_engine_leaf(engine_spellings[key], value, decoders)
             except ValueError as exc:
                 raise DisciplineError(
                     f"manifest config key {display_table_path(path)!r}: {exc}"

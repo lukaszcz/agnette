@@ -80,7 +80,7 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -121,8 +121,16 @@ from agnette.agl.ir.contracts import (
     dict_key_form,
 )
 from agnette.agl.ir.ids import NominalId
+from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
 from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME
-from agnette.agl.semantics.type_table import DeclId, TypeDef, TypeTable, is_json_convertible
+from agnette.agl.semantics.type_table import (
+    DeclarationNames,
+    DeclId,
+    TypeDef,
+    TypeTable,
+    create_seeded_type_table,
+    is_json_convertible,
+)
 from agnette.agl.semantics.types import (
     ArrayType,
     BoolType,
@@ -1223,7 +1231,7 @@ def build_param_decoder(typ: Type, type_table: TypeTable) -> ParamDecoder:
     Single source of the param-decoder shape, shared by the lowerer (which
     embeds it in each ``IrProgramParam.external_decoder``)
     and the host engine-config decode path
-    (:func:`agnette.agl.runtime.engine_config.convert_host_value`).  A textual raw
+    (:func:`agnette.agl.runtime.engine_config.decode_engine_raw`).  A textual raw
     value is read through the shared host-text dispatch
     (``runtime.value_decode.host_text_to_json``), which derives ``text``-verbatim
     and standard-``Agent`` handling from ``decode`` itself; every other type
@@ -1239,6 +1247,20 @@ def build_param_decoder(typ: Type, type_table: TypeTable) -> ParamDecoder:
         decode=decode_plan.root,
         defs=decode_plan.defs,
     )
+
+
+def engine_setting_decoders(names: Mapping[DeclId, DeclarationNames]) -> dict[str, ParamDecoder]:
+    """Compile every engine setting's decoder onto the standard identity.
+
+    *names* are the loaded ``builtin`` declarations' spellings
+    (:func:`~agnette.agl.typecheck.builtin_contracts.loaded_builtin_names`); empty when no
+    standard library is loaded.
+    """
+    type_table = create_seeded_type_table(names)
+    return {
+        name: build_param_decoder(key_type, type_table)
+        for name, key_type in ENGINE_KEY_TYPES.items()
+    }
 
 
 def build_format_instructions(schema: dict[str, object]) -> str:

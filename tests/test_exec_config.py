@@ -23,7 +23,7 @@ from agnette.config.general import (
     load_merged_config,
 )
 from agnette.core.log import TraceDecision
-from agnette.host_params.config import resolve_programless_engine_settings
+from tests._engine_settings import resolve_every_setting
 from tests._package_helpers import exec_args, write_installed_package
 
 
@@ -32,7 +32,7 @@ class TestExecConfigFromConfigFiles:
 
     def _settings(self, home: Path, cwd: Path, proj_dir: Path | None = None) -> EngineSettings:
         config = load_general_config(home=home, proj_dir=proj_dir, cwd=cwd)
-        settings, diagnostics, usage = resolve_programless_engine_settings(config, {})
+        settings, diagnostics, usage = resolve_every_setting(config, {})
         assert diagnostics == usage == ()
         return settings
 

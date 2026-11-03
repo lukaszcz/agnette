@@ -56,7 +56,7 @@ from dataclasses import replace
 from typing import NamedTuple, cast
 
 from agnette.agl.modules.ids import ENTRY_ID, ModuleId
-from agnette.agl.scope.symbols import AttributeFacts
+from agnette.agl.scope.symbols import AttributeFacts, field_facts
 from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME, ExternalName
 from agnette.agl.semantics.type_table import (
     TypeDef,
@@ -128,11 +128,6 @@ _DERIVED_BUILTIN_SHAPES: frozenset[str] = frozenset({"Optional"})
 def _mutable_field_names(fields: Sequence[Param]) -> frozenset[str]:
     """Return the names of the ``var`` fields among a declaration's *fields*."""
     return frozenset(field.name for field in fields if field.mutable)
-
-
-def _field_facts[V](fields: Sequence[Param], facts: Mapping[int, V]) -> tuple[tuple[str, V], ...]:
-    """Return ``(field_name, fact)`` for each of *fields* with an entry in *facts*, in order."""
-    return tuple((fd.name, facts[fd.node_id]) for fd in fields if fd.node_id in facts)
 
 
 def _bare_name(name: str) -> str:
@@ -1003,11 +998,11 @@ class _TypeBuilder:
         self, fields: Sequence[Param]
     ) -> tuple[tuple[str, ExternalName], ...]:
         """Return the OWN ``@name``/``@json-name`` pairs of *fields*, in declaration order."""
-        return _field_facts(fields, self._attributes.external_names)
+        return field_facts(fields, self._attributes.external_names)
 
     def _field_docs(self, fields: Sequence[Param]) -> tuple[tuple[str, str], ...]:
         """Return the OWN ``@doc`` pairs of *fields*, in declaration order."""
-        return _field_facts(fields, self._attributes.docs)
+        return field_facts(fields, self._attributes.docs)
 
     def _check_field_external_names(
         self,

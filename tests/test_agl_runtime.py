@@ -1955,8 +1955,8 @@ class TestRuntimeErrorPaths:
 
     def test_text_param_not_str_raises(self) -> None:
         """convert_host_value: text type with non-str value → ValueError."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import TextType
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="text"):
             convert_host_value("msg", 42, TextType(), type_table_for())
@@ -1965,17 +1965,17 @@ class TestRuntimeErrorPaths:
         """convert_host_value: integral Decimal → IntValue for int type."""
         from decimal import Decimal
 
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import IntType
         from agnette.agl.semantics.values import IntValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("n", Decimal("3"), IntType(), type_table_for())
         assert result == IntValue(3)
 
     def test_int_param_non_integral_fails(self) -> None:
         """convert_host_value: non-integral value → ValueError for int type."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import IntType
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="'integer'"):
             convert_host_value("n", "1.5", IntType(), type_table_for())
@@ -1984,9 +1984,9 @@ class TestRuntimeErrorPaths:
         """convert_host_value: int value → DecimalValue for decimal type."""
         from decimal import Decimal
 
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import DecimalType
         from agnette.agl.semantics.values import DecimalValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("d", 3, DecimalType(), type_table_for())
         assert isinstance(result, DecimalValue)
@@ -1994,25 +1994,25 @@ class TestRuntimeErrorPaths:
 
     def test_decimal_param_invalid_type_fails(self) -> None:
         """convert_host_value: bool value → ValueError for decimal type."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import DecimalType
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="'number'"):
             convert_host_value("d", "true", DecimalType(), type_table_for())
 
     def test_bool_param_invalid_type_fails(self) -> None:
         """convert_host_value: non-bool value → ValueError for bool type."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import BoolType
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="'boolean'"):
             convert_host_value("b", "1", BoolType(), type_table_for())
 
     def test_bool_param_true_succeeds(self) -> None:
         """convert_host_value: bool value → BoolValue for bool type."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import BoolType
         from agnette.agl.semantics.values import BoolValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("b", True, BoolType(), type_table_for())
         assert result == BoolValue(True)
@@ -2257,9 +2257,9 @@ class TestRuntimeErrorPaths:
         assert error.source == "/tmp/mod.agl"
 
     def test_convert_host_value_json_type_accepts_any(self) -> None:
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import JsonType
         from agnette.agl.semantics.values import JsonValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("meta", [1, 2, 3], JsonType(), type_table_for())
         assert result == JsonValue([1, 2, 3])
@@ -2267,9 +2267,9 @@ class TestRuntimeErrorPaths:
     def test_convert_host_value_json_type_keeps_exact_written_value(self) -> None:
         from decimal import Decimal
 
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import JsonType
         from agnette.agl.semantics.values import JsonValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("meta", "1.0", JsonType(), type_table_for())
 
@@ -2278,9 +2278,9 @@ class TestRuntimeErrorPaths:
 
     def test_convert_host_value_array_type_parsed_via_json_codec(self) -> None:
         # array/dict/record/enum params are now accepted via JSON.
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import ArrayType, TextType
         from agnette.agl.semantics.values import ArrayValue, TextValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value(
             "xs", '["a", "b"]', ArrayType(elem=TextType()), type_table_for()
@@ -2323,9 +2323,9 @@ class TestRuntimeErrorPaths:
         """
         import decimal as _decimal
 
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import ArrayType, DecimalType
         from agnette.agl.semantics.values import ArrayValue, DecimalValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value(
             "xs",
@@ -2344,8 +2344,8 @@ class TestRuntimeErrorPaths:
         param-validation error naming the param, not a stringified value or
         traceback.
         """
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.types import ArrayType, TextType
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="xs") as exc_info:
             convert_host_value("xs", {1, 2, 3}, ArrayType(elem=TextType()), type_table_for())

@@ -251,7 +251,7 @@ def resolve_program_params(
             },
         },
     }
-    decode_engine = engine_setting_decoder()
+    decode_engine = engine_setting_decoder(executable.engine_decoders)
 
     def decode(key: HostParamKey, tier: ParamTier, raw: object) -> "Value | Diagnostic":
         if isinstance(raw, _Typed):

@@ -755,6 +755,24 @@ class TestReplRun:
         assert "Sandbox(" in rendered
         assert "8G" in rendered
 
+    def test_cli_sandbox_seed_accepts_a_member_external_name(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        fake_plain_console: list[dict[str, object]],
+    ) -> None:
+        from agnette.agl.runtime.render import render_value
+
+        _isolated_home(monkeypatch, tmp_path)
+        repl_command.run(_args(sandbox="native"))
+        session: ReplSession = fake_plain_console[0]["session"]
+
+        assert session.eval_entry("import std/config").ok
+        seeded = session.eval_entry("std/config::sandbox")
+        assert seeded.ok
+        assert seeded.value is not None
+        assert "AgentSandbox::Native" in render_value(seeded.value, session.descriptors())
+
     def test_repl_run_wires_a_real_sandbox_context_into_the_session(
         self,
         monkeypatch: pytest.MonkeyPatch,

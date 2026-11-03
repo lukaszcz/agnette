@@ -53,7 +53,12 @@ from agnette.agl.syntax.nodes import (
     static_items,
 )
 from agnette.agl.syntax.spans import SourceSpan
-from agnette.agl.type_schema import ExceptionFieldEncodes, build_param_decoder
+from agnette.agl.type_schema import (
+    ExceptionFieldEncodes,
+    build_param_decoder,
+    engine_setting_decoders,
+)
+from agnette.agl.typecheck.builtin_contracts import loaded_builtin_names
 from agnette.agl.typecheck.env import CheckedModule, FunctionSignature
 from agnette.agl.typecheck.program import program_funcdefs
 from agnette.util.text import normalize_newlines
@@ -590,6 +595,11 @@ def lower_program(
         function_param_bindings=function_param_bindings,
         param_decoders=param_decoders,
         param_spans=param_spans,
+        engine_decoders=engine_setting_decoders(
+            loaded_builtin_names(
+                {mid: checked_module.resolved for mid, checked_module in checked.modules.items()}
+            )
+        ),
         contracts=dict(link.contracts),
         target_contracts=dict(link.target_contracts),
         builtin_nominals=link.builtin_nominals,

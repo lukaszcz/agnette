@@ -97,6 +97,7 @@ from agnette.agl.modules.roots import RootSet, assemble_roots
 from agnette.agl.pipeline import ArgumentPreflight, PreparedProgram, ProgramDiscovery, RunResult
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.entry import EntryResult
+from agnette.agl.runtime.engine_config import decode_engine_raw
 from agnette.agl.runtime.types import HostParamInfo, ProgramDeclInfo
 from agnette.agl.scope.program import resolve_program
 from agnette.agl.semantics.type_table import (
@@ -135,7 +136,11 @@ from agnette.agl.syntax import (
     VarDecl,
 )
 from agnette.agl.syntax.spans import UNKNOWN_SOURCE, SourceSpan
-from agnette.agl.type_schema import derive_schema_and_decode
+from agnette.agl.type_schema import (
+    build_param_decoder,
+    derive_schema_and_decode,
+    engine_setting_decoders,
+)
 from agnette.agl.typecheck.env import CheckedModule
 from agnette.agl.typecheck.program import CheckedProgram, check_program
 from agnette.agl.warning_policy import WarningPolicy
@@ -718,10 +723,15 @@ def key_exception_descriptor(nominal: NominalId, name: str) -> NominalDescriptor
     )
 
 
+def convert_host_value(name: str, raw: object, typ: Type, table: TypeTable) -> Value:
+    """Decode a raw host value against *typ* as the host engine-setting path does."""
+    return decode_engine_raw(name, raw, build_param_decoder(typ, table))
+
+
 def engine_config_values(raw: Mapping[str, object]) -> dict[str, Value]:
     """Decode configured native engine-setting values (``None`` is an ``Option`` setting's none)."""
-    table = create_seeded_type_table()
-    return {name: decode_engine_config_value(name, value, table) for name, value in raw.items()}
+    decoders = engine_setting_decoders({})
+    return {name: decode_engine_config_value(name, value, decoders) for name, value in raw.items()}
 
 
 def agent_value(variant: str, **fields: str) -> RecordValue:

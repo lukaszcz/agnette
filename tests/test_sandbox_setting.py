@@ -296,6 +296,9 @@ class TestSandboxSettingAcceptedSpellingsFromCli:
         [
             ("Disabled", ("AgentSandbox::Disabled",)),
             ("Native", ("AgentSandbox::Native",)),
+            ("none", ("AgentSandbox::Disabled",)),
+            ("native", ("AgentSandbox::Native",)),
+            ("auto", ("AgentSandbox::Native",)),
             ("Sandbox(patch = false)", ("patch = false", "Optional::Default")),
             (
                 'Sandbox(memory = Some("8G"), patch = false)',
@@ -324,6 +327,8 @@ class TestSandboxSettingAcceptedSpellingsFromConfig:
         [
             ('[exec]\nsandbox = "Disabled"\n', ("AgentSandbox::Disabled",)),
             ('[exec]\nsandbox = "Native"\n', ("AgentSandbox::Native",)),
+            ('[exec]\nsandbox = "native"\n', ("AgentSandbox::Native",)),
+            ('[exec.sandbox]\n"$case" = "none"\n', ("AgentSandbox::Disabled",)),
             (
                 '[exec]\nsandbox = "Sandbox(patch = false)"\n',
                 ("patch = false", "Optional::Default"),
@@ -347,6 +352,8 @@ class TestSandboxSettingAcceptedSpellingsFromConfig:
         ids=[
             "disabled",
             "native",
+            "native-external-name",
+            "json-tagged-external-name",
             "sandbox-bare",
             "sandbox-fields-text",
             "json-tagged-object",

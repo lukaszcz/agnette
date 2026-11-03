@@ -8,9 +8,11 @@ from agnette.agl.diagnostics import Diagnostic, configured_diagnostics
 from agnette.agl.ir.static_keys import StaticBindingKey
 from agnette.agl.runtime.engine_config import EngineSettings
 from agnette.agl.semantics.values import Value
+from agnette.agl.type_schema import engine_setting_decoders
 from agnette.agm.cli_support.engine_seeds import engine_seed_values, parse_engine_flags
+from agnette.config.engine_keys import ENGINE_KEY_NAMES
 from agnette.config.general import GeneralConfig
-from agnette.host_params.config import resolve_programless_engine_settings
+from agnette.host_params.config import programless_engine_values
 from tests._engine_flags import engine_flag_tokens
 
 #: The settings, the configured failures, then the usage failures (supplied by the command line).
@@ -48,6 +50,15 @@ def _supplied(cli: Mapping[str, object | None]) -> dict[StaticBindingKey, object
     return parse_engine_flags([t for name, value in cli.items() for t in _flag_tokens(name, value)])
 
 
+def resolve_every_setting(
+    config: GeneralConfig, supplied: Mapping[StaticBindingKey, object]
+) -> tuple[EngineSettings, tuple[Diagnostic, ...], tuple[Diagnostic, ...]]:
+    """Resolve every engine setting of a no-program host against the reserved defs."""
+    return programless_engine_values(config, supplied).resolve(
+        engine_setting_decoders({}), ENGINE_KEY_NAMES
+    )
+
+
 def resolve_programless(
     *,
     cli: Mapping[str, object | None] | None = None,
@@ -55,7 +66,7 @@ def resolve_programless(
 ) -> Resolved:
     """Resolve engine settings from native *cli* flag values over an ``[exec]`` table."""
     config = GeneralConfig.from_layers([{"exec": dict(exec_table or {})}], [None])
-    settings, diagnostics, usage = resolve_programless_engine_settings(config, _supplied(cli or {}))
+    settings, diagnostics, usage = resolve_every_setting(config, _supplied(cli or {}))
     return settings, configured_diagnostics(diagnostics, usage), list(usage)
 
 

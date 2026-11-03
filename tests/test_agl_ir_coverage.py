@@ -11,7 +11,6 @@ from agnette.agl.ir.ids import NominalId
 from agnette.agl.ir.operations import CmpOp, ContainsKind
 from agnette.agl.ir.program import NominalDescriptor, NominalKind, ValueDescriptors
 from agnette.agl.modules.ids import ENTRY_ID
-from agnette.agl.runtime.engine_config import convert_host_value
 from agnette.agl.runtime.render import render_value
 from agnette.agl.runtime.serialize import AglNonDataValue, WalkTags, value_to_json_obj
 from agnette.agl.semantics.types import DecimalType, TextType
@@ -28,7 +27,7 @@ from agnette.agl.semantics.values import (
     json_eq,
     json_hash,
 )
-from tests._agl_helpers import type_table_for
+from tests._agl_helpers import convert_host_value, type_table_for
 from tests.agl.ir_harness import evaluate_ir
 
 

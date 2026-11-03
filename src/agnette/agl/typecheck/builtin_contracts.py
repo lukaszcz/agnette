@@ -21,13 +21,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import cast
 
-from agnette.agl.ir.reserved_nominals import reserved_nominal_id
-from agnette.agl.modules.ids import RESERVED_ID
+from agnette.agl.ir.reserved_nominals import (
+    require_reserved_enum_member_id,
+    require_reserved_nominal_id,
+    reserved_nominal_id,
+)
+from agnette.agl.modules.ids import RESERVED_ID, ModuleId
+from agnette.agl.scope.symbols import ModuleResolution, field_facts
+from agnette.agl.semantics.external_names import NO_EXTERNAL_NAME
 from agnette.agl.semantics.type_table import (
     BUILTIN_EXCEPTION_TYPE_DEFS,
     BUILTIN_PRELUDE_TYPE_DEFS,
     OPTION_TYPE_DEF,
     OPTIONAL_TYPE_DEF,
+    DeclarationNames,
+    DeclId,
     TypeDef,
     TypeDefKind,
     TypeTable,
@@ -41,6 +49,7 @@ from agnette.agl.semantics.types import (
     reroot_type,
     transform_type,
 )
+from agnette.agl.syntax.nodes import EnumDef, Param, RecordDef, VariantDef, static_type_items
 from agnette.agl.zones import ParamZone
 
 
@@ -185,3 +194,39 @@ BUILTIN_EXCEPTION_CONTRACTS: Mapping[str, BuiltinTypeContract] = _canonical_cont
     },
     _CANONICAL_TABLE,
 )
+
+
+def loaded_builtin_names(
+    resolutions: Mapping[ModuleId, ModuleResolution],
+) -> dict[DeclId, DeclarationNames]:
+    """Map each reserved record identity to its loaded standard-library ``builtin`` spellings.
+
+    Feeds :func:`~agnette.agl.semantics.type_table.create_seeded_type_table`, so host decoding
+    against the reserved defs honors the attributes of the declarations actually loaded.
+    """
+    names: dict[DeclId, DeclarationNames] = {}
+
+    def record(reserved: DeclId, node_id: int, fields: tuple[Param, ...]) -> None:
+        names[reserved] = DeclarationNames(
+            external_name=facts.get(node_id, NO_EXTERNAL_NAME),
+            field_external_names=field_facts(fields, facts),
+        )
+
+    for module_id, resolution in resolutions.items():
+        if not module_id.is_standard_library:
+            continue
+        facts = resolution.attributes.external_names
+        for item in static_type_items(resolution.program.body.items):
+            if not item.is_builtin:
+                continue
+            if isinstance(item, RecordDef):
+                record(require_reserved_nominal_id(item.name), item.node_id, item.fields)
+            elif isinstance(item, EnumDef):
+                for member in item.members:
+                    if isinstance(member, VariantDef):
+                        record(
+                            require_reserved_enum_member_id(item.name, member.name),
+                            member.node_id,
+                            member.fields,
+                        )
+    return names

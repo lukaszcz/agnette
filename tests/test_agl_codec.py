@@ -2967,8 +2967,8 @@ program def main(issue: Issue) -> unit =
 
     def test_structured_param_accepts_python_list(self) -> None:
         """Structured params may be provided as a Python list (JSON-compatible)."""
-        from agnette.agl.runtime.engine_config import convert_host_value
         from agnette.agl.semantics.values import ArrayValue, IntValue
+        from tests._agl_helpers import convert_host_value
 
         result = convert_host_value("xs", [1, 2, 3], ArrayType(elem=IntType()), type_table_for())
         assert isinstance(result, ArrayValue)
@@ -2976,14 +2976,14 @@ program def main(issue: Issue) -> unit =
 
     def test_structured_param_must_be_string_or_compatible(self) -> None:
         """Structured params that are not a string or JSON-compatible Python value raise."""
-        from agnette.agl.runtime.engine_config import convert_host_value
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="JSON"):
             convert_host_value("xs", object(), ArrayType(elem=IntType()), type_table_for())
 
     def test_invalid_structured_param_raises(self) -> None:
         """A JSON string that fails schema validation for the declared type raises."""
-        from agnette.agl.runtime.engine_config import convert_host_value
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError, match="severity"):
             issue_type, issue_def = record_type(
@@ -3003,7 +3003,7 @@ program def main(issue: Issue) -> unit =
         agent output) is malformed for both: not strict JSON, and a record
         type needs a constructor call, not a dict literal.
         """
-        from agnette.agl.runtime.engine_config import convert_host_value
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError):
             issue_type, issue_def = record_type(
@@ -3019,7 +3019,7 @@ program def main(issue: Issue) -> unit =
     def test_structured_param_rejects_fenced_json(self) -> None:
         """A Markdown-fenced --param value reads as neither strict JSON nor
         AgL value syntax (no repair, no fence stripping)."""
-        from agnette.agl.runtime.engine_config import convert_host_value
+        from tests._agl_helpers import convert_host_value
 
         with pytest.raises(ValueError):
             convert_host_value(

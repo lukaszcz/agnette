@@ -20,6 +20,7 @@ from agnette.agl.runtime.engine_config import (
 )
 from agnette.agl.runtime.param_resolution import resolve_host_params
 from agnette.agl.semantics.values import BoolValue, Value
+from agnette.agl.type_schema import engine_setting_decoders
 from agnette.agm.cli_support.engine_seeds import engine_seed_values, trace_decision
 from agnette.core.log import TraceDecision
 
@@ -35,7 +36,7 @@ def _resolve(tiers: _Tiers) -> tuple[EngineSettings, list[Diagnostic], list[Diag
     the usage failures."""
     decoded = resolve_host_params(
         {tier: {_key(n): raw for n, raw in values.items()} for tier, values in tiers},
-        engine_setting_decoder(),
+        engine_setting_decoder(engine_setting_decoders({})),
     )
     return (
         decoded.engine,

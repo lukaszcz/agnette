@@ -3342,7 +3342,7 @@ def reserved_field_default(decl_id: DeclId, field_index: int) -> Value:
     """Return one reserved record's *field_index*'th field's host-side constant default.
 
     The decode-time default-fill seam for a host engine setting
-    (``runtime.engine_config.convert_host_value``'s ``default_resolver``);
+    (``runtime.engine_config.decode_engine_raw``'s ``default_resolver``);
     see :data:`RESERVED_FIELD_DEFAULT_VALUES`. *decl_id* names a reserved
     record with defaulted fields (``Sandbox`` or an ``Agent`` member). Keyed
     sparsely by field index, so a field with no default is simply absent
@@ -3586,22 +3586,44 @@ _EXCEPTION_SHAPES: Mapping[str, TypeDef] = {
 BUILTIN_EXCEPTION_TYPE_DEFS: Mapping[str, TypeDef] = _with_reserved_ids(_EXCEPTION_SHAPES)
 
 
-def create_seeded_type_table() -> TypeTable:
+@dataclass(frozen=True, slots=True)
+class DeclarationNames:
+    """A record declaration's own and its fields' ``@name``/``@json-name`` spellings."""
+
+    external_name: ExternalName = NO_EXTERNAL_NAME
+    field_external_names: tuple[tuple[str, ExternalName], ...] = ()
+
+
+def create_seeded_type_table(
+    names: Mapping[DeclId, DeclarationNames] = MappingProxyType({}),
+) -> TypeTable:
     """Return a fresh ``TypeTable`` pre-populated with built-in defs.
 
     Registers ``BUILTIN_PRELUDE_TYPE_DEFS`` (``ExecResult``,
     ``Agent``, ``OutputContract``, ``OutputContractOption``, ``AgentRequest``), the
     generic ``OPTION_TYPE_DEF`` and ``OPTIONAL_TYPE_DEF``, and
     ``BUILTIN_EXCEPTION_TYPE_DEFS`` (every
-    entry of ``semantics.types.BUILTIN_EXCEPTIONS``).
+    entry of ``semantics.types.BUILTIN_EXCEPTIONS``). A def whose reserved identity is in
+    *names* carries those spellings: the loaded source declaration's, which is authoritative.
     """
+
+    def named(typedef: TypeDef) -> TypeDef:
+        found = names.get(typedef.decl_node_id)
+        if found is None:
+            return typedef
+        return replace(
+            typedef,
+            external_name=found.external_name,
+            field_external_names=found.field_external_names,
+        )
+
     table = TypeTable()
     for typedef in BUILTIN_PRELUDE_MEMBER_TYPE_DEFS.values():
-        table.register(typedef)
+        table.register(named(typedef))
     for typedef in BUILTIN_PRELUDE_TYPE_DEFS.values():
-        table.register(typedef)
-    table.register(OPTION_TYPE_DEF)
-    table.register(OPTIONAL_TYPE_DEF)
+        table.register(named(typedef))
+    table.register(named(OPTION_TYPE_DEF))
+    table.register(named(OPTIONAL_TYPE_DEF))
     for typedef in BUILTIN_EXCEPTION_TYPE_DEFS.values():
         table.register(typedef)
     return table

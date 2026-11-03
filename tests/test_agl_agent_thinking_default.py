@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from agnette.agl.semantics.type_table import create_seeded_type_table
 from agnette.agl.semantics.values import RecordValue, TextValue
+from agnette.agl.type_schema import engine_setting_decoders
 from agnette.agm.commands import exec as exec_command
 from agnette.host_params.projection import decode_engine_config_value
 from tests._agl_helpers import write_file_program
@@ -83,7 +83,7 @@ def test_seeded_agent_decode_fills_omitted_thinking() -> None:
     value = decode_engine_config_value(
         "agent",
         {"$case": "AgentPi", "provider": "anthropic", "model": "sonnet"},
-        create_seeded_type_table(),
+        engine_setting_decoders({}),
     )
     assert isinstance(value, RecordValue)
     assert value.fields == {

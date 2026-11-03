@@ -34,7 +34,9 @@ from agnette.config.engine_keys import REGISTER_ENABLING_ENGINE_KEYS
 from agnette.core.parse import normalize_option_text
 
 if TYPE_CHECKING:
-    from agnette.agl.semantics.type_table import TypeTable
+    from collections.abc import Mapping
+
+    from agnette.agl.ir.contracts import ParamDecoder
     from agnette.agl.semantics.types import Type as AglType
     from agnette.agl.semantics.values import Value
 
@@ -276,15 +278,17 @@ def config_raw_value(
     )
 
 
-def decode_engine_config_value(name: str, raw: object, type_table: "TypeTable") -> "Value":
+def decode_engine_config_value(
+    name: str, raw: object, decoders: "Mapping[str, ParamDecoder]"
+) -> "Value":
     """Decode and validate one configured native value of engine setting *name*.
 
     Decodes *raw* as a config table's value (:func:`config_raw_value`, then
-    :func:`~agnette.agl.runtime.engine_config.decode_engine_raw`) without anchoring paths,
-    for callers with no program. Raises ``ValueError`` on any failure.
+    :func:`~agnette.agl.runtime.engine_config.decode_engine_raw` through *decoders*) without
+    anchoring paths, for callers with no program. Raises ``ValueError`` on any failure.
     """
     param = next(param for param in engine_setting_params() if param.name == name)
-    return decode_engine_raw(name, config_raw_value(param, raw), param.type, type_table)
+    return decode_engine_raw(name, config_raw_value(param, raw), decoders[name])
 
 
 def param_spellings(

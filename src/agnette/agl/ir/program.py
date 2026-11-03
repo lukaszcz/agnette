@@ -427,6 +427,8 @@ class ExecutableProgram:
         -> its host-value decoder, compiled alongside program parameter signatures.
       ``param_spans`` — every ``@param`` identity -> declaration span,
         retained to anchor host-value decode diagnostics in their source file.
+      ``engine_decoders`` — every engine setting -> its host-value decoder onto the
+        standard identity, honoring the loaded ``builtin`` declarations' spellings.
       ``contracts`` — ask/exec output contracts, keyed by ``ContractId``.
       ``target_contracts`` — type-directed extern target contracts, which
         ``IrContract`` operands name; they share the ``ContractId`` space.
@@ -473,6 +475,7 @@ class ExecutableProgram:
         default_factory=dict
     )
     param_decoders: dict[HostParamKey, ParamDecoder] = field(default_factory=dict)
+    engine_decoders: dict[str, ParamDecoder] = field(default_factory=dict)
     param_spans: Mapping[HostParamKey, object] = field(default_factory=dict)
     contracts: dict["ContractId", "ContractRequest"] = field(default_factory=dict)
     target_contracts: dict["ContractId", TargetContractRequest] = field(default_factory=dict)

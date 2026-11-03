@@ -18,10 +18,9 @@ from agnette.config.engine_keys import ENGINE_KEYS, NON_NEGATIVE_ENGINE_KEYS, En
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from agnette.agl.ir.contracts import ParamDecoder
     from agnette.agl.ir.ids import NominalId
     from agnette.agl.runtime.types import HostParamInfo
-    from agnette.agl.semantics.type_table import TypeTable
-    from agnette.agl.semantics.types import Type as AglType
     from agnette.agl.semantics.values import Value
 
 __all__ = [
@@ -151,21 +150,19 @@ def engine_default_settings() -> "dict[str, Value]":
     """Build the typed engine-default value for every defaulted engine key.
 
     Decodes the shared engine-key catalog's defaults through :func:`decode_engine_raw` against
-    a fresh seeded ``TypeTable``; a ``None`` default is an ``Option`` setting's none.
+    the reserved defs; a ``None`` default is an ``Option`` setting's none.
     ``agent`` and ``sandbox`` have no host-side default: they come from the ``std/config``
     ``builtin var`` declarations like any other declared default.
     """
     from agnette.agl.runtime.arguments import option_none_raw
-    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-    from agnette.agl.semantics.type_table import create_seeded_type_table
+    from agnette.agl.type_schema import engine_setting_decoders
 
-    type_table = create_seeded_type_table()
+    decoders = engine_setting_decoders({})
     return {
         spec.name: decode_engine_raw(
             spec.name,
             option_none_raw() if spec.default is None else spec.default,
-            ENGINE_KEY_TYPES[spec.name],
-            type_table,
+            decoders[spec.name],
         )
         for spec in ENGINE_KEYS
         if spec.has_default
@@ -264,21 +261,20 @@ def _invalid_engine_message(name: str, origin: str, error: ValueError) -> str:
     return f"invalid {name} value from {origin}: {error}"
 
 
-def engine_setting_decoder() -> "Callable[[HostParamKey, ParamTier, object], Value | Diagnostic]":
+def engine_setting_decoder(
+    decoders: "Mapping[str, ParamDecoder]",
+) -> "Callable[[HostParamKey, ParamTier, object], Value | Diagnostic]":
     """Return the decoder of an engine setting's raw winning value, for ``resolve_host_params``.
 
-    Decodes onto the standard identity; an invalid value is a diagnostic without a source
-    location naming its origin (the flag, or the configuration key).
+    Decodes through *decoders* (:func:`~agnette.agl.type_schema.engine_setting_decoders`)
+    onto the standard identity; an invalid value is a diagnostic without a source location
+    naming its origin (the flag, or the configuration key).
     """
-    from agnette.agl.semantics.engine_keys import ENGINE_KEY_TYPES
-    from agnette.agl.semantics.type_table import create_seeded_type_table
-
-    type_table = create_seeded_type_table()
 
     def decode(key: HostParamKey, tier: ParamTier, raw: object) -> "Value | Diagnostic":
         name = cast(str, engine_setting_name(key))
         try:
-            return decode_engine_raw(name, raw, ENGINE_KEY_TYPES[name], type_table)
+            return decode_engine_raw(name, raw, decoders[name])
         except ValueError as exc:
             origin = f"--{name}" if tier is ParamTier.SUPPLIED else f"configuration key {name}"
             return Diagnostic(message=_invalid_engine_message(name, origin, exc))
@@ -305,7 +301,7 @@ def _reserved_default_resolver(nominal: "NominalId", field_index: int) -> "Value
 
     Passed to :func:`~agnette.agl.runtime.arguments.decode_param_value` as the
     ``default_resolver`` for every host engine-config decode
-    (:func:`convert_host_value`). No program — and so no evaluator — exists
+    (:func:`decode_engine_raw`). No program — and so no evaluator — exists
     yet at this boundary, unlike an ordinary program's own field default
     (filled by ``IrInterpreter.default_for_field`` against the real, fully
     linked ``NominalDescriptor`` table); a reserved record's default is
@@ -318,54 +314,35 @@ def _reserved_default_resolver(nominal: "NominalId", field_index: int) -> "Value
     return reserved_field_default(nominal.value, field_index)
 
 
-def convert_host_value(
-    name: str, raw: object, type_obj: AglType, type_table: "TypeTable"
-) -> "Value":
-    """Decode a raw host value against a declared AgL type.
+def _decode_host_value(name: str, raw: object, decoder: "ParamDecoder") -> "Value":
+    """Decode a raw host value through *decoder*, raising ``ValueError`` naming setting *name*.
 
-    Builds the same :class:`~agnette.agl.ir.contracts.ParamDecoder` the lowerer
-    embeds in the compiled IR (via :func:`~agnette.agl.type_schema.build_param_decoder`)
-    and runs the shared :func:`~agnette.agl.runtime.arguments.decode_param_value`
-    path, so this and the compiled-IR value-decode boundary go through one
-    mechanism. :func:`decode_engine_raw` decodes every host engine-setting value through it.
-
-    ``text`` values are taken verbatim; a JSON-compatible Python value (not a
-    string) crosses the canonical JSON boundary, its nested strings read as a
-    raw string is. A raw string is read through the shared host-text dispatch
-    (:func:`~agnette.agl.runtime.value_decode.host_param_text_to_json`): strict
-    JSON when it decodes into the slot, else one AgL value-syntax literal — no repair of user typos
-    either way. *raw* may instead be an
-    :class:`~agnette.agl.runtime.arguments.OptionSome` box, for an ``Option[T]``
-    *type_obj*: the boxed payload decodes against ``T``'s own field schema and
-    is wrapped into the enum's ``Some`` shape, exactly as a program's own
-    ``Option[T]`` parameter decodes. *type_obj* is a checked engine-setting
-    type with a wire schema; the builtin ``Agent`` enum's schema is dispatched
-    through its own shorthand and constructor-call reading. *type_table*
-    resolves record/enum field/variant shapes for *type_obj*. An omitted defaulted field (e.g.
-    ``Sandbox``'s or an ``Agent`` member's) fills through
-    :func:`_reserved_default_resolver`.
+    Runs the shared :func:`~agnette.agl.runtime.arguments.decode_param_value` path over
+    the decoder shape the lowerer embeds in the compiled IR
+    (:func:`~agnette.agl.type_schema.build_param_decoder`), so host and compiled-IR value
+    decoding share one mechanism. An omitted defaulted field (e.g. ``Sandbox``'s or an
+    ``Agent`` member's) fills through :func:`_reserved_default_resolver`.
     """
     from agnette.agl.runtime.arguments import decode_param_value
     from agnette.agl.runtime.convert import StrictJsonParseError
-    from agnette.agl.type_schema import build_param_decoder
 
-    decoder = build_param_decoder(type_obj, type_table)
     try:
         return decode_param_value(decoder, raw, default_resolver=_reserved_default_resolver)
     except (StrictJsonParseError, ValueError) as exc:
-        raise ValueError(f"Setting {name!r}: could not parse as {type_obj!r}: {exc}") from exc
+        raise ValueError(
+            f"Setting {name!r}: could not parse as {decoder.target_type_label}: {exc}"
+        ) from exc
 
 
-def decode_engine_raw(
-    name: str, raw: object, key_type: AglType, type_table: "TypeTable"
-) -> "Value":
+def decode_engine_raw(name: str, raw: object, decoder: "ParamDecoder") -> "Value":
     """Decode and validate one engine setting's raw argument value, raising ``ValueError``.
 
     *raw* has the shape a program argument's does (an
     :class:`~agnette.agl.runtime.arguments.OptionSome` box or the ``None`` envelope
-    for an ``Option`` setting), as the host-parameter surfaces produce it.
+    for an ``Option`` setting), as the host-parameter surfaces produce it. *decoder* is the
+    setting's (:func:`~agnette.agl.type_schema.engine_setting_decoders`).
     """
-    value = convert_host_value(name, raw, key_type, type_table)
+    value = _decode_host_value(name, raw, decoder)
     validate_engine_value(name, value)
     return value
 

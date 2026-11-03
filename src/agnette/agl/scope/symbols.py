@@ -1058,6 +1058,11 @@ class AttributeFacts:
     region_docs: dict[tuple[str, ...], str] = field(default_factory=dict)
 
 
+def field_facts[V](fields: Sequence[Param], facts: Mapping[int, V]) -> tuple[tuple[str, V], ...]:
+    """Return ``(field_name, fact)`` for each of *fields* with an entry in *facts*, in order."""
+    return tuple((fd.name, facts[fd.node_id]) for fd in fields if fd.node_id in facts)
+
+
 @dataclass(frozen=True, slots=True)
 class ParamBinding:
     """One ``@param``-marked static binding, paired with its attribute payload.

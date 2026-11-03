@@ -30,11 +30,12 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from functools import partial
 
 from agnette.agent.session.service import create_agl_session_host
 from agnette.agl.diagnostics import AglError, format_diagnostic
+from agnette.agl.ir.contracts import ParamDecoder
 from agnette.agl.ir.static_keys import HostParamKey
 from agnette.agl.repl import ReplSession
 from agnette.agl.repl.plain_console import plain_mode_engaged
@@ -42,6 +43,7 @@ from agnette.agl.runtime.agents import value_driven_agent_factory
 from agnette.agl.runtime.engine_config import EngineSettings
 from agnette.agl.runtime.host_settings import HostSettingsPolicy
 from agnette.agl.runtime.types import HostParamInfo
+from agnette.agl.type_schema import engine_setting_decoders
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agm.cli_support.agl_errors import fail_with_diagnostics
 from agnette.agm.cli_support.args import ReplArgs
@@ -57,6 +59,7 @@ from agnette.agm.cli_support.program_options import CommandUsageError
 from agnette.agm.parser import exit_with_usage_error
 from agnette.config.claims import QualifiedConfigLookupError
 from agnette.config.context import current_config_context
+from agnette.config.engine_keys import DECLARATION_VALUED_ENGINE_KEYS, ENGINE_KEY_NAMES
 from agnette.config.general import (
     GeneralConfig,
     exec_options_from_merged,
@@ -75,10 +78,11 @@ from agnette.core.cleanup import preserve_primary_error
 from agnette.core.log import LiveTracePathResolver, prepare_trace_log_from_decision
 from agnette.core.process import terminating_signals_exit
 from agnette.host_params.config import (
+    ProgramlessEngineValues,
     colliding_declarations,
     declaration_route_tables,
+    programless_engine_values,
     resolve_declaration_route_values,
-    resolve_programless_engine_settings,
 )
 from agnette.packages.activation import select_package_roots
 from agnette.packages.development import discover_development_packages
@@ -105,21 +109,31 @@ def _resolve_param_seeds(
         raise AglError(str(exc)) from exc
 
 
-def _resolve_engine_settings(
-    general_config: GeneralConfig, tokens: Sequence[str]
-) -> EngineSettings:
-    """Resolve the engine settings from *tokens* over ``[exec]``.
+def _engine_values(general_config: GeneralConfig, tokens: Sequence[str]) -> ProgramlessEngineValues:
+    """Read the raw engine settings from *tokens* over ``[exec]``.
 
-    Raises :class:`CommandUsageError` for an invalid command-line value and exits 1 for
-    an invalid configured one.
+    Raises :class:`CommandUsageError` for a malformed flag.
     """
     try:
         supplied = parse_engine_flags(tokens)
     except ValueError as exc:
         raise CommandUsageError(str(exc)) from exc
-    settings, diagnostics, usage = resolve_programless_engine_settings(general_config, supplied)
+    return programless_engine_values(general_config, supplied)
+
+
+def _decode_engine_settings(
+    values: ProgramlessEngineValues, decoders: Mapping[str, ParamDecoder], names: Collection[str]
+) -> EngineSettings:
+    """Decode the engine settings *names* of *values*; an invalid one fails the command.
+
+    An invalid command-line value is a usage error; an invalid configured one exits 1.
+    """
+    settings, diagnostics, usage = values.resolve(decoders, names)
     if diagnostics:
-        fail_with_diagnostics(diagnostics, usage)
+        try:
+            fail_with_diagnostics(diagnostics, usage)
+        except CommandUsageError as exc:
+            exit_with_usage_error(["repl"], f"error: {exc.message}")
     return settings
 
 
@@ -145,9 +159,16 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
     # Seed only explicit CLI/config controls.  Trace-service fallbacks remain
     # absent so a ``builtin var`` initializer can provide the setting default.
     try:
-        engine_settings = _resolve_engine_settings(general_config, args.tokens)
+        engine_values = _engine_values(general_config, args.tokens)
     except CommandUsageError as exc:
         exit_with_usage_error(["repl"], f"error: {exc.message}")
+    # The settings naming builtin declarations' members decode once the library image
+    # loads them (below); the rest configure the session itself.
+    engine_settings = _decode_engine_settings(
+        engine_values,
+        engine_setting_decoders({}),
+        ENGINE_KEY_NAMES - DECLARATION_VALUED_ENGINE_KEYS,
+    )
     engine_seeds = engine_seed_values(engine_settings)
     timeout = resolve_timeout(engine_seeds)
     strict_json = resolve_strict_json(engine_seeds)
@@ -232,6 +253,10 @@ def run(args: ReplArgs, *, warning_policy: WarningPolicy | None = None) -> None:
                 for diagnostic in open_diagnostics:
                     print(f"Error: {format_diagnostic(diagnostic)}", file=sys.stderr)
                 raise SystemExit(1)
+            declaration_valued = _decode_engine_settings(
+                engine_values, session.engine_setting_decoders(), DECLARATION_VALUED_ENGINE_KEYS
+            )
+            session.seed_engine_settings(declaration_valued.values)
 
             history_path = agm_home_dir(home=ctx.home) / "repl_history"
             history_path.parent.mkdir(parents=True, exist_ok=True)

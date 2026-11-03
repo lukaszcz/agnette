@@ -5,7 +5,7 @@
 :func:`engine_seed_values` and :func:`trace_decision` read the derived ``trace`` setting
 back from them, so a run's log file and its readable ``trace`` setting can never disagree.
 ``agm repl`` has no program:
-:func:`~agnette.host_params.config.resolve_programless_engine_settings` ranks its CLI flags
+:func:`~agnette.host_params.config.programless_engine_values` ranks its CLI flags
 over ``[exec]``, the declaration route, through the same ranking and decoding into the same
 settings.
 :func:`host_agent_spec_resolver` builds the dispatch-time agent defaults both hosts apply

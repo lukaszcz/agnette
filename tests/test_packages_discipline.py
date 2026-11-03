@@ -1152,6 +1152,7 @@ class TestManifestConfigDiscipline:
             ("timeout = -5", True),
             ('trace-file = "  "', True),
             ('sandbox = "Native"', True),
+            ('sandbox = "native"', True),
             ('agent = "claude"', True),
             ('sandbox = "NoSuchSandbox"', False),
             ('timeout = "not-a-duration"', False),

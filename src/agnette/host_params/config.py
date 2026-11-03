@@ -9,6 +9,7 @@ from enum import Enum
 from typing import NamedTuple
 
 from agnette.agl.diagnostics import Diagnostic
+from agnette.agl.ir.contracts import ParamDecoder
 from agnette.agl.ir.static_keys import (
     FunctionParamKey,
     HostParamKey,
@@ -69,7 +70,8 @@ __all__ = [
     "report_colliding_declarations",
     "resolve_declaration_route_values",
     "resolve_param_values",
-    "resolve_programless_engine_settings",
+    "ProgramlessEngineValues",
+    "programless_engine_values",
 ]
 
 
@@ -630,22 +632,45 @@ def resolve_declaration_route_values(
     return claims.values(claims.index.resolve(source), RouteKind.DECLARATION)
 
 
-def resolve_programless_engine_settings(
-    config: "GeneralConfig", supplied: "Mapping[StaticBindingKey, object]"
-) -> tuple[EngineSettings, tuple[Diagnostic, ...], tuple[Diagnostic, ...]]:
-    """Rank *supplied* flag values over the ``[exec]`` declaration route; no program.
+@dataclass(frozen=True, slots=True)
+class ProgramlessEngineValues:
+    """A host's raw engine-setting values with no program: the ``[exec]`` route and flags."""
 
-    The ranking and decoding ``agm exec`` applies to a program's engine settings, without
-    the program-bound tiers. Returns the settings, the diagnostics of the invalid values,
-    and those among them that *supplied* values caused. An undeclared ``[exec]`` key warns.
+    declared: "Mapping[StaticBindingKey, object]"
+    supplied: "Mapping[StaticBindingKey, object]"
+
+    def resolve(
+        self, decoders: "Mapping[str, ParamDecoder]", names: "Collection[str]"
+    ) -> tuple[EngineSettings, tuple[Diagnostic, ...], tuple[Diagnostic, ...]]:
+        """Rank the supplied over the declared values of the settings *names*, then decode.
+
+        The ranking and decoding ``agm exec`` applies to a program's engine settings, without
+        the program-bound tiers, through *decoders*
+        (:func:`~agnette.agl.type_schema.engine_setting_decoders`). Returns the settings, the
+        diagnostics of the invalid values, and those among them that supplied values caused.
+        """
+
+        def among(values: "Mapping[StaticBindingKey, object]") -> dict[StaticBindingKey, object]:
+            return {key: raw for key, raw in values.items() if key[2] in names}
+
+        decoded = resolve_host_params(
+            {ParamTier.DECLARED: among(self.declared), ParamTier.SUPPLIED: among(self.supplied)},
+            engine_setting_decoder(decoders),
+        )
+        return decoded.engine, decoded.diagnostics, decoded.usage_diagnostics
+
+
+def programless_engine_values(
+    config: "GeneralConfig", supplied: "Mapping[StaticBindingKey, object]"
+) -> ProgramlessEngineValues:
+    """Pair *supplied* flag values with the ``[exec]`` declaration route's; no program.
+
+    An undeclared ``[exec]`` key warns.
     """
     declared = split_engine_values(
         resolve_declaration_route_values(config, engine_setting_params(), report_undeclared=True)
     )[1]
-    decoded = resolve_host_params(
-        {ParamTier.DECLARED: declared, ParamTier.SUPPLIED: supplied}, engine_setting_decoder()
-    )
-    return decoded.engine, decoded.diagnostics, decoded.usage_diagnostics
+    return ProgramlessEngineValues(declared, supplied)
 
 
 def _native_value(param: ProgramParamInfo | HostParamInfo, configured: ConfiguredValue) -> object:

@@ -164,6 +164,14 @@ RUNTIME_LIVE_ENGINE_KEYS: frozenset[str] = engine_keys_for(EngineKeyConsumer.RUN
 
 HOST_CONSUMED_ENGINE_KEYS: frozenset[str] = engine_keys_for(EngineKeyConsumer.HOST_CONSUMED)
 
+# Keys whose values name ``builtin`` declarations' members: they decode only once the
+# declarations are loaded, which honors their attributes.
+DECLARATION_VALUED_ENGINE_KEYS: frozenset[str] = frozenset(
+    spec.name
+    for spec in ENGINE_KEYS
+    if spec.kind in (EngineKeyKind.AGENT, EngineKeyKind.AGENT_SANDBOX)
+)
+
 ENGINE_REGISTERS: tuple[str, ...] = tuple(
     sorted({spec.register for spec in ENGINE_KEYS if spec.register is not None})
 )

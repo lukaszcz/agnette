@@ -215,7 +215,7 @@ def decode_param_value(
     The single decode path shared by program-argument and parameter decoding
     (:func:`decode_program_argument`, :func:`decode_host_param`) and the host
     engine-config decode path
-    (``runtime.engine_config.convert_host_value``). A textual value is read
+    (``runtime.engine_config.decode_engine_raw``). A textual value is read
     through the shared host-text dispatch
     (``runtime.value_decode.host_param_text_to_json``): ``text`` params
     verbatim, the standard ``Agent`` enum through its own text conventions, a
@@ -231,7 +231,7 @@ def decode_param_value(
     ordinary missing-field error. The host engine-config decode path supplies
     its own resolver, reading a reserved record's field defaults as host-side
     constants rather than evaluating IR (no program exists yet there) — see
-    ``runtime.engine_config.convert_host_value``.
+    ``runtime.engine_config.decode_engine_raw``.
 
     :raises ValueError: on a type/shape mismatch, schema-validation failure, or a raw
         string that is not valid Unicode (:class:`~agnette.util.unicode.LoneSurrogateError`).
