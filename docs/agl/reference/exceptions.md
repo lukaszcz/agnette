@@ -141,17 +141,20 @@ with no JSON representation (such as a function or a cyclic value) makes the
 cast raise `CastError` (`as?` yields `None`); only the report of an uncaught
 exception replaces such a field with a marker.
 
-## `try` / `catch`
+## `try` / `catch` / `finally`
 
 `try … catch …` is an **expression** — its type is the unified type of the
-body and all handler bodies (with `int → decimal` widening). Each handler is
-`catch Pattern => body`, where the body is the same form an `if` or `case`
-branch takes. Because `catch` marks where a `try` body ends, an inline `try`
-body is a full `;` sequence, binders and `:=` assignments included; if its
-final item is a `let` or `var`, the body has type `unit` (bottom if the
-initializer exits). The body may end in `if`, `case`, or a loop; only a
-nested `try` or a lambda is barred in final position. See [Grammar: `try` /
-`catch`](grammar.md#try-catch) and [Inline bodies](grammar.md#inline-bodies).
+body and all handler bodies (with `int → decimal` widening); a `try` with
+no handler has the type of its body. Each handler is `catch Pattern => body`,
+where the body is the same form an `if` or `case` branch takes. A `try` needs
+at least one `catch` or a `finally`. Because `catch` and `finally` mark where
+a `try` body ends, an inline `try` body is a full `;` sequence, binders and
+`:=` assignments included; if its final item is a `let` or `var`, the body has
+type `unit` (bottom if the initializer exits). The body may end in `if`,
+`case`, or a loop; only a nested `try`, a lambda, or a record update is barred
+in final position. See [Grammar: `try` / `catch` /
+`finally`](grammar.md#try-catch-finally) and [Inline
+bodies](grammar.md#inline-bodies).
 
 ```agl
 record Review
@@ -182,7 +185,87 @@ Semantics:
 6. An exception raised inside a handler body propagates normally.
 
 A `return` inside a `try` body or a handler is not an exception and is never
-caught; it unwinds to the nearest enclosing function. There is no `finally`.
+caught; it unwinds to the nearest enclosing function.
+
+### `finally`
+
+A `finally => body` clause, written after every `catch`, runs cleanup
+whatever ended the `try`. Its body is the same form a handler takes. `finally`
+is a reserved keyword.
+
+```agl
+program def main() -> unit =
+  try
+    print "working"
+  finally => print "closed"
+```
+
+```agl
+exception Problem extends Exception
+
+program def main() -> unit =
+  try
+    print "working"
+    raise Problem(message = "boom")
+  catch Problem as e =>
+    print "handled: %{e.message}"
+  finally =>
+    print "cleanup"
+```
+
+The `finally` body runs exactly once after the body, or after the matching
+handler when one runs, whatever ended it: a value, an exception (caught,
+uncaught, or raised in a handler), `return`, `break`, `continue`, or a host
+termination (`std/os::exit`, an interrupt, SIGTERM or SIGHUP, and in the REPL
+cancelling the entry). When it completes, the pending outcome resumes
+unchanged: the value is the `try`'s result, an exception propagates with its
+original location and notes, and `return`, `break`, `continue`, or the
+termination proceed. Nested `try`s finalize innermost first, so during an
+exception or termination every enclosing `finally` body runs.
+
+If the `finally` body raises, the new exception replaces the pending outcome,
+whether that was a value, an exception, `return`, `break`, or `continue`:
+
+```agl
+exception Problem extends Exception
+
+exception CleanupError extends Exception
+
+program def main() -> unit =
+  try
+    try
+      raise Problem(message = "work failed")
+    finally =>
+      raise CleanupError(message = "cleanup failed")
+  catch Problem => print "work failed"
+  catch CleanupError => print "cleanup failed"
+```
+
+This prints `cleanup failed`. A host termination keeps precedence: an
+exception escaping the `finally` body while one is pending is discarded, no
+`catch` can intercept the termination, and it continues. A termination that
+starts inside the `finally` body (`std/os::exit`, another interrupt)
+replaces the pending outcome. Host failures that are not program outcomes,
+such as internal errors and host configuration errors, run no `finally` body.
+
+A process forked through [`std/ps`](ffi.md#processes) starts as a copy of the
+program. It runs only the `finally` bodies it enters itself, never those
+pending in the parent at the fork.
+
+The `finally` body:
+
+- is its own scope, seeing the enclosing scope but not the `try` body's
+  bindings, any `catch` body's bindings, or a catch binder;
+- is a discarded-value position like a loop body: it must have type `unit`
+  or diverge, and a final `let` or `var` makes it `unit`. It neither
+  contributes to the `try`'s type nor receives an expected type, and a
+  diverging body leaves the type unchanged;
+- is not a handler: a bare `raise` in it is legal only where the `try` sits in
+  a handler body of the same function, and rethrows that handler's
+  exception;
+- cannot be left by `return`, `break`, or `continue` aimed at a function or
+  loop outside it — a static error. A loop or lambda wholly inside the body
+  may use them.
 
 Catch patterns:
 
@@ -232,7 +315,8 @@ Bare `raise` rethrows the exception handled by the innermost enclosing `catch`,
 preserving its value, original source location, and notes. It is legal only inside
 that handler's body in the same function: a nested `def` or lambda cannot rethrow
 its enclosing handler's exception. A `try` body nested inside a handler may use
-bare `raise` to rethrow that handler's exception. `raise e` creates a new raise
+bare `raise` to rethrow that handler's exception, as may its `finally` body.
+`raise e` creates a new raise
 location at the explicit `raise e` expression.
 
 ```agl

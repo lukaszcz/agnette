@@ -252,7 +252,8 @@ flushed before the fork), and treats SIGINT, SIGTERM, and SIGHUP as
 (`SETTLE` after a normal result, else `TERMINATE`), with half the grace period
 of its parent, so none outlives it. Its
 [companion state](#companion-state) is carried over as described there. The
-child never returns into the companion that forked it.
+child never returns into the companion that forked it, and never runs the
+`finally` bodies pending in the parent at the fork.
 
 ## Value mapping
 

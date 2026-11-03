@@ -558,7 +558,7 @@ declaration.
 
 `if`, `case`, loops, and `try` are expressions; their types and
 parenthesization rules are in [Control flow](control-flow.md) and
-[`try`/`catch`](exceptions.md#try-catch).
+[`try`/`catch`/`finally`](exceptions.md#try-catch-finally).
 
 ## Divergent expressions
 

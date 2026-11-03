@@ -93,7 +93,7 @@ program def main(spec: text) -> unit =
 | [Generics](generics.md) | Type parameters on `def`/`record`/`enum`/`type`, type application, inference and `::[…]` override, generic constructor values, strict parametricity, constraint blocks (`Eq`/`Hashable`), invariance, erasure |
 | [Agent calls](agent-calls.md) | `ask`, agents as values, call options, output contracts, the JSON wire format, parse retries |
 | [Shell execution](shell-execution.md) | `exec`, the `ExecResult` structured form vs the parsed form, shell-quoted holes and their warnings, `ExecError` |
-| [Exceptions](exceptions.md) | The exception model, `try`/`catch`/`raise`, the built-in exception catalog |
+| [Exceptions](exceptions.md) | The exception model, `try`/`catch`/`finally`/`raise`, the built-in exception catalog |
 | [Attributes](attributes.md) | `@name` declaration attributes: placement, catalog, zones, `@doc`, `@allow`, `@exempts`, `@shell-quoted`, `@opaque`, `@extern-name`, command registration, program parameter options |
 | [Static warnings](warnings.md) | The warning catalog, levels, `@allow` regions, `@exempts`, host control |
 | [Modules](modules.md) | File-based module system: module identity, import forms, `use`, qualified access, re-exports and visibility, the prelude, cyclic imports, REPL imports |

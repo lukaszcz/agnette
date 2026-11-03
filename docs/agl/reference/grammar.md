@@ -136,7 +136,7 @@ inline_assign ::= assign_target ":=" or_expr
 | ---- | --------- | ----------- |
 | `( … )` | `)` | `marked_body` |
 | `do … until`/`done` | `until` / `done` | `marked_body` |
-| `try … catch` | `catch` | `marked_body`, last item not a `try`, lambda, or record update |
+| `try … catch`/`finally` | `catch` / `finally` | `marked_body`, last item not a `try`, lambda, or record update |
 | `def f() = …` | enclosing newline or `;` | exactly one `expr` |
 | `… => …` | *none* | exactly one `closed_item` |
 
@@ -146,15 +146,16 @@ body's own terminator. Nothing consumes `)`. A loop's `until`/`done` occurs
 exactly once per loop, so even a nested loop in final position is unambiguous
 — `do … until p until q` binds the inner `until` innermost-first. `catch` is a
 repeatable clause, so a `try` body's final item excludes a nested `try`, which
-would take every following `catch`, and a lambda, whose unmarked body extends
-rightwards; a record update is excluded there too. Each stays legal earlier in
-the sequence, and in final position once parenthesized —
+would take every following `catch` or `finally`, and a lambda, whose
+unmarked body extends rightwards; a record update is excluded there too. Each
+stays legal earlier in the sequence, and in final position once parenthesized
+—
 `try (fn(x: int) -> int => x) catch _ => …`.
 
 An inline `def` body is exactly one expression; its enclosing block separator
 — a newline or `;` — ends the body and starts the next block item. A `=>` body
-ends at nothing at all — a following `|`, `else`, or `catch` could belong
-either to the body or to the enclosing branch list — so it holds a single
+ends at nothing at all — a following `|`, `else`, `catch`, or `finally` could
+belong either to the body or to the enclosing branch list — so it holds a single
 `closed_item`: no `;`, no binder, and none of the right-extending forms
 (`if`, `case`, `try`, a loop, a lambda) whose own branch lists or body would
 swallow the enclosing form's continuation. To write a multi-item body after
@@ -365,8 +366,8 @@ branch_body    ::= suite | closed_item
 closed_item    ::= or_expr | inline_assign | raise_expr | return_expr
 ```
 
-`branch_body` is shared by `if` branches, `case` branches, and `catch`
-clauses; see [Inline bodies](#inline-bodies).
+`branch_body` is shared by `if` branches, `case` branches, and `catch` and
+`finally` clauses; see [Inline bodies](#inline-bodies).
 
 ## `case`
 
@@ -381,10 +382,10 @@ case_branch     ::= pattern "=>" branch_body
 The branch list either follows `of` on the same line or forms an indented
 block on the lines below it.
 
-## `try` / `catch`
+## `try` / `catch` / `finally`
 
 ```ebnf
-try_expr        ::= "try" try_body catch_clause+
+try_expr        ::= "try" try_body (catch_clause+ finally_clause? | finally_clause)
 try_body        ::= suite | (marked_item ";")* try_tail
 try_tail        ::= or_expr | inline_assign | try_letvar_decl | raise_expr
                   | return_expr | if_expr | case_expr | loop
@@ -392,13 +393,16 @@ try_letvar_decl ::= attributes? ("let" | "var") decl_head type_ann? "=" try_valu
 try_value       ::= or_expr | raise_expr | return_expr | if_expr | case_expr | loop
 catch_clause    ::= "catch" catch_pattern "=>" branch_body
 catch_pattern   ::= name ("as" name)?
+finally_clause  ::= "finally" "=>" branch_body
 ```
 
 An inline try body is a full `;` sequence. Its final item, and a final
 binder's initializer, may be an `if`, `case`, or loop, but not a nested `try`,
 a lambda, or a record update unless parenthesized (see
 [Inline bodies](#inline-bodies)). A `catch_pattern` name is an exception type
-or `_`. Semantics: [Exceptions](exceptions.md).
+or `_`. A `try` has at least one `catch` or a `finally`; a `finally`
+comes after every `catch`, and at most one is allowed. Semantics:
+[Exceptions](exceptions.md#try-catch-finally).
 
 ## Patterns
 
@@ -566,8 +570,8 @@ program def main() -> unit =
 
 - A single `=` belongs to bindings, named arguments, fields, and declarations;
   it is not an expression operator. Equality is `==`.
-- A `|`, `else`, `catch`, or `until` at the start of a line attaches to the
-  innermost construct that can accept it; the
+- A `|`, `else`, `catch`, `finally`, or `until` at the start of a line
+  attaches to the innermost construct that can accept it; the
   [layout rules](lexical-structure.md#layout-indentation-newlines-continuation)
   guarantee each such token belongs to exactly one construct.
 - The single-argument call `f x` means `f(x)`. It does not chain, so `f x y`

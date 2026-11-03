@@ -264,8 +264,11 @@ program def main(items: array[Item], finished: bool, count: int) -> unit =
 `while` guard, body, or `until` condition — when the loop is in the same
 function or lambda. Outside any loop, or across a `def` or lambda (`fn`)
 boundary into an enclosing loop, they are a static error. `break` inside a
-`try` body exits the loop; `catch` does not intercept it.
+`try` body exits the loop; `catch` does not intercept it, and the `try`'s
+`finally` body runs first. A `finally` body cannot be left by `break` or
+`continue` aimed at a loop outside it ([Exceptions](exceptions.md#finally)).
 
 A `return` inside a loop is not a `break`: it returns from the nearest
 enclosing `def` or `fn`, abandoning every enclosing loop without a loop
-result.
+result. The `finally` bodies of the `try`s it leaves run on the way out, and a
+`return` cannot leave a `finally` body.

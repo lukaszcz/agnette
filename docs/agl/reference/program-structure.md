@@ -198,7 +198,8 @@ Every item before the last is in a **discarded-value position**: a bare
 expression there must have type `unit` or bottom, the type of an expression
 that does not return normally (`raise`, `return`, `break`, `continue`).
 Binders and declarations are valid intermediate items. A loop body's value is
-discarded on every iteration, so the same rule applies to its last item.
+discarded on every iteration, so the same rule applies to its last item, and
+to a `finally` body's.
 Side-effecting forms (`print`, `:=`, loops, an `if` without `else`) have type
 `unit` and return `()`. A discarded-value position expects `unit`, so a
 type-directed call such as `ask` or `exec` there takes its `unit` form:

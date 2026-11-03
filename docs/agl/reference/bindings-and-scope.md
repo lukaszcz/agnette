@@ -505,7 +505,8 @@ constructs each introduce a nested scope:
 3. each `case` branch body,
 4. a `try` body,
 5. each `catch` body,
-6. each function call (a fresh call scope with parameters bound).
+6. a `finally` body,
+7. each function call (a fresh call scope with parameters bound).
 
 `let` and `var` bind in the *current* scope only; bindings never escape their
 scope. A lambda closes over its definition environment but is not

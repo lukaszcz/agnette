@@ -90,7 +90,9 @@ result.
 
 A `return` inside a lambda returns from that lambda. `return` is a static
 error outside a function body, including at the program top level and in
-parameter defaults.
+parameter defaults. A `return` inside a `finally` body is a static error
+unless it targets a lambda (`fn`) inside that body; `finally` bodies of the
+`try`s a `return` leaves run first ([Exceptions](exceptions.md#finally)).
 
 Like `raise`, `return` is admitted directly in an inline branch or `catch`
 body (`if ready => return x else => 0`) and in a loop body. It is an

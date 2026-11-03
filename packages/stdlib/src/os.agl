@@ -4,7 +4,11 @@ import std/fs::FsError
 import std/option::Option
 import std/path::path
 
-@doc("End the AgL host process with portable status `code`.")
+@doc("""
+  End the AgL host process with portable status `code`.
+
+  Enclosing `finally` bodies run before the process ends.
+""")
 extern def exit(code: int = 0) -> unit
 
 @doc("""

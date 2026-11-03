@@ -643,6 +643,12 @@ A run ends in one of three ways:
    non-empty dict with non-`text` keys is an array of `{"key": …, "value": …}`
    objects.
 
+When the run ends early — by an uncaught exception, `std/os::exit`, an
+interrupt, or termination by SIGTERM or SIGHUP — the `finally` bodies pending
+at that point run, innermost first, before the run's cleanup
+([Exceptions](exceptions.md#finally)). In the REPL, Ctrl-C runs the cancelled
+entry's pending `finally` bodies.
+
 ### Child processes
 
 A process the program forked through `std/ps` belongs to the run until it is detached.

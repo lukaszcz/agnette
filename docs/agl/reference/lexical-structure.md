@@ -47,15 +47,15 @@ The layout rules:
    the bracket closes, so argument lists and container literals may span
    lines. An interpolation hole is not a bracket: a newline anywhere inside
    `%{…}` or `%!{…}`, even within brackets there, is a lexical error.
-4. **Continuation markers.** None of `|`, `else`, `catch`, `until`, `done`,
-   `->`, `=>`, and `=` can begin a construct, so a line whose first token is
+4. **Continuation markers.** None of `|`, `else`, `catch`, `finally`,
+   `until`, `done`, `->`, `=>`, and `=` can begin a construct, so a line whose first token is
    one of them always continues the line before it rather than starting a new
    item, and may sit at any column not less than the base — including the
    enclosing construct's — without opening a new block.
 
-   This is what lets `if`/`case` branches, `else` branches, `catch` clauses,
-   enum members, and the `until`/`done` terminator of a loop align with the
-   construct that owns them:
+   This is what lets `if`/`case` branches, `else` branches, `catch` and
+   `finally` clauses, enum members, and the `until`/`done` terminator of a
+   loop align with the construct that owns them:
 
    ```agl
    enum Status
@@ -159,7 +159,7 @@ The following words are **always reserved** and can never be used as names:
 
 ```text
 record enum type program def fn let var for while do until done
-if else case of try catch raise return break continue exception extends builtin extern as as?
+if else case of try catch finally raise return break continue exception extends builtin extern as as?
 true false null
 infixl infixr prio
 ```

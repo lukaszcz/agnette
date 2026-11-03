@@ -886,7 +886,7 @@ Typing is exact nominal matching with these implicit coercions:
    at matching type arguments; the value stays the same record.
 5. **A derived exception widens to any ancestor in its `extends` chain**,
    keeping its concrete identity; `as` to a named ancestor does the same
-   explicitly ([`try`/`catch`](exceptions.md#try-catch)).
+   explicitly ([`try`/`catch`/`finally`](exceptions.md#try-catch-finally)).
 
 Rules 3–5 apply only against a known target slot — they never find a common
 type while inferring a mixed expression (`[Pass, Fail(issues = [])]` needs an
