@@ -1277,10 +1277,18 @@ def test_a_non_agl_python_failure_skips_the_finally(
     assert _marks(capsys) == []
 
 
+@pytest.mark.parametrize("inner_catch", [True, False])
 def test_a_bare_raise_in_a_finally_nested_in_a_handler_rethrows_the_handled_exception(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], inner_catch: bool
 ) -> None:
-    body = f'try\n  {_THROW}\ncatch Abort =>\n  try\n    print("inner")\n  finally =>\n    raise\n'
+    inner_handler = 'catch Other =>\n    print("inner handler")\n  ' if inner_catch else ""
+    body = (
+        "exception Other\n"
+        f"try\n  {_THROW}\ncatch Abort =>\n"
+        f'  try\n    raise Other(message = "inner")\n  {inner_handler}'
+        'finally =>\n    print("inner finally")\n    raise\n'
+    )
     _, outcome = _run_finally(tmp_path, body)
-    assert _uncaught(outcome).fields["message"] == "x"
-    assert _marks(capsys) == ["inner"]
+    error = _uncaught(outcome)
+    assert error.fields["message"] == "x"
+    assert _marks(capsys) == (["inner", "handler"] if inner_catch else []) + ["inner", "finally"]

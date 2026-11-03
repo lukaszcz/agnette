@@ -22,8 +22,8 @@ runs a program under a scenario and asserts its expectations.
 | `calls/` | `ask` parse-error retries and format options |
 | `canonical/` | Multi-agent review/fix workflows |
 | `casts/` | `as`/`as?` casts, `CastError`, `JsonParseError` |
-| `control/` | `if`/`case`/loops/`try…catch`/`raise` |
-| `errors/` | Exception types, catch field access, rethrow |
+| `control/` | `if`/`case`/loops/`try…catch…finally`/`raise` |
+| `errors/` | Exception types, catch field access, rethrow, `finally` outcomes |
 | `exec/` | Shell execution and `ExecResult` |
 | `exprs/` | Arithmetic, comparisons, string operations |
 | `externs/` | `extern def` Python companions and boundary crossing |

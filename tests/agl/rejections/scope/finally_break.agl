@@ -1,0 +1,7 @@
+program def main() -> unit =
+  do[3]
+    try
+      print "body"
+    finally =>
+      break
+  done

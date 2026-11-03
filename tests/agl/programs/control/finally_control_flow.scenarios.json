@@ -1,0 +1,101 @@
+{
+  "scenarios": [
+    {
+      "name": "return_body",
+      "params": {
+        "mode": "return-body"
+      },
+      "expect": {
+        "stdout": "finally\n1\n"
+      }
+    },
+    {
+      "name": "return_handler",
+      "params": {
+        "mode": "return-handler"
+      },
+      "expect": {
+        "stdout": "finally\n2\n"
+      }
+    },
+    {
+      "name": "do_break",
+      "params": {
+        "mode": "do-break"
+      },
+      "expect": {
+        "stdout": "finally 1\nfinally 2\ndone at 2\n"
+      }
+    },
+    {
+      "name": "for_continue",
+      "params": {
+        "mode": "for-continue"
+      },
+      "expect": {
+        "stdout": "body 1\nfinally 1\nfinally 2\nbody 3\nfinally 3\n"
+      }
+    },
+    {
+      "name": "while_break",
+      "params": {
+        "mode": "while-break"
+      },
+      "expect": {
+        "stdout": "finally 1\nfinally 2\nfinally 3\nn = 3\n"
+      }
+    },
+    {
+      "name": "until_state",
+      "params": {
+        "mode": "until-state"
+      },
+      "expect": {
+        "stdout": "n = 4\n"
+      }
+    },
+    {
+      "name": "loop_in_finally",
+      "params": {
+        "mode": "loop-in-finally"
+      },
+      "expect": {
+        "stdout": "body\nk = 3\n"
+      }
+    },
+    {
+      "name": "fn_in_finally",
+      "params": {
+        "mode": "fn-in-finally"
+      },
+      "expect": {
+        "stdout": "body\n11\n-1\n"
+      }
+    },
+    {
+      "name": "recursion_in_finally",
+      "params": {
+        "mode": "recursion-in-finally"
+      },
+      "expect": {
+        "stdout": "body\ntick 3\ntick 2\ntick 1\n"
+      }
+    },
+    {
+      "name": "nested_calls",
+      "params": {
+        "mode": "nested-calls"
+      },
+      "expect": {
+        "stdout": "cleanup outer\n",
+        "raises": {
+          "type": "Fail",
+          "line": 29,
+          "fields": {
+            "message": "deep shadow-middle"
+          }
+        }
+      }
+    }
+  ]
+}

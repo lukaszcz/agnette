@@ -1,0 +1,8 @@
+def work() -> int =
+  try
+    1
+  finally =>
+    return 2
+
+program def main() -> unit =
+  print work()

@@ -1809,5 +1809,11 @@
   "docs/commands/pkg.md:34": "188100b8c2b82188e68cc67259cb7895f861b8017775e9aa648ce1b672c6083a",
   "docs/commands/pkg.md:194": "5071bb423c8ec85b49fcc50642a69ea22df8ef179f4cf86afde541e99c973e19",
   "tests/agl/programs/calls/interrupt_propagation.agl": "0a41260fc67da8883c8cb267b87d8ba0ea8d332b5b699fa5b7ee43b6de19335c",
-  "tests/agl/programs/externs/interrupt_propagation.agl": "1b706df97d842d3c226784c6496ee22e14c47102e20517d1236dcb99b0748541"
+  "tests/agl/programs/externs/interrupt_propagation.agl": "1b706df97d842d3c226784c6496ee22e14c47102e20517d1236dcb99b0748541",
+  "tests/agl/programs/control/finally_control_flow.agl": "52f738a61c6f2fb6430ac21ef98a73cf14f6c56b3ab09cc3745eb83615044051",
+  "tests/agl/programs/errors/try_finally.agl": "775bb5346e89e0235fda73b537b8c781ce0f715d301eba091cac1a5114989708",
+  "tests/agl/rejections/scope/finally_break.agl": "6fdbad27d18e2935f663aff1f6e6238b97d7519f10af87e4cc095a94bd0bbad8",
+  "tests/agl/rejections/scope/finally_continue.agl": "d6de0ecc3ccb99b0245249dbf67969e6ca90aa0cfd02f658338dee8f997a668c",
+  "tests/agl/rejections/scope/finally_return.agl": "54c75170d5a8e5ea0361dfa2d41951c0522cd5133c6f3c6ae746f3cc1856ed1e",
+  "tests/agl/rejections/type/finally_non_unit.agl": "a88d630d67c6f49ac98fe458cfc03872f4b307132bc294216d95e30640030b02"
 }

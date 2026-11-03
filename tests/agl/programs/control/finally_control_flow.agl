@@ -1,0 +1,110 @@
+# `finally` runs on `return`, `break`, and `continue` leaving the `try`, and may use its own
+# loops, functions, and recursion.
+
+exception Fail
+exception Other
+
+def return-from-body() -> int =
+  try
+    return 1
+  finally =>
+    print "finally"
+  0
+
+def return-from-handler() -> int =
+  try
+    raise Fail(message = "boom")
+  catch Fail =>
+    return 2
+  finally =>
+    print "finally"
+  0
+
+def countdown(n: int) -> unit =
+  if n > 0 =>
+    print "tick %{n}"
+    countdown(n - 1)
+
+def inner(tag: text) -> unit =
+  raise Fail(message = "deep %{tag}")
+
+def middle(tag: text) -> unit =
+  inner(tag ++ "-middle")
+
+program def main(mode: text) -> unit =
+  if
+    | mode == "return-body" => print return-from-body()
+    | mode == "return-handler" => print return-from-handler()
+    | mode == "do-break" =>
+        var i: int = 0
+        do[10]
+          i := i + 1
+          try
+            if i == 2 => break
+          finally =>
+            print "finally %{i}"
+        until i >= 5
+        print "done at %{i}"
+    | mode == "for-continue" =>
+        for x in [1, 2, 3] do
+          try
+            if x == 2 => continue
+            print "body %{x}"
+          finally =>
+            print "finally %{x}"
+        done
+    | mode == "while-break" =>
+        var n: int = 0
+        while n < 10 do
+          n := n + 1
+          try
+            if n == 3 => break
+          catch _ =>
+            print "handler"
+          finally =>
+            print "finally %{n}"
+        done
+        print "n = %{n}"
+    | mode == "until-state" =>
+        var n: int = 0
+        var seen: int = 0
+        do[10]
+          n := n + 1
+          try
+            if n == 3 => continue
+          finally =>
+            seen := n
+        until seen >= 3
+        print "n = %{n}"
+    | mode == "loop-in-finally" =>
+        try
+          print "body"
+        finally =>
+          var k: int = 0
+          do[10]
+            k := k + 1
+            if k == 3 => break
+          done
+          print "k = %{k}"
+    | mode == "fn-in-finally" =>
+        try
+          print "body"
+        finally =>
+          let f = fn(y: int) => if y > 0 => (return y + 10) | else => y
+          print f(1)
+          print f(-1)
+    | mode == "recursion-in-finally" =>
+        try
+          print "body"
+        finally =>
+          countdown(3)
+    | mode == "nested-calls" =>
+        let tag = "outer"
+        try
+          let tag = "shadow"
+          middle(tag)
+        catch Other =>
+          print "handler"
+        finally =>
+          print "cleanup %{tag}"
+    | else => ()

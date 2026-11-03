@@ -1,0 +1,136 @@
+# `finally` runs exactly once after the body or handler, whatever the outcome.
+
+exception Fail
+  code: int
+
+exception Other
+
+def run(fail: bool) -> unit =
+  if fail => raise Fail(1, message = "run")
+
+program def main(mode: text) -> unit =
+  if
+    | mode == "normal" =>
+        try
+          print "body"
+        catch _ =>
+          print "handler"
+        finally =>
+          print "finally"
+    | mode == "caught" =>
+        try
+          raise Fail(1, message = "boom")
+        catch Fail =>
+          print "handler"
+        finally =>
+          print "finally"
+    | mode == "uncaught" =>
+        try
+          raise Fail(1, message = "boom")
+        catch Other =>
+          print "handler"
+        finally =>
+          print "finally"
+    | mode == "handler-raise" =>
+        try
+          raise Fail(1, message = "boom")
+        catch Fail =>
+          print "handler"
+          raise Other(message = "from handler")
+        finally =>
+          print "finally"
+    | mode == "replace" =>
+        try
+          raise Fail(1, message = "boom")
+        finally =>
+          print "finally"
+          raise Other(message = "replacement")
+    | mode == "raise-after-normal" =>
+        try
+          print "body"
+        finally =>
+          raise Other(message = "after normal")
+    | mode == "value" =>
+        let x = try 40 + 2 finally => print "finally"
+        print x
+    | mode == "catchless" =>
+        try
+          print "body"
+        finally =>
+          print "finally"
+    | mode == "inline" =>
+        try run(true) catch _ => print "handler" finally => print "finally"
+        try run(false) finally => print "finally again"
+    | mode == "nested" =>
+        try
+          try
+            print "inner body"
+            raise Fail(1, message = "boom")
+          catch Other =>
+            print "inner handler"
+          finally =>
+            print "inner finally"
+        catch Fail =>
+          print "outer handler"
+        finally =>
+          print "outer finally"
+    | mode == "bare-raise-handler" =>
+        try
+          raise Fail(1, message = "original")
+        catch Fail =>
+          print "handler"
+          raise
+        finally =>
+          print "finally"
+          try
+            raise Other(message = "inner")
+          catch Other =>
+            print "swallowed"
+    | mode == "bare-raise-in-finally" =>
+        try
+          raise Fail(1, message = "original")
+        catch Fail =>
+          try
+            raise Other(message = "inner")
+          catch Other =>
+            print "inner handler"
+          finally =>
+            print "inner finally"
+            raise
+    | mode == "bare-raise-in-pending-finally" =>
+        try
+          raise Fail(1, message = "original")
+        catch Fail =>
+          try
+            raise Other(message = "inner")
+          finally =>
+            print "inner finally"
+            raise
+    | mode == "final-let" =>
+        try
+          print "body"
+        finally =>
+          print "finally"
+          let closed = true
+    | mode == "outer-var" =>
+        var log: text = ""
+        try
+          log := log ++ "body;"
+        finally =>
+          log := log ++ "finally:%{log};"
+        print log
+    | mode == "two-levels" =>
+        try
+          try
+            raise Fail(1, message = "original")
+          catch Fail =>
+            print "inner handler"
+            raise
+          finally =>
+            print "inner finally"
+        catch Fail =>
+          print "outer handler"
+          raise
+        finally =>
+          print "outer finally"
+    | else => ()

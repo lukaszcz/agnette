@@ -1,0 +1,205 @@
+{
+  "scenarios": [
+    {
+      "name": "normal",
+      "params": {
+        "mode": "normal"
+      },
+      "expect": {
+        "stdout": "body\nfinally\n"
+      }
+    },
+    {
+      "name": "caught",
+      "params": {
+        "mode": "caught"
+      },
+      "expect": {
+        "stdout": "handler\nfinally\n"
+      }
+    },
+    {
+      "name": "uncaught",
+      "params": {
+        "mode": "uncaught"
+      },
+      "expect": {
+        "stdout": "finally\n",
+        "raises": {
+          "type": "Fail",
+          "line": 29,
+          "fields": {
+            "message": "boom",
+            "code": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "handler_raise",
+      "params": {
+        "mode": "handler-raise"
+      },
+      "expect": {
+        "stdout": "handler\nfinally\n",
+        "raises": {
+          "type": "Other",
+          "line": 39,
+          "fields": {
+            "message": "from handler"
+          }
+        }
+      }
+    },
+    {
+      "name": "replace",
+      "params": {
+        "mode": "replace"
+      },
+      "expect": {
+        "stdout": "finally\n",
+        "raises": {
+          "type": "Other",
+          "line": 47,
+          "fields": {
+            "message": "replacement"
+          }
+        }
+      }
+    },
+    {
+      "name": "raise_after_normal",
+      "params": {
+        "mode": "raise-after-normal"
+      },
+      "expect": {
+        "stdout": "body\n",
+        "raises": {
+          "type": "Other",
+          "line": 52,
+          "fields": {
+            "message": "after normal"
+          }
+        }
+      }
+    },
+    {
+      "name": "value",
+      "params": {
+        "mode": "value"
+      },
+      "expect": {
+        "stdout": "finally\n42\n"
+      }
+    },
+    {
+      "name": "catchless",
+      "params": {
+        "mode": "catchless"
+      },
+      "expect": {
+        "stdout": "body\nfinally\n"
+      }
+    },
+    {
+      "name": "inline",
+      "params": {
+        "mode": "inline"
+      },
+      "expect": {
+        "stdout": "handler\nfinally\nfinally again\n"
+      }
+    },
+    {
+      "name": "nested",
+      "params": {
+        "mode": "nested"
+      },
+      "expect": {
+        "stdout": "inner body\ninner finally\nouter handler\nouter finally\n"
+      }
+    },
+    {
+      "name": "bare_raise_handler",
+      "params": {
+        "mode": "bare-raise-handler"
+      },
+      "expect": {
+        "stdout": "handler\nfinally\nswallowed\n",
+        "raises": {
+          "type": "Fail",
+          "line": 79,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "bare_raise_in_finally",
+      "params": {
+        "mode": "bare-raise-in-finally"
+      },
+      "expect": {
+        "stdout": "inner handler\ninner finally\n",
+        "raises": {
+          "type": "Fail",
+          "line": 91,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "bare_raise_in_pending_finally",
+      "params": {
+        "mode": "bare-raise-in-pending-finally"
+      },
+      "expect": {
+        "stdout": "inner finally\n",
+        "raises": {
+          "type": "Fail",
+          "line": 102,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    },
+    {
+      "name": "final_let",
+      "params": {
+        "mode": "final-let"
+      },
+      "expect": {
+        "stdout": "body\nfinally\n"
+      }
+    },
+    {
+      "name": "outer_var",
+      "params": {
+        "mode": "outer-var"
+      },
+      "expect": {
+        "stdout": "body;finally:body;;\n"
+      }
+    },
+    {
+      "name": "two_levels",
+      "params": {
+        "mode": "two-levels"
+      },
+      "expect": {
+        "stdout": "inner handler\ninner finally\nouter handler\nouter finally\n",
+        "raises": {
+          "type": "Fail",
+          "line": 125,
+          "fields": {
+            "message": "original"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+program def main() -> unit =
+  for x in [1, 2] do
+    try print x finally => continue
+  done

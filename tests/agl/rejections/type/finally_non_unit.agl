@@ -1,0 +1,5 @@
+program def main() -> unit =
+  try
+    print "body"
+  finally =>
+    42
