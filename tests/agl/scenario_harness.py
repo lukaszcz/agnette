@@ -44,6 +44,7 @@ from agnette.agl.runtime.processes import (
     ForkRequest,
     ProcessHost,
 )
+from agnette.agl.runtime.request import AgentCancelled
 from agnette.agl.semantics.values import IntValue, Value
 from agnette.agl.warning_policy import WarningPolicy
 from agnette.agl.warnings import WARNING_CATALOG, WarningLevel
@@ -206,6 +207,7 @@ class ScriptedAgent:
     name: str
     responses: list[str]
     repeat_last: bool = False
+    interrupt_on_call: int | None = None
     session_capabilities: frozenset[str] = field(default_factory=lambda: _SESSION_CAPABILITY_NAMES)
     session_operations: dict[str, list[Any]] = field(default_factory=dict)
     session_ask_outcomes: list[Any] | None = None
@@ -234,7 +236,13 @@ class ScriptedAgent:
         self.prompt_events.append(
             _PromptEvent(request.prompt, schema, request.permission_mode.value, request.sandbox)
         )
+        self._interrupt_if_scheduled()
         return self._next_response()
+
+    def _interrupt_if_scheduled(self) -> None:
+        """Raise ``KeyboardInterrupt`` on the ``interrupt_on_call``-th recorded prompt."""
+        if self.interrupt_on_call == len(self.prompt_events):
+            raise KeyboardInterrupt
 
     def session_service(self) -> Any:
         """Create an observable wrapper around the production session service."""
@@ -943,6 +951,7 @@ class _ScriptedSessionBackend:
         self._agent.prompt_events.append(
             _PromptEvent(request.prompt, None, self._session.permission_mode, self._session.sandbox)
         )
+        self._agent._interrupt_if_scheduled()
         outcome = self._agent._next_session_ask_outcome()
         if isinstance(outcome, dict):
             elapsed = float(outcome.get("elapsed", 0.0))
@@ -1088,10 +1097,18 @@ def agent_from_spec(name: str, spec: Any) -> ScriptedAgent:
                 raise ValueError(
                     "unsupported outcomes must be expressed through session capabilities"
                 )
+    interrupt_on_call = spec.get("interrupt_on_call")
+    if interrupt_on_call is not None and (
+        isinstance(interrupt_on_call, bool)
+        or not isinstance(interrupt_on_call, int)
+        or interrupt_on_call < 1
+    ):
+        raise ValueError("interrupt_on_call must be a positive integer")
     return ScriptedAgent(
         name=name,
         responses=[str(r) for r in spec["responses"]],
         repeat_last=bool(spec.get("repeat_last", False)),
+        interrupt_on_call=interrupt_on_call,
         session_capabilities=capabilities,
         session_operations=operations,
         session_ask_outcomes=None if ask_outcomes is None else list(ask_outcomes),
@@ -1487,6 +1504,13 @@ def _assert_trace(trace: Path | None, expect: dict[str, Any], pids: dict[str, in
         assert not unexpected, f"trace has records matching {entry!r}: {unexpected!r}"
 
 
+_INTERRUPTS: dict[str, type[BaseException]] = {
+    "KeyboardInterrupt": KeyboardInterrupt,
+    "AgentCancelled": AgentCancelled,
+}
+_TERMINATIONS: tuple[type[BaseException], ...] = (SystemExit, *_INTERRUPTS.values())
+
+
 def _run_program(
     source: str,
     scenario: dict[str, Any],
@@ -1612,11 +1636,17 @@ def _run_program(
                 discovery=discovery,
                 trace_file=trace_file,
             )
-        except SystemExit as exc:
+        except _TERMINATIONS as exc:
             result = exc
     # A terminated run reports no result; discovery holds the static warnings.
-    warnings = discovery.warnings if isinstance(result, SystemExit) else tuple(result.warnings)
+    warnings = discovery.warnings if isinstance(result, _TERMINATIONS) else tuple(result.warnings)
     return result, boundaries, scripts, warnings
+
+
+def _assert_interrupted(result: Any, name: Any) -> None:
+    if name not in _INTERRUPTS:
+        raise ValueError(f"unknown interrupted expectation: {name!r}")
+    assert type(result) is _INTERRUPTS[name], f"expected {name} interrupt, got {result!r}"
 
 
 def _assert_host_error(result: Any, agents: dict[str, ScriptedAgent], spec: dict[str, Any]) -> None:
@@ -2070,7 +2100,10 @@ def assert_program_scenario(
         assert result.code == expect["exit_code"], (
             f"expected exit code {expect['exit_code']!r}, got {result.code!r}"
         )
+    elif "interrupted" in expect:
+        _assert_interrupted(result, expect["interrupted"])
     else:
+        assert not isinstance(result, _TERMINATIONS), f"unexpected termination: {result!r}"
         _assert_outcome(result, expect)
     _assert_warnings(warnings, expect)
     _assert_output(out, expect)

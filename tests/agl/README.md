@@ -61,6 +61,7 @@ runs a program under a scenario and asserts its expectations.
         "impl": {
           "responses": ["fix"],
           "repeat_last": true,
+          "interrupt_on_call": 2,
           "session": {
             "capabilities": ["ask", "compact", "fork", "stats"],
             "operations": {
@@ -125,6 +126,7 @@ runs a program under a scenario and asserts its expectations.
                    "message_contains": ["fragment"],
                    "line": 7},
         "exit_code": 42,
+        "interrupted": "AgentCancelled",
         "host_error": {"message_contains": ["spec"]}
       }
     }
@@ -182,9 +184,11 @@ Scripted boundaries (every script must be fully consumed; an absent key allows n
 
 - `agents` — response queues keyed by the call site's `Agent` value (`ask` for the default
   non-command variants), consumed in order. A list is strict; the object form adds
-  `repeat_last`. Session and ordinary asks share the queue. `session.capabilities` lists
-  supported operations (`ask`, `compact`, `fork`, `set-name`, `stats`; default all) —
-  omit one to script a capability rejection. `session.operations` maps native operations
+  `repeat_last` and `interrupt_on_call` (the n-th call, 1-based, counted like `calls`,
+  raises `KeyboardInterrupt`, surfacing as `AgentCancelled`). Session and ordinary asks share
+  the queue. `session.capabilities` lists supported operations (`ask`, `compact`, `fork`,
+  `set-name`, `stats`; default all) — omit one to script a capability rejection.
+  `session.operations` maps native operations
   (`compact`, `reset`, `fork`, `stats`, `set-name`) to ordered outcomes: `success`, a
   `stats` object, or (legacy, prefer `capabilities`) `unsupported`; `reset` cannot be
   unsupported. `session.ask` scripts each session prompt as `success` or a transport
@@ -246,6 +250,9 @@ Expectations:
   module the warning is attributed to: a path relative to `tests/agl/`, or a label such as
   `<code>` for the entry.
 - `exit_code` — termination through `SystemExit` with this status.
+- `interrupted` — the run ended through a host interrupt: `"KeyboardInterrupt"` or
+  `"AgentCancelled"` (an interrupted agent call). Stdout, boundaries and warnings are still
+  checked.
 - `host_error` — a pre-execution failure (argument binding or decoding): no agent call, no
   AgL exception, diagnostics containing `message_contains`.
 - `shell_sandbox_units_distinct` — every sandboxed shell call has a distinct

@@ -1,0 +1,12 @@
+# A host interrupt during an agent call is not an AgL exception: no handler
+# catches it and it ends the run.
+program def main() -> unit =
+  let builder: Agent = AgentCommand("builder")
+  print("start")
+  let first: text = builder.ask("One.")
+  print(first)
+  try
+    let second: text = builder.ask("Two.")
+    print(second)
+  catch _ =>
+    print("caught")

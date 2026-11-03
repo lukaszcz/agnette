@@ -1,0 +1,2 @@
+def interrupt():
+    raise KeyboardInterrupt

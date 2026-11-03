@@ -459,6 +459,45 @@ def test_scripted_sessions_detect_an_extra_retry_prompt() -> None:
         )
 
 
+@pytest.mark.parametrize("value", [0, -1, True, "2", 1.5])
+def test_interrupt_on_call_must_be_a_positive_integer(value: Any) -> None:
+    with pytest.raises(ValueError, match="interrupt_on_call"):
+        agent_from_spec("writer", {"responses": [], "interrupt_on_call": value})
+
+
+_INTERRUPTED_PROGRAM = Path(__file__).parent / "agl/programs/calls/interrupt_propagation.agl"
+
+
+@pytest.mark.parametrize(
+    ("expect", "error"),
+    [
+        ({"interrupted": "SystemExit"}, ValueError),
+        ({"interrupted": "KeyboardInterrupt"}, AssertionError),
+        ({}, AssertionError),
+    ],
+)
+def test_interrupted_expectation_must_match_the_termination(
+    expect: dict[str, Any],
+    error: type[Exception],
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    scenario = {
+        "name": "interrupted",
+        "agents": {"builder": {"responses": ["a"], "interrupt_on_call": 2}},
+        "expect": {"stdout": "start\na\n", "calls": {"builder": 2}, **expect},
+    }
+    with pytest.MonkeyPatch.context() as patch, pytest.raises(error):
+        assert_program_scenario(
+            _INTERRUPTED_PROGRAM,
+            scenario,
+            lambda: capsys.readouterr().out,
+            tmp_path,
+            patch,
+            None,
+        )
+
+
 def test_scripted_session_ask_closes_an_ephemeral_session() -> None:
     from agnette.agent.session.protocol import SessionAskRequest
 

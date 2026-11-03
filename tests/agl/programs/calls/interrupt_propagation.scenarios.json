@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "name": "second_call_interrupted",
+      "agents": {
+        "builder": {
+          "responses": ["a"],
+          "interrupt_on_call": 2
+        }
+      },
+      "expect": {
+        "stdout": "start\na\n",
+        "calls": {"builder": 2},
+        "interrupted": "AgentCancelled"
+      }
+    }
+  ]
+}

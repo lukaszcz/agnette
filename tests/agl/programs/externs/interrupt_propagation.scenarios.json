@@ -1,0 +1,11 @@
+{
+  "scenarios": [
+    {
+      "name": "companion_interrupt",
+      "expect": {
+        "stdout": "start\n",
+        "interrupted": "KeyboardInterrupt"
+      }
+    }
+  ]
+}

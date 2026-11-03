@@ -1,0 +1,10 @@
+# A companion raising `KeyboardInterrupt` is not an AgL exception: no handler
+# catches it and it ends the run.
+extern def interrupt() -> unit
+
+program def main() -> unit =
+  print("start")
+  try
+    interrupt()
+  catch _ =>
+    print("caught")
