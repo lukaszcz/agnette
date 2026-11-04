@@ -821,18 +821,17 @@ def _scoped_stdlib_root(tmp_path: Path) -> Path:
         )
         if name == "session":
             source = source.replace(SESSION_STATIC_DECLARATIONS, "")
+        # ``default-sandbox`` is an extern, dropped above.
+        source = re.sub(
+            r"sandbox: AgentSandbox = default-sandbox\((?:agent|self)\)",
+            "sandbox: AgentSandbox = Disabled",
+            source,
+        )
         if name == "agent":
-            source = (
-                source.replace(
-                    "  agent: Agent = std/config::agent,\n",
-                    '  agent: Agent = AgentCommand(command = ""),\n',
-                )
-                .replace(
-                    "  sandbox: AgentSandbox = std/config::sandbox,\n",
-                    "  sandbox: AgentSandbox = Disabled,\n",
-                )
-                .replace("  env: Environ = std/env::environ,\n", "")
-            )
+            source = source.replace(
+                "  agent: Agent = std/config::agent,\n",
+                '  agent: Agent = AgentCommand(command = ""),\n',
+            ).replace("  env: Environ = std/env::environ,\n", "")
         if name == "exec":
             source = source.replace(
                 "builtin def exec[T](\n"

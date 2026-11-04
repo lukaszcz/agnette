@@ -12,6 +12,7 @@ from agnette.agent.spec_defaults import (
     AgentConfig,
     AgentConfigError,
     configured_defaults_resolver,
+    configured_sandbox,
     with_configured_defaults,
 )
 from agnette.agent.values import parse_agent_shorthand
@@ -196,6 +197,8 @@ def test_a_provider_table_without_a_model_falls_through_to_the_pi_model() -> Non
         {"claude": {"opus": {"fast": {"effort": "high"}}}},
         {"codex": {"o3": {"x": {}}}},
         {"pi": {"anthropic": {"m": {"deeper": {"effort": "high"}}}}},
+        {"claude": {"sandbox": 3}},
+        {"pi": {"anthropic": {"m": {"sandbox": True}}}},
     ],
 )
 def test_a_malformed_agent_section_is_rejected(section: object) -> None:
@@ -242,3 +245,38 @@ def test_a_bracketed_model_table_configures_its_shorthand(tmp_path: Path) -> Non
     assert spec is not None
     assert with_configured_defaults(spec, config) == AgentClaude("opus[1m]", "high")
     assert with_configured_defaults(AgentClaude("opus", ""), config) == AgentClaude("opus", "")
+
+
+_SANDBOX_TABLE: TomlDict = {
+    "claude": {"sandbox": "Native", "opus": {"sandbox": "Disabled"}, "haiku": {"sandbox": ""}},
+    "pi": {"anthropic": {"sandbox": 'Sandbox(memory = Some("8G"))', "m": {}}},
+}
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (AgentClaude("opus", ""), "Disabled"),
+        (AgentClaude("sonnet", "high"), "Native"),
+        (AgentClaude("", ""), "Native"),
+        (AgentClaude("haiku", ""), None),
+        (AgentCodex("o3", ""), None),
+        (AgentPi("anthropic", "m", ""), 'Sandbox(memory = Some("8G"))'),
+        (AgentPi("openai", "m", ""), None),
+        (AgentCommand("runner"), None),
+    ],
+)
+def test_the_most_specific_configured_table_supplies_the_sandbox(
+    spec: AgentSpec, expected: str | None
+) -> None:
+    assert configured_sandbox(spec, AgentConfig.from_merged({"agent": _SANDBOX_TABLE})) == expected
+
+
+def test_the_sandbox_settings_are_listed_by_key() -> None:
+    config = AgentConfig.from_merged({"agent": _SANDBOX_TABLE})
+
+    assert config.sandbox_settings() == {
+        "agent.claude.sandbox": "Native",
+        "agent.claude.opus.sandbox": "Disabled",
+        "agent.pi.anthropic.sandbox": 'Sandbox(memory = Some("8G"))',
+    }

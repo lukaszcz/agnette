@@ -86,7 +86,8 @@ class ParamValueTiers:
     entries between the two — ``PipelineDriver.preflight_arguments`` merges
     all three; there is no flattened two-tier view here. ``inherited`` holds
     the ``@inherit`` values, ranked between ``@config`` and ``upper``; it
-    never names a key ``upper`` or ``supplied`` holds.
+    never names a key ``upper`` or ``supplied`` holds. ``from_manifest`` names the
+    ``lower`` keys whose value the manifest supplied.
 
     Every host parameter kind is keyed alike by :data:`HostParamKey`: module
     parameters and engine settings by binding key (an engine setting's
@@ -102,6 +103,7 @@ class ParamValueTiers:
     lower: Mapping[HostParamKey, object]
     supplied: frozenset[HostParamKey] = frozenset()
     inherited: Mapping[HostParamKey, InheritedParamValue] = field(default_factory=dict)
+    from_manifest: frozenset[HostParamKey] = frozenset()
 
 
 class RouteKind(Enum):
@@ -325,9 +327,12 @@ def resolve_param_values(
     lower: dict[HostParamKey, object] = {
         key: value for key, value in declaration_values.items() if key not in upper
     }
+    from_manifest: frozenset[HostParamKey] = frozenset()
     if manifest is not None:
         manifest_values = claims.values(claims.index.resolve(manifest), RouteKind.MANIFEST)
-        _merge_values(lower, frozenset(upper) | positional, manifest_values)
+        owned = frozenset(upper) | positional
+        _merge_values(lower, owned, manifest_values)
+        from_manifest = frozenset(manifest_values) - owned
         _report_unused_manifest_leaves(
             manifest, claims.index, command_paths, positional_only, package_command_paths
         )
@@ -340,7 +345,13 @@ def resolve_param_values(
         if inherit_scope is None
         else _inherited_values(config, targets, inherit_scope, upper.keys() | supplied)
     )
-    return ParamValueTiers(upper=upper, lower=lower, supplied=supplied, inherited=inherited)
+    return ParamValueTiers(
+        upper=upper,
+        lower=lower,
+        supplied=supplied,
+        inherited=inherited,
+        from_manifest=from_manifest,
+    )
 
 
 def colliding_declarations(params: Iterable[HostParamInfo]) -> str | None:

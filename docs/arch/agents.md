@@ -15,7 +15,7 @@ Every CLI token or TOML string typed as `Agent` (including `--agent`) decodes th
 
 ## Agent Defaults
 
-Empty native fields (Pi provider, model, effort) are filled when an agent is *used*, from the most specific `[agent.<cli>[.<provider>][.<model>]]` table (`agent/spec_defaults.py`). AgL hosts validate `[agent]` strictly at startup and pass the resolver to the interpreter as a host service.
+Empty native fields (Pi provider, model, effort) are filled when an agent is *used*, from the most specific `[agent.<cli>[.<provider>][.<model>]]` table (`agent/spec_defaults.py`). The same lookup on the resolved spec yields its `sandbox` text, which hosts decode (`agl/runtime/engine_config.py:agent_sandbox_resolver`) for calls omitting `sandbox`; the host passes that resolver only while `std/config::sandbox` ranks at `[exec]` or below, and the interpreter drops it on a source `sandbox` write (`agm/cli_support/engine_seeds.py:host_agent_sandbox_resolver`). AgL hosts validate `[agent]` strictly at startup and pass both resolvers to the interpreter as host services.
 
 ## Dispatch and Sessions
 

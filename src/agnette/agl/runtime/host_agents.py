@@ -11,17 +11,23 @@ from agnette.agl.ir.builtin_nominals import BuiltinNominals
 from agnette.util.scoping import ScopedVar
 
 if TYPE_CHECKING:
+    from agnette.agent.spec import AgentSpec
     from agnette.agent.spec_defaults import AgentSpecResolver
+    from agnette.agl.semantics.values import Value
     from agnette.sandbox.prepare import SandboxContext
 
 
 @dataclass(frozen=True, slots=True)
 class HostAgentServices:
-    """Agent identities, configured defaults, and sandbox preparation owned by the host."""
+    """Agent identities, configured defaults, and sandbox preparation owned by the host.
+
+    ``default_sandbox`` is the ``AgentSandbox`` a call of a resolved spec omitting ``sandbox`` uses.
+    """
 
     nominals: BuiltinNominals
     resolve_agent_spec: AgentSpecResolver | None
     get_sandbox_context: Callable[[], SandboxContext] | None
+    default_sandbox: Callable[[AgentSpec], Value]
 
 
 _ACTIVE_SERVICES: contextvars.ContextVar[HostAgentServices] = contextvars.ContextVar(

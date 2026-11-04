@@ -29,7 +29,7 @@ program def main(artifact: text) -> unit =
 ask[T](@arg-pos prompt: text, agent: Agent = std/config::agent,
        format: text = "", strict-json: bool = false,
        parse-error-retries: int = std/config::parse-error-retries,
-       sandbox: AgentSandbox = std/config::sandbox,
+       sandbox: AgentSandbox = default-sandbox(agent),
        env: Environ = std/env::environ) -> T
 ```
 
@@ -135,8 +135,8 @@ matters.
 ### The default agent
 
 Free `ask` uses `Session::default()`, which opens one session lazily on first
-use and snapshots `std/config::agent`, `std/config::sandbox`,
-and the ambient environment at that moment. Every later free `ask` in that run
+use and snapshots `std/config::agent`, its [default sandbox](#sandbox), and
+the ambient environment at that moment. Every later free `ask` in that run
 or REPL session continues the same conversation with the same agent; a later
 write to either setting does not switch it. The standard library's default is
 `AgentPi()`; the host's `--agent` and `[exec] agent` seeds
@@ -168,7 +168,7 @@ program def main() -> unit =
 ```
 
 `Session::open(agent, transport = None, name = "", sandbox =
-std/config::sandbox, env = std/env::environ)` opens a session, and
+default-sandbox(agent), env = std/env::environ)` opens a session, and
 `Session::default()` returns the default session that free `ask` uses. The
 session operations are `ask`, `compact(instructions = "")`, `reset()`,
 `fork()`, `stats()`, `set-name(name)`, and `close()`:
@@ -322,7 +322,11 @@ On a `text` target it draws the `noop-parse-retries` [static warning](warnings.m
 
 The call's sandboxing mode, an `AgentSandbox` value
 ([Types](types.md#agentsandbox)); it defaults to
-`std/config::sandbox`:
+`std/agent::default-sandbox(agent)`: the agent's host-configured sandbox mode
+(`[agent]` `sandbox` in AgM) while no source above the host's base
+configuration sets `std/config::sandbox`, otherwise `std/config::sandbox`.
+A source write to `std/config::sandbox` overrides the configured mode from
+then on.
 
 - `Sandbox(…)` (the default) — the agent process runs wrapped by the sandbox
   runtime, which applies the resource limits the record names; `AgentClaude`
@@ -541,7 +545,7 @@ ask-request[T](
   format: text = "",
   strict-json: bool = false,
   parse-error-retries: int = std/config::parse-error-retries,
-  sandbox: AgentSandbox = std/config::sandbox,
+  sandbox: AgentSandbox = default-sandbox(agent),
 ) -> AgentRequest
 ```
 

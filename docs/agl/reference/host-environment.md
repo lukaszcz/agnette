@@ -531,7 +531,9 @@ These tiers choose an engine setting's **initial** value; a source write to
 Native` overrides both `[prog.main] sandbox = "Sandbox"` and
 `[exec] sandbox = "Sandbox"`; a later
 `std/config::sandbox := AgentSandbox::Disabled` overrides the flag
-from that point on.
+from that point on. A call omitting `sandbox` uses its agent's host-configured
+sandbox mode, when one exists, in place of a `sandbox` from the declaration
+route or default ([`sandbox`](agent-calls.md#sandbox)).
 
 Hosts without some tiers skip them. Inline `-c` source has no program or
 declaration route and no manifest: all its parameters (program arguments,

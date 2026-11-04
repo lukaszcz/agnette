@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 from agnette.agent.spec import AGENT_SPECS
 from agnette.agl.diagnostics import Diagnostic
@@ -18,13 +18,17 @@ from agnette.config.engine_keys import ENGINE_KEYS, NON_NEGATIVE_ENGINE_KEYS, En
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from agnette.agent.spec import AgentSpec
+    from agnette.agent.spec_defaults import AgentConfig
     from agnette.agl.ir.contracts import ParamDecoder
     from agnette.agl.ir.ids import NominalId
     from agnette.agl.runtime.types import HostParamInfo
     from agnette.agl.semantics.values import Value
 
 __all__ = [
+    "AgentSandboxResolver",
     "EngineRangeError",
+    "agent_sandbox_resolver",
     "EngineSettings",
     "decode_engine_raw",
     "engine_default_settings",
@@ -37,6 +41,31 @@ __all__ = [
     "split_engine_values",
     "validate_engine_value",
 ]
+
+
+#: The configured ``[agent]`` sandbox mode of a resolved spec, on the standard identity.
+AgentSandboxResolver: TypeAlias = "Callable[[AgentSpec], Value | None]"
+
+
+def agent_sandbox_resolver(config: "AgentConfig", decoder: "ParamDecoder") -> AgentSandboxResolver:
+    """Decode *config*'s ``sandbox`` settings through *decoder* into their resolver.
+
+    Raises ``ValueError`` naming the first invalid key.
+    """
+    from agnette.agent.spec_defaults import configured_sandbox
+
+    decoded: dict[str, Value] = {}
+    for key, text in config.sandbox_settings().items():
+        try:
+            decoded[text] = decode_engine_raw("sandbox", text, decoder)
+        except ValueError as exc:
+            raise ValueError(f"{key}: {exc}") from exc
+
+    def resolve(spec: "AgentSpec") -> "Value | None":
+        text = configured_sandbox(spec, config)
+        return None if text is None else decoded[text]
+
+    return resolve
 
 
 def _engine_key_shape(kind: EngineKeyKind) -> tuple[str, tuple[str, ...]] | None:

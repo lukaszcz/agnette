@@ -375,29 +375,32 @@ the Pi CLI's own defaults apply.
 ### Agent defaults
 
 The `[agent]` config section supplies the Pi provider, the model, and the effort (`thinking`) for
-an `AgentClaude`, `AgentCodex`, or `AgentPi` field that is `""`, when `agm exec`, `agm repl`, or a
-package-registered command uses the agent (`ask`, `chat`, their Agent methods, or sessions). Each CLI has one
-table level per name field, and each level allows these keys:
+an `AgentClaude`, `AgentCodex`, or `AgentPi` field that is `""`, and the agent's sandbox mode, when
+`agm exec`, `agm repl`, or a package-registered command uses the agent (`ask`, `chat`, their Agent
+methods, or sessions). Each CLI has one table level per name field, and each level allows these
+keys:
 
 | Table | Keys |
 | --- | --- |
-| `[agent.claude]`, `[agent.codex]` | `effort`, `model`, model tables |
-| `[agent.claude.MODEL]`, `[agent.codex.MODEL]` | `effort` |
-| `[agent.pi]` | `effort`, `provider`, `model`, provider tables |
-| `[agent.pi.PROVIDER]` | `effort`, `model`, model tables |
-| `[agent.pi.PROVIDER.MODEL]` | `effort` |
+| `[agent.claude]`, `[agent.codex]` | `effort`, `sandbox`, `model`, model tables |
+| `[agent.claude.MODEL]`, `[agent.codex.MODEL]` | `effort`, `sandbox` |
+| `[agent.pi]` | `effort`, `sandbox`, `provider`, `model`, provider tables |
+| `[agent.pi.PROVIDER]` | `effort`, `sandbox`, `model`, model tables |
+| `[agent.pi.PROVIDER.MODEL]` | `effort`, `sandbox` |
 
 Empty fields resolve in order, each lookup using the names already resolved:
 
 1. the Pi provider from `[agent.pi]`;
 2. the model: Pi from `[agent.pi.PROVIDER]`, then `[agent.pi]`; Claude and Codex from
    `[agent.claude]` or `[agent.codex]`;
-3. the effort from the most specific table on the resolved provider and model that sets it.
+3. the effort, then the sandbox, from the most specific table on the resolved provider and model
+   that sets it.
 
 ```toml
 [agent.claude]                            # every Claude model
 model = "opus"
 effort = "medium"
+sandbox = "Native"
 [agent.claude.opus]                       # one Claude model
 effort = "high"
 [agent.codex."gpt-5.1-codex"]             # one Codex model ([agent.codex] for all)
@@ -418,12 +421,20 @@ With this config, `AgentClaude()` — `--agent claude` —
 passes `--model opus --effort high`: the model comes from `[agent.claude]`, then the effort from
 `[agent.claude.opus]`. `AgentClaude("sonnet")` gets `--effort medium`, `claude:low` runs
 `opus` at `low`, and `AgentPi()` — the built-in `std/config::agent` — runs provider `anthropic`, model `claude-sonnet-4-5`, effort
-`high`.
+`high`. Every Claude call omitting `sandbox` runs `Native`.
+
+`sandbox` takes [host AgentSandbox syntax](#host-agentsandbox-syntax) and applies to a call that
+omits `sandbox` (`ask`, `ask-request`, `chat`, `Session::open`, and the default session) only
+while `std/config::sandbox` comes from `[exec]` or the engine default: it ranks just above
+`[exec] sandbox` in the [precedence](#configuration) chain, so a CLI flag, program table,
+`@config`, or manifest `[config]` value overrides it, and so does a source write from that program
+point on. `std/agent::default-sandbox(agent)` returns the sandbox mode such a call uses.
 
 A table that sets a key, even to `""`, ends that key's lookup: `effort = ""` restores the agent
 CLI's own default for that model or provider instead of falling through to a broader table, and
 `model = ""` or `provider = ""` passes no flag. Only an absent key falls through; with nothing
-set, no flag is passed. A non-empty field is never overridden, and `AgentCommand` is unaffected.
+set, no flag is passed; `sandbox = ""` uses `std/config::sandbox`. A non-empty field is never
+overridden, and `AgentCommand` is unaffected.
 Quote a model or provider name containing any character outside TOML bare keys (`A-Za-z0-9_-`),
 such as `"gpt-5.1-codex"`, `"llama3:8b"`, or `"opus[1m]"`; unquoted, a dot splits it into nested
 tables and other characters are invalid TOML. The setting keys share their table with the names
@@ -436,7 +447,8 @@ config error (exit 1) before anything runs:
 
 - every key of `[agent]` must be a `claude`, `codex`, or `pi` table (a bare `[agent] effort` is
   an error);
-- each table allows only the text settings listed above plus its name sub-tables;
+- each table allows only the text settings listed above plus its name sub-tables, and every
+  `sandbox` must decode;
 - tables nest no deeper than `[agent.claude.MODEL]`, `[agent.codex.MODEL]`, or
   `[agent.pi.PROVIDER.MODEL]`.
 
@@ -608,7 +620,8 @@ or `None`.
 Precedence for `agent`, `sandbox`, `strict-json`, `timeout`, `trace`,
 `trace-file`, `debug`, and `parse-error-retries` is
 `source write > CLI > program table > @config > a package-owned program's manifest
-[config] > [exec].X > engine default`, where `@config` is the selected program's own
+[config] > [exec].X > engine default` (for an agent call omitting `sandbox`, the agent's
+[configured `sandbox`](#agent-defaults) ranks just above `[exec].sandbox`), where `@config` is the selected program's own
 [`@config`](../agl/reference/attributes.md#config) entries and the
 [manifest `[config]`](pkg.md#config) tier resolves its own command table, then an inherited
 group table, then the manifest root (see

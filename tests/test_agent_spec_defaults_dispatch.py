@@ -52,6 +52,7 @@ def _exec(
     *,
     home_config: str | None = None,
     project_config: str | None = None,
+    flags: tuple[str, ...] = (),
 ) -> Result:
     home = tmp_path / "home"
     if home_config is not None:
@@ -68,7 +69,7 @@ def _exec(
     )
     program = tmp_path / "program.agl"
     write_file_program(program, source)
-    return _invoke(["exec", "--no-trace", str(program)])
+    return _invoke(["exec", "--no-trace", *flags, str(program)])
 
 
 def _flag_values(argv: list[str], flag: str) -> list[str]:
@@ -475,6 +476,316 @@ def test_repl_rejects_a_malformed_agent_section_at_startup(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_config(home, '[agent.claude]\nefort = "high"\n')
+
+    with pytest.raises(SystemExit) as exc_info:
+        _run_repl(monkeypatch)
+
+    assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# Per-agent sandbox mode
+# ---------------------------------------------------------------------------
+
+#: Claude's own permission flags under ``Native``; ``Disabled`` passes none.
+_NATIVE_FLAGS = ["--permission-mode", "auto"]
+
+_NATIVE_CLAUDE = '[exec]\nsandbox = "Disabled"\n[agent.claude]\nsandbox = "Native"\n'
+
+
+def _is_native(argv: list[str]) -> bool:
+    return _flag_values(argv, "--permission-mode") == ["auto"]
+
+
+_OMITTED_SANDBOX_SOURCES = {
+    "agent-ask": 'let answer: text = AgentClaude("opus", "").ask("hi")\nprint answer\n',
+    "free-ask-with-agent": (
+        'let answer: text = ask("hi", agent = AgentClaude("opus", ""))\nprint answer\n'
+    ),
+    "session": (
+        'let session = Session::open(AgentClaude("opus", ""))\n'
+        'let answer: text = session.ask("hi")\n'
+        "print answer\n"
+    ),
+    "default-session": (
+        "import std/config\n"
+        'std/config::agent := AgentClaude("opus", "")\n'
+        'let answer: text = ask("hi")\n'
+        "print answer\n"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "source", list(_OMITTED_SANDBOX_SOURCES.values()), ids=list(_OMITTED_SANDBOX_SOURCES)
+)
+def test_exec_applies_the_configured_sandbox_to_a_call_omitting_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_agent_transport: FakeAgentTransport,
+    source: str,
+) -> None:
+    fake_agent_transport.queue(fake_agent_transport.success("done"))
+
+    result = _exec(tmp_path, monkeypatch, source, home_config=_NATIVE_CLAUDE)
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "done\n"
+    [(_prompt, argv)] = fake_agent_transport.calls
+    assert argv[0] == "claude"
+    assert _is_native(argv)
+
+
+@pytest.mark.parametrize(
+    "call", ['chat("hi", AgentClaude("opus", ""))', 'AgentClaude("opus", "").chat()']
+)
+def test_chat_applies_the_configured_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call: str
+) -> None:
+    import agnette.core.process as process
+
+    commands: list[list[str]] = []
+
+    def foreground(argv: list[str], **_: object) -> int:
+        commands.append(argv)
+        return 0
+
+    monkeypatch.setattr(process, "run_foreground_ignoring_signals", foreground)
+
+    result = _exec(tmp_path, monkeypatch, f"{call}\n", home_config=_NATIVE_CLAUDE)
+
+    assert result.exit_code == 0, result.output
+    [argv] = commands
+    assert _is_native(argv)
+
+
+def test_the_configured_sandbox_is_visible_on_requests_and_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = (
+        'print AgentClaude().ask-request("hi").sandbox\n'
+        "print default-sandbox(AgentClaude())\n"
+        "print default-sandbox(AgentCodex())\n"
+        "print Session::open(AgentClaude()).sandbox\n"
+    )
+
+    result = _exec(tmp_path, monkeypatch, source, home_config=_NATIVE_CLAUDE)
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "AgentSandbox::Native\nAgentSandbox::Native\nAgentSandbox::Disabled\nAgentSandbox::Native\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "agent", "native"),
+    [
+        (
+            '[exec]\nsandbox = "Disabled"\n[agent.claude.opus]\nsandbox = "Native"\n',
+            'AgentClaude("opus", "")',
+            True,
+        ),
+        (
+            '[exec]\nsandbox = "Disabled"\n[agent.claude.opus]\nsandbox = "Native"\n',
+            'AgentClaude("sonnet", "")',
+            False,
+        ),
+        (
+            '[exec]\nsandbox = "Disabled"\n[agent.claude]\nmodel = "opus"\n'
+            '[agent.claude.opus]\nsandbox = "Native"\n',
+            "AgentClaude()",
+            True,
+        ),
+        (
+            '[exec]\nsandbox = "Native"\n[agent.claude]\nsandbox = "Disabled"\n'
+            '[agent.claude.opus]\nsandbox = ""\n',
+            'AgentClaude("opus", "")',
+            True,
+        ),
+        (
+            '[exec]\nsandbox = "Native"\n[agent.codex]\nsandbox = "Disabled"\n',
+            'AgentClaude("opus", "")',
+            True,
+        ),
+    ],
+    ids=["model-table", "other-model", "configured-model", "empty-masks", "other-cli"],
+)
+def test_the_most_specific_table_on_the_resolved_agent_selects_the_sandbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_agent_transport: FakeAgentTransport,
+    config: str,
+    agent: str,
+    native: bool,
+) -> None:
+    fake_agent_transport.queue(fake_agent_transport.success("done"))
+    source = f'let answer: text = {agent}.ask("hi")\nprint answer\n'
+
+    result = _exec(tmp_path, monkeypatch, source, home_config=config)
+
+    assert result.exit_code == 0, result.output
+    [(_prompt, argv)] = fake_agent_transport.calls
+    assert _is_native(argv) is native
+
+
+_PLAIN_ASK = 'let answer: text = AgentClaude("opus", "").ask("hi")\nprint answer\n'
+
+
+@pytest.mark.parametrize(
+    ("source", "flags", "project_config"),
+    [
+        (
+            'let answer: text = AgentClaude("opus", "").ask("hi", sandbox = Disabled)\n'
+            "print answer\n",
+            (),
+            None,
+        ),
+        ("import std/config\nstd/config::sandbox := Disabled\n" + _PLAIN_ASK, (), None),
+        (_PLAIN_ASK, ("--sandbox", "Disabled"), None),
+        (_PLAIN_ASK, (), '[program.main]\nsandbox = "Disabled"\n'),
+        (
+            "import std/config\n@config(config::sandbox = Disabled)\nprogram def main() -> unit =\n"
+            '  let answer: text = AgentClaude("opus", "").ask("hi")\n'
+            "  print answer\n",
+            (),
+            None,
+        ),
+    ],
+    ids=["call-operand", "source-write", "cli", "program-table", "config-attribute"],
+)
+def test_a_sandbox_set_above_exec_overrides_the_configured_agent_sandbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_agent_transport: FakeAgentTransport,
+    source: str,
+    flags: tuple[str, ...],
+    project_config: str | None,
+) -> None:
+    fake_agent_transport.queue(fake_agent_transport.success("done"))
+
+    result = _exec(
+        tmp_path,
+        monkeypatch,
+        source,
+        home_config='[exec]\nsandbox = "Native"\n[agent.claude]\nsandbox = "Native"\n',
+        project_config=project_config,
+        flags=flags,
+    )
+
+    assert result.exit_code == 0, result.output
+    [(_prompt, argv)] = fake_agent_transport.calls
+    assert not _is_native(argv)
+
+
+def test_a_source_write_overrides_the_configured_sandbox_from_then_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agent_transport: FakeAgentTransport
+) -> None:
+    fake_agent_transport.queue(
+        fake_agent_transport.success("one"), fake_agent_transport.success("two")
+    )
+    source = (
+        "import std/config\n"
+        'let first: text = AgentClaude("opus", "").ask("hi")\n'
+        "std/config::sandbox := Disabled\n"
+        'let second: text = AgentClaude("opus", "").ask("hi")\n'
+        "print first\nprint second\n"
+    )
+
+    result = _exec(tmp_path, monkeypatch, source, home_config=_NATIVE_CLAUDE)
+
+    assert result.exit_code == 0, result.output
+    assert [_is_native(argv) for _prompt, argv in fake_agent_transport.calls] == [True, False]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        '[agent.claude]\nsandbox = "Bogus"\n',
+        '[agent.pi.anthropic]\nsandbox = "Sandbox(memory = 3)"\n',
+        "[agent.claude]\nsandbox = 3\n",
+    ],
+)
+def test_exec_rejects_an_invalid_configured_sandbox_before_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str
+) -> None:
+    result = _exec(tmp_path, monkeypatch, 'print "ran"\n', home_config=config)
+
+    assert result.exit_code == 1
+    assert "ran" not in result.stdout
+
+
+def _install_ask_command(source: Path, home: Path, manifest_config: str) -> None:
+    (source / MODULE_TREE_DIRNAME).mkdir(parents=True)
+    (source / "package.toml").write_text(
+        '[package]\nname = "tools"\nversion = "1.0.0"\n' + manifest_config
+    )
+    (source / MODULE_TREE_DIRNAME / "main.agl").write_text(
+        '@command("tools ask")\n'
+        "program def main() -> unit =\n"
+        '  let answer: text = AgentClaude("opus", "").ask("hi")\n'
+        "  print answer\n"
+    )
+    install_directory(source, home=home, env={})
+
+
+@pytest.mark.parametrize(
+    ("manifest_config", "native"),
+    [("", True), ('[config]\nsandbox = "Disabled"\n', False)],
+    ids=["exec-only", "manifest-config"],
+)
+def test_a_registered_command_applies_the_configured_sandbox_below_its_manifest(
+    tmp_path: Path,
+    home: Path,
+    fake_agent_transport: FakeAgentTransport,
+    manifest_config: str,
+    native: bool,
+) -> None:
+    _install_ask_command(tmp_path / "source", home, manifest_config)
+    _write_config(home, '[exec]\nsandbox = "Disabled"\n[agent.claude]\nsandbox = "Native"\n')
+    fake_agent_transport.queue(fake_agent_transport.success("done"))
+
+    result = _invoke(["tools", "ask"])
+
+    assert result.exit_code == 0, result.output
+    [(_prompt, argv)] = fake_agent_transport.calls
+    assert _is_native(argv) is native
+
+
+def test_repl_applies_the_configured_sandbox_until_a_source_write(
+    home: Path, monkeypatch: pytest.MonkeyPatch, fake_agent_transport: FakeAgentTransport
+) -> None:
+    _write_config(home, _NATIVE_CLAUDE)
+    fake_agent_transport.queue(
+        fake_agent_transport.success("one"),
+        fake_agent_transport.success("two"),
+        fake_agent_transport.success("three"),
+    )
+
+    [session] = _run_repl(monkeypatch)
+    entries = [
+        "import std/config",
+        'AgentClaude("opus", "").ask("hi")',
+        "std/config::sandbox := Disabled",
+        'AgentClaude("opus", "").ask("hi")',
+    ]
+    for entry in entries:
+        result = session.eval_entry(entry)
+        assert result.ok, result.diagnostics
+    session.reset()
+    result = session.eval_entry('AgentClaude("opus", "").ask("hi")')
+    assert result.ok, result.diagnostics
+
+    assert [_is_native(argv) for _prompt, argv in fake_agent_transport.calls] == [
+        True,
+        False,
+        True,
+    ]
+
+
+def test_repl_rejects_an_invalid_configured_sandbox_at_startup(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(home, '[agent.claude]\nsandbox = "Bogus"\n')
 
     with pytest.raises(SystemExit) as exc_info:
         _run_repl(monkeypatch)

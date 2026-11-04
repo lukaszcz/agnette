@@ -26,13 +26,16 @@ alias = "codex --yolo --no-daemon"
 
 # [agent] — defaults for empty fields of AgL native agents, resolved in order:
 # Pi `provider` ([agent.pi]), then `model` ([agent.<cli>]; Pi also checks its
-# provider table first), then `effort` from the most specific table on the
-# resolved provider/model. A setting of "" keeps the agent CLI's own default.
-# Quote a model name containing dots.
+# provider table first), then `effort` and `sandbox` from the most specific
+# table on the resolved provider/model. A setting of "" keeps the agent CLI's
+# own default (for `sandbox`, std/config::sandbox). `sandbox` applies to calls
+# omitting `sandbox` unless set above [exec] (CLI, program table, @config,
+# manifest, source write). Quote a model name containing dots.
 #
 # [agent.claude]                             # every Claude model
 # model = "opus"
 # effort = "medium"
+# sandbox = "Native"                         # AgentSandbox, as [exec] sandbox
 # [agent.claude.opus]                        # one Claude model
 # effort = "high"
 # [agent.codex."gpt-5.1-codex"]              # one Codex model

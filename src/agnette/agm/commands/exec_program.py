@@ -73,6 +73,7 @@ from agnette.agm.cli_support.agl_errors import exit_for_agl_exception, fail_with
 from agnette.agm.cli_support.args import ExecArgs
 from agnette.agm.cli_support.engine_seeds import (
     engine_seed_values,
+    host_agent_sandbox_resolver,
     host_agent_spec_resolver,
     reject_register_conflicts,
     resolve_strict_json,
@@ -646,6 +647,12 @@ def run(
         shell_exec_timeout=resolved_timeout,
         get_sandbox_context=get_sandbox_context,
         resolve_agent_spec=resolve_agent_spec,
+        resolve_agent_sandbox=host_agent_sandbox_resolver(
+            merged_config,
+            argument_preflight.engine,
+            executable.engine_decoders,
+            from_manifest=param_tiers.from_manifest,
+        ),
     )
 
     # Resolve and validate the trace log file up front. A source

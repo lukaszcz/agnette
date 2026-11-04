@@ -206,6 +206,7 @@ from agnette.util.recursion import raised_recursion_limit
 
 if TYPE_CHECKING:
     from agnette.agent.spec_defaults import AgentSpecResolver
+    from agnette.agl.runtime.engine_config import AgentSandboxResolver
     from agnette.agl.runtime.host_settings import HostSettingsReconfigurer
     from agnette.agl.runtime.sessions import SessionHost
     from agnette.sandbox.prepare import SandboxContext
@@ -412,6 +413,7 @@ class IrInterpreter:
         session_host: "SessionHost | None" = None,
         get_sandbox_context: "Callable[[], SandboxContext] | None" = None,
         resolve_agent_spec: "AgentSpecResolver | None" = None,
+        resolve_agent_sandbox: "AgentSandboxResolver | None" = None,
         strict_json: bool = False,
         echo_agent_output: bool = False,
         shell_exec_timeout: float | None = None,
@@ -457,6 +459,8 @@ class IrInterpreter:
         )
         self._get_sandbox_context = get_sandbox_context
         self._resolve_agent_spec = resolve_agent_spec
+        # Dropped by a source ``sandbox`` write, which outranks it from then on.
+        self._resolve_agent_sandbox = resolve_agent_sandbox
         # Once the free-ask default session exists, its environment is fixed
         # forever: skip evaluating and decoding ``environ`` on every later
         # free ask in this run, only doing so while creating it.
@@ -649,6 +653,11 @@ class IrInterpreter:
     def debug(self) -> bool:
         """Current ``debug`` setting (may have been updated by a ``builtin var`` write)."""
         return _debug_setting(self._builtin_host_settings)
+
+    @property
+    def resolve_agent_sandbox(self) -> "AgentSandboxResolver | None":
+        """The configured ``[agent]`` sandbox resolver, until a source ``sandbox`` write."""
+        return self._resolve_agent_sandbox
 
     @property
     def builtin_vars(self) -> dict[BuiltinVarKey, Value]:
@@ -1403,9 +1412,7 @@ class IrInterpreter:
                 self._default_session_pid = pid
             environ_setting = None if self._default_session_opened else self._eval(node.env)
             result = self._effects.eval_ir_session_default(
-                self._load_builtin_setting("agent"),
-                self._load_builtin_setting("sandbox"),
-                environ_setting,
+                self._load_builtin_setting("agent"), environ_setting
             )
             self._default_session_opened = True
             return result
@@ -2091,6 +2098,8 @@ class IrInterpreter:
 
         previous = dict(self._builtin_host_settings)
         self._builtin_host_settings[name] = value
+        if name == "sandbox":
+            self._resolve_agent_sandbox = None
         if trace_write_implies_enabled(
             name,
             isinstance(value, RecordValue)

@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, ContextManager, Literal, NoReturn, Protocol, a
 from agnette.agent.spec import AgentSpec, PermissionMode, SessionTransport
 from agnette.agent.transport import AgentOutputCallback, AgentOutputType
 from agnette.agent.values import agent_spec_shape
-from agnette.agl.ir.builtin_nominals import resolve_standard_member_name, standard_member_name
+from agnette.agl.ir.builtin_nominals import (
+    NO_BUILTIN_DECLARATIONS,
+    resolve_standard_member_name,
+    standard_member_name,
+)
 from agnette.agl.ir.contracts import (
     ContractRequest,
     JsonContractRequest,
@@ -44,6 +48,7 @@ from agnette.agl.runtime.agents import (
 )
 from agnette.agl.runtime.agents import agent_value as encode_agent_value
 from agnette.agl.runtime.codec import ParseResult
+from agnette.agl.runtime.engine_config import restamp_engine_setting
 from agnette.agl.runtime.externs import ActiveCall, ExternRegistry
 from agnette.agl.runtime.host_session import HostSession
 from agnette.agl.runtime.option import none_value, option_text, some_value
@@ -106,6 +111,7 @@ from agnette.sandbox.request import (
 
 if TYPE_CHECKING:
     from agnette.agent.spec_defaults import AgentSpecResolver
+    from agnette.agl.runtime.engine_config import AgentSandboxResolver
     from agnette.sandbox.prepare import SandboxContext
 
 # ---------------------------------------------------------------------------
@@ -123,6 +129,7 @@ class EffectCtx(Protocol):
     _host: HostSession
     _get_sandbox_context: "Callable[[], SandboxContext] | None"
     _resolve_agent_spec: "AgentSpecResolver | None"
+    _resolve_agent_sandbox: "AgentSandboxResolver | None"
     _strict_json: bool
     _extern_registry: ExternRegistry
 
@@ -131,6 +138,8 @@ class EffectCtx(Protocol):
     ) -> tuple[Location | None, ModuleId | None]: ...
 
     def _eval(self, expr: IrExpr) -> Value: ...
+
+    def _load_builtin_setting(self, key: str) -> Value: ...
 
     def _make_extern_callable_proxy(self, function: FunctionValue) -> object: ...
 
@@ -242,6 +251,7 @@ class EffectHandlers:
                     self._ctx._program.builtin_nominals,
                     self._ctx._resolve_agent_spec,
                     self._ctx._get_sandbox_context,
+                    self.default_agent_sandbox,
                 )
             ),
         ):
@@ -407,14 +417,16 @@ class EffectHandlers:
         prompt_expr: IrExpr,
         contract_id: ContractId,
         retries_expr: IrExpr,
-        sandbox_expr: IrExpr,
+        sandbox_expr: IrExpr | None,
         env_expr: IrExpr,
     ) -> Value:
         """Handle IrAsk: dispatch an Agent enum value and parse output."""
         agent_val = cast(RecordValue, self._ctx._eval(agent_expr))
         prompt_text = self._text_of(self._ctx._eval(prompt_expr))
         max_attempts = self._eval_max_attempts(retries_expr, contract_id)
-        permission_mode, sandbox = self._decode_sandbox(sandbox_expr)
+        permission_mode, sandbox = self._decode_sandbox_setting(
+            self._sandbox_operand(sandbox_expr, agent_val)
+        )
         env = self._decode_environ(self._ctx._eval(env_expr))
 
         output_contract, json_schema = self._ask_contract(contract_id)
@@ -463,9 +475,28 @@ class EffectHandlers:
         can_retry = isinstance(self._ctx._program.contracts[contract_id], JsonContractRequest)
         return 1 + retries if can_retry else 1
 
-    def _decode_sandbox(self, sandbox_expr: IrExpr) -> tuple[PermissionMode, SandboxLimits | None]:
-        """Evaluate and decode an ask/ask-request call's ``sandbox`` operand."""
-        return self._decode_sandbox_setting(self._ctx._eval(sandbox_expr))
+    def _sandbox_operand(self, sandbox_expr: IrExpr | None, agent: RecordValue) -> Value:
+        """Evaluate a call's ``sandbox`` operand; omitted (``None``), *agent*'s default."""
+        if sandbox_expr is not None:
+            return self._ctx._eval(sandbox_expr)
+        return self.default_agent_sandbox(self._decode_agent_spec(agent))
+
+    def default_agent_sandbox(self, spec: AgentSpec) -> Value:
+        """Return the ``AgentSandbox`` a call of resolved *spec* omitting ``sandbox`` uses.
+
+        The configured ``[agent]`` mode while the host's resolver applies, else
+        ``std/config::sandbox``.
+        """
+        resolve = self._ctx._resolve_agent_sandbox
+        configured = None if resolve is None else resolve(spec)
+        if configured is None:
+            return self._ctx._load_builtin_setting("sandbox")
+        return restamp_engine_setting(
+            "sandbox",
+            configured,
+            from_table=NO_BUILTIN_DECLARATIONS,
+            to_table=self._ctx._program.builtin_nominals,
+        )
 
     def _decode_sandbox_setting(
         self, sandbox_val: Value
@@ -571,9 +602,9 @@ class EffectHandlers:
         """Open a host-backed session and mint its opaque AgL record.
 
         The session's sandboxing and environment are fixed here, at open, to
-        ``node.sandbox``/``node.env`` (the call's own operands, or the
-        ``sandbox``/``environ`` defaults when omitted) -- for its
-        whole lifetime. The evaluated sandbox operand is reused verbatim as
+        ``node.sandbox``/``node.env`` (the call's own operands, or the agent's
+        default sandbox and ``environ`` when omitted) -- for its whole lifetime.
+        The evaluated sandbox operand is reused verbatim as
         the returned record's own ``sandbox`` field, so it reports exactly
         what the call was opened with; the environment is never exposed on
         the record.
@@ -581,7 +612,7 @@ class EffectHandlers:
         agent = cast(RecordValue, self._ctx._eval(node.agent))
         transport_value = None if node.transport is None else self._ctx._eval(node.transport)
         name = self._text_of(self._ctx._eval(node.name))
-        sandbox_value = self._ctx._eval(node.sandbox)
+        sandbox_value = self._sandbox_operand(node.sandbox, agent)
         permission_mode, sandbox = self._decode_sandbox_setting(sandbox_value)
         env = self._decode_environ(self._ctx._eval(node.env))
         try:
@@ -599,16 +630,11 @@ class EffectHandlers:
             self._session_error(error)
         return self._session_value(handle, agent, transport, sandbox_value)
 
-    def eval_ir_session_default(
-        self,
-        agent_setting: Value,
-        sandbox_setting: Value,
-        environ_setting: Value | None,
-    ) -> Value:
+    def eval_ir_session_default(self, agent_setting: Value, environ_setting: Value | None) -> Value:
         """Lazily obtain the session whose agent is current at first use.
 
         Its sandboxing and environment are likewise fixed at this first use,
-        to the ``sandbox``/``environ`` settings current then -- never
+        to that agent's default sandbox and the ``environ`` setting current then -- never
         per ask. A later call reads the mode fixed at that first open back
         from the host's own snapshot, so the returned record's ``sandbox``
         field stays stable even after a later write to ``sandbox``
@@ -619,10 +645,12 @@ class EffectHandlers:
         every free ``ask``.
         """
         agent = cast(RecordValue, agent_setting)
-        permission_mode, sandbox = self._decode_sandbox_setting(sandbox_setting)
         env = {} if environ_setting is None else self._decode_environ(environ_setting)
         try:
             spec = self._decode_agent_spec(agent)
+            permission_mode, sandbox = self._decode_sandbox_setting(
+                self.default_agent_sandbox(spec)
+            )
             transport = self._resolve_session_transport(spec, None)
             host = self._ctx._host.sessions
             handle = host.default(
@@ -961,16 +989,16 @@ class EffectHandlers:
         prompt_expr: IrExpr,
         contract_id: ContractId,
         retries_expr: IrExpr,
-        sandbox_expr: IrExpr,
+        sandbox_expr: IrExpr | None,
     ) -> Value:
         """Handle ``IrAskRequest``: build AgentRequest record without dispatching."""
         agent_value = cast(RecordValue, self._ctx._eval(agent_expr))
         prompt_text = self._text_of(self._ctx._eval(prompt_expr))
         max_attempts = self._eval_max_attempts(retries_expr, contract_id)
-        # The AgL-visible request carries the raw evaluated AgentSandbox value
-        # verbatim, exactly as it carries the raw agent value: ask-request
-        # never dispatches, so nothing decodes it.
-        sandbox_value = self._ctx._eval(sandbox_expr)
+        # The AgL-visible request carries the raw AgentSandbox value verbatim,
+        # exactly as it carries the raw agent value: ask-request never
+        # dispatches, so nothing decodes it.
+        sandbox_value = self._sandbox_operand(sandbox_expr, agent_value)
 
         contract = self._ctx._program.contracts[contract_id]
         nominals = self._ctx._program.builtin_nominals
