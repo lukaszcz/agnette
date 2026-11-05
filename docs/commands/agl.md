@@ -479,16 +479,19 @@ mode's permission flag ([sandbox](../agl/reference/agent-calls.md#sandbox)).
 | --- | --- | --- |
 | `AgentCommand`, `Cli` | the command | none |
 | `AgentClaude`, `Cli` | `claude -p --session-id <id> …`, later prompts `--resume <id>` | `compact`, `fork` |
-| `AgentCodex`, `Cli` | `codex exec --json … -` starts a thread, `codex exec resume <id> … -` continues it (prompt on stdin) | none |
+| `AgentCodex`, `Cli` | `codex exec --json … -` starts a thread, `codex exec resume <id> --json … -` continues it (prompt on stdin) | none |
 | `AgentPi`, `Cli` | `pi -p --session-id <id> …` | `fork` |
 | `AgentPi`, `Rpc` (the `AgentPi` default) | one persistent `pi --mode rpc …` process | `compact`, `fork`, `set-name`, `stats` |
 
 Every runner supports `ask`, `reset`, and `close`; any other operation raises `SessionError`. A
 non-empty `Session::open` `name` is passed to Claude and Pi and rejected for command and Codex
 sessions. An explicit-agent ask that sends a single prompt (`parse-error-retries = 0`, or a `text`
-or `unit` target) runs Claude or Codex as a plain prompt command (`claude -p …`, `codex exec …
--`). Sandboxed Codex invocations (asks, sessions, `chat`) add `--no-daemon`, so execution stays
+or `unit` target) runs Claude or Codex as a plain prompt command (`claude -p …`, `codex exec --json
+… -`). Sandboxed Codex invocations (asks, sessions, `chat`) add `--no-daemon`, so execution stays
 inside the sandbox instead of a shared host daemon; the installed Codex must support the flag.
+A failed Codex turn reports the error from its JSONL output (`turn.failed` or `task_complete`)
+rather than the stderr tail. An ask Codex rejects as `server_overloaded` is resent after 5, 10, 20,
+40, and 60 seconds before it fails.
 
 A continuing `AgentCommand` session requires an unescaped `%{SESSION_ID}` in its command. AgM
 substitutes a generated id into the argv (not the child environment); the command must use it to

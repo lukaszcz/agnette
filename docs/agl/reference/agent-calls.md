@@ -511,15 +511,15 @@ and the reminder. The summary never contains response-derived paths, keys, or
 values.
 
 A call that can never retry — `N = 0`, or a `text` or `unit` target — sends
-exactly one prompt. Transport failures are never retried. An `exec` retry
-instead reruns the command ([Retries](shell-execution.md#retries)).
+exactly one prompt. Transport failures are retried only on server overload.
+An `exec` retry instead reruns the command ([Retries](shell-execution.md#retries)).
 
 ## Transport and session failures
 
 - **`AgentCallError`** — the agent could not run or answer: a spawn or sandbox
   preparation failure, nonzero exit, idle timeout, output that is not valid
-  UTF-8, or a failed RPC prompt. Its message includes the captured stderr
-  tail when available.
+  UTF-8, or a failed RPC prompt. Its message includes the error the agent
+  reported, or else the captured stderr tail, when available.
 - **`SessionError`** — a session lifecycle or capability failure: opening or
   using a closed session, sandbox preparation at open, an unsupported
   operation or transport, or a failed `compact`, `fork`, `reset`, `set-name`,

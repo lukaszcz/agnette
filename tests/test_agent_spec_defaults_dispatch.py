@@ -120,7 +120,7 @@ def test_exec_applies_the_configured_effort_to_an_agent_without_thinking(
 def test_exec_applies_the_configured_effort_to_codex(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agent_transport: FakeAgentTransport
 ) -> None:
-    fake_agent_transport.queue(fake_agent_transport.success("done"))
+    fake_agent_transport.queue(fake_agent_transport.codex_success("done"))
     source = _AGENT_ASK.replace('AgentClaude("opus", "")', 'AgentCodex("gpt-5.1-codex", "")')
 
     result = _exec(
@@ -251,7 +251,7 @@ def test_exec_applies_the_configured_model_and_its_effort_to_claude(
 def test_exec_applies_the_configured_model_to_codex(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agent_transport: FakeAgentTransport
 ) -> None:
-    fake_agent_transport.queue(fake_agent_transport.success("done"))
+    fake_agent_transport.queue(fake_agent_transport.codex_success("done"))
     config = '[agent.codex]\nmodel = "gpt-5.1-codex"\neffort = "low"\n'
 
     result = _exec(
@@ -263,6 +263,7 @@ def test_exec_applies_the_configured_model_to_codex(
     assert argv == [
         "codex",
         "exec",
+        "--json",
         "--model",
         "gpt-5.1-codex",
         "-c",

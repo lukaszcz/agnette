@@ -9053,7 +9053,15 @@ class TestExecCommand:
 
         fake_codex = tmp_path / "bin" / "codex"
         fake_codex.parent.mkdir(parents=True)
-        fake_codex.write_text('#!/bin/bash\n[[ "$1" == "--no-daemon" ]] || exit 1\ncat\n')
+        fake_codex.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            "if sys.argv[1] != '--no-daemon':\n"
+            "    sys.exit(1)\n"
+            "print(json.dumps({'type': 'thread.started', 'thread_id': 't'}))\n"
+            "item = {'type': 'agent_message', 'text': sys.stdin.read()}\n"
+            "print(json.dumps({'type': 'item.completed', 'item': item}))\n"
+        )
         fake_codex.chmod(fake_codex.stat().st_mode | stat.S_IEXEC)
         env["PATH"] = f"{fake_codex.parent}:{env['PATH']}"
 

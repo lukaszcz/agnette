@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import os
 import shutil
 import signal
@@ -571,6 +572,17 @@ class FakeAgentTransport:
             stdout=CapturedOutput(data=stdout.encode(), truncated=False),
             stderr=CapturedOutput(data=b"", truncated=False),
             elapsed=0.0,
+        )
+
+    @staticmethod
+    def codex_success(reply: str = "ok") -> SimpleNamespace:
+        """Build a successful Codex run whose JSONL stream completes with *reply*."""
+        return FakeAgentTransport.success(
+            json.dumps({"type": "thread.started", "thread_id": "thread"})
+            + "\n"
+            + json.dumps(
+                {"type": "item.completed", "item": {"type": "agent_message", "text": reply}}
+            )
         )
 
     @staticmethod

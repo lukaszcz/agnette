@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, NoReturn, TypeVar
@@ -41,6 +42,9 @@ _T = TypeVar("_T")
 
 #: Open one backend session for a request.
 SessionBackendFactory = Callable[[SessionOpenRequest], SessionBackend]
+
+#: Seconds to wait before each resend of an ask the agent's server rejected as overloaded.
+OVERLOAD_RETRY_DELAYS: tuple[float, ...] = (5.0, 10.0, 20.0, 40.0, 60.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,8 +453,16 @@ class _SessionEntry:
 class SessionService:
     """Own live session backends behind AgM-generated opaque handle ids."""
 
-    def __init__(self, backend_factory: SessionBackendFactory) -> None:
+    def __init__(
+        self,
+        backend_factory: SessionBackendFactory,
+        *,
+        overload_retry_delays: Sequence[float] = OVERLOAD_RETRY_DELAYS,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._backend_factory = backend_factory
+        self._overload_retry_delays = overload_retry_delays
+        self._sleep = sleep
         self._entries: dict[str, _SessionEntry] = {}
         self._default_handle: str | None = None
 
@@ -509,6 +521,18 @@ class SessionService:
         return self._default_handle
 
     def ask(self, handle: str, request: SessionAskRequest) -> SessionAskResponse:
+        """Send *request*, resending it with backoff while the agent's server is overloaded."""
+        for delay in self._overload_retry_delays:
+            try:
+                return self._entry_for(handle, SessionOperation.ASK).live_backend().ask(request)
+            except SessionAskError as error:
+                if not error.server_overloaded:
+                    raise
+                if request.output_callback is not None:
+                    request.output_callback(
+                        "stderr", f"agent server overloaded; retrying in {delay:g}s\n"
+                    )
+            self._sleep(delay)
         return self._entry_for(handle, SessionOperation.ASK).live_backend().ask(request)
 
     def compact(self, handle: str, instructions: str = "") -> None:

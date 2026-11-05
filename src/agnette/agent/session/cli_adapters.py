@@ -156,9 +156,14 @@ class _CliPromptBackend(SandboxFixture):
         stdout_callback: Callable[[str], None] | None = None,
         stdout_finalizer: Callable[[], None] | None = None,
         decode_stdout: Callable[[str], str] | None = None,
+        reported_failure: Callable[[str], _ReportedFailure | None] | None = None,
         stdout_to_file: bool = False,
     ) -> SessionAskResponse:
-        """Run one prepared prompt and translate process failures for sessions."""
+        """Run one prepared prompt and translate process failures for sessions.
+
+        *reported_failure* reads the failure an agent reported on stdout before
+        exiting nonzero; it replaces the stderr tail when present.
+        """
         permission_mode = self._settings.permission_mode
         temp_files: list[Path] = []
         with preserve_primary_error(
@@ -205,10 +210,19 @@ class _CliPromptBackend(SandboxFixture):
             if stdout_finalizer is not None:
                 stdout_finalizer()
             if failure := prompt_run_result_error(result):
+                reported = (
+                    reported_failure(result.stdout.text_or_note("agent output")[0])
+                    if reported_failure is not None and failure.cause == "nonzero_exit"
+                    else None
+                )
                 raise SessionAskError(
                     cause=failure.cause,
                     exit_code=failure.result.returncode,
-                    stderr_tail=result_stderr_tail(failure.result),
+                    stderr_tail=(
+                        result_stderr_tail(failure.result)
+                        if reported is None
+                        else stderr_tail(reported.reason)
+                    ),
                     elapsed=failure.result.elapsed,
                     call_info=AgentCallInfo(
                         argv=prepared.argv.copy(),
@@ -223,6 +237,7 @@ class _CliPromptBackend(SandboxFixture):
                         permission_mode=permission_mode.value,
                     ),
                     detail=failure.detail,
+                    server_overloaded=reported is not None and reported.server_overloaded,
                 ) from failure
             content = result.stdout.text()
             if decode_stdout is not None:
@@ -480,7 +495,7 @@ class ClaudeCliSessionBackend(_SessionIdCliBackend[AgentClaude]):
 
 
 class CodexCliSessionBackend(_CliPromptBackend):
-    """Start Codex threads from JSONL, then resume them through plaintext output.
+    """Start and resume Codex threads, reading every turn from Codex's JSONL events.
 
     File capture avoids EAGAIN on large writes to nonblocking stdout pipes.
     """
@@ -519,77 +534,73 @@ class CodexCliSessionBackend(_CliPromptBackend):
         """
         session = self._session
         if session.single_prompt:
-            stream_output = request.output_callback is not None
-            stdout_stream = (
-                CodexOutputStream(request.output_callback)
-                if request.output_callback is not None
-                else None
+            starting = False
+            command = session.agent.argv(
+                permission_mode=self._settings.permission_mode, json_output=True
             )
-            response = self._run_prompt(
-                request.prompt,
-                session.agent.argv(
-                    permission_mode=self._settings.permission_mode, json_output=stream_output
-                ),
-                delivery=PromptDelivery.STDIN,
-                stdout_to_file=True,
-                output_callback=request.output_callback,
-                stdout_callback=None if stdout_stream is None else stdout_stream.feed,
-                stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
+        else:
+            if session.session_id is None and session.started:
+                raise SessionHostError(
+                    "Codex session start did not produce a resumable thread",
+                    SessionOperation.ASK.value,
+                )
+            starting = session.session_id is None
+            session.started = True
+            command = session.agent.session_argv(
+                session.session_id, permission_mode=self._settings.permission_mode
             )
-            if not stream_output:
-                return response
-            try:
-                _, content = _parse_codex_jsonl(response.content)
-            except _CodexTurnFailedError as exc:
-                raise _codex_ask_error(response, "nonzero_exit", exc) from exc
-            except _CodexProtocolError as exc:
-                raise _codex_ask_error(response, "protocol_failure", exc) from exc
-            return replace(response, content=content)
-        if session.session_id is None and session.started:
-            raise SessionHostError(
-                "Codex session start did not produce a resumable thread", SessionOperation.ASK.value
-            )
-        starting = session.session_id is None
-        json_output = starting or request.output_callback is not None
         stdout_stream = (
             CodexOutputStream(request.output_callback)
             if request.output_callback is not None
             else None
         )
-        session.started = True
+
+        def reported_failure(output: str) -> _ReportedFailure | None:
+            try:
+                turn = _parse_codex_jsonl(output)
+            except _CodexProtocolError:
+                return None
+            return self._settle_failed_turn(turn, starting=starting)
+
         try:
             response = self._run_prompt(
                 request.prompt,
-                session.agent.session_argv(
-                    session.session_id,
-                    permission_mode=self._settings.permission_mode,
-                    json_output=json_output if request.output_callback is not None else None,
-                ),
+                command,
                 delivery=PromptDelivery.STDIN,
                 stdout_to_file=True,
                 output_callback=request.output_callback,
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
+                reported_failure=reported_failure,
             )
         except SessionAskError as error:
             if starting and _creation_not_launched(error):
                 session.started = False
             raise
-        if not json_output:
-            return response
         try:
-            thread_id, content = _parse_codex_jsonl(response.content)
-        except _CodexTurnFailedError as exc:
-            if exc.thread_id is None:
-                session.started = False
-            else:
-                session.session_id = exc.thread_id
-            raise _codex_ask_error(response, "nonzero_exit", exc) from exc
+            turn = _parse_codex_jsonl(response.content)
+            if failure := self._settle_failed_turn(turn, starting=starting):
+                raise _codex_ask_error(response, "nonzero_exit", failure)
+            if turn.thread_id is None:
+                raise _CodexProtocolError("Codex did not report a session id")
+            if turn.reply is None:
+                raise _CodexProtocolError("Codex did not complete an assistant message")
         except _CodexProtocolError as exc:
-            raise _codex_ask_error(response, "protocol_failure", exc) from exc
+            raise _codex_ask_error(
+                response, "protocol_failure", _ReportedFailure(str(exc))
+            ) from exc
         if starting:
-            session.session_id = thread_id
-        return replace(response, content=content)
+            session.session_id = turn.thread_id
+        return replace(response, content=turn.reply)
+
+    def _settle_failed_turn(self, turn: _CodexTurn, *, starting: bool) -> _ReportedFailure | None:
+        """Keep a failed starting turn's thread resumable; return the turn's failure."""
+        if turn.failure is not None and starting:
+            if turn.thread_id is None:
+                self._session.started = False
+            else:
+                self._session.session_id = turn.thread_id
+        return turn.failure
 
     def reset(self) -> None:
         """Forget the captured thread so the next prompt starts a new one."""
@@ -661,15 +672,38 @@ def _require_claude_session_id(output: str) -> str:
     return session_id
 
 
-def _parse_codex_jsonl(output: str) -> tuple[str, str]:
-    """Validate Codex's JSONL event stream and extract its completed reply.
+@dataclass(frozen=True, slots=True)
+class _ReportedFailure:
+    """A failure the agent reported in its own output."""
+
+    reason: str
+    server_overloaded: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _CodexTurn:
+    """What one Codex JSONL stream reported: its thread, last reply, and failure."""
+
+    thread_id: str | None
+    reply: str | None
+    failure: _ReportedFailure | None
+
+
+#: Codex events whose ``error`` object fails the turn (``task_complete`` only when non-null).
+_CODEX_FAILURE_EVENTS = frozenset({"turn.failed", "task_complete"})
+
+
+def _parse_codex_jsonl(output: str) -> _CodexTurn:
+    """Validate Codex's JSONL event stream and summarize its turn.
 
     The stream belongs to Codex, not to AgM, so unrecognized event types are
-    ignored rather than rejected; only a failed turn and a malformed stream
-    stop the parse.
+    ignored rather than rejected; a malformed stream raises. The first
+    failure event wins; a rollout-style ``event_msg`` is read through its
+    ``payload``.
     """
     thread_id: str | None = None
-    messages: list[str] = []
+    reply: str | None = None
+    failure: _ReportedFailure | None = None
     for line in output.split("\n"):
         if not line.strip():
             continue
@@ -680,6 +714,9 @@ def _parse_codex_jsonl(output: str) -> tuple[str, str]:
         if not isinstance(event, dict):
             raise _CodexProtocolError("Codex JSONL event was not an object")
         event_object = cast(dict[str, object], event)
+        payload = event_object.get("payload")
+        if event_object.get("type") == "event_msg" and isinstance(payload, dict):
+            event_object = cast(dict[str, object], payload)
         event_type = event_object.get("type")
         if not isinstance(event_type, str):
             raise _CodexProtocolError("Codex JSONL event had no type")
@@ -688,8 +725,10 @@ def _parse_codex_jsonl(output: str) -> tuple[str, str]:
             if thread_id is not None or not isinstance(candidate, str) or not candidate:
                 raise _CodexProtocolError("Codex reported an invalid thread id")
             thread_id = candidate
-        elif event_type == "turn.failed":
-            raise _CodexTurnFailedError(_codex_turn_failure(event_object), thread_id)
+        elif event_type in _CODEX_FAILURE_EVENTS:
+            error = event_object.get("error")
+            if failure is None and (event_type == "turn.failed" or error is not None):
+                failure = _codex_failure(error)
         elif event_type == "item.completed":
             item = event_object.get("item")
             if not isinstance(item, dict):
@@ -702,52 +741,42 @@ def _parse_codex_jsonl(output: str) -> tuple[str, str]:
                 text = item_object.get("text")
                 if not isinstance(text, str):
                     raise _CodexProtocolError("Codex assistant message had no text")
-                messages.append(text)
-    if thread_id is None:
-        raise _CodexProtocolError("Codex did not report a session id")
-    if not messages:
-        raise _CodexProtocolError("Codex did not complete an assistant message")
-    return thread_id, messages[-1]
+                reply = text
+    return _CodexTurn(thread_id, reply, failure)
 
 
-def _codex_turn_failure(event: dict[str, object]) -> str:
-    """Return the reason Codex reported for a failed turn."""
-    error = event.get("error")
-    if isinstance(error, dict):
-        message = cast(dict[str, object], error).get("message")
-        if isinstance(message, str) and message:
-            return message
-    return "Codex reported a failed turn without a reason"
+def _codex_failure(error: object) -> _ReportedFailure:
+    """Return the reason and overload state of a Codex failure event's ``error``."""
+    error_object = cast(dict[str, object], error) if isinstance(error, dict) else {}
+    message = error_object.get("message")
+    info = error_object.get("codex_error_info")
+    return _ReportedFailure(
+        message
+        if isinstance(message, str) and message
+        else "Codex reported a failed turn without a reason",
+        # Unit variants serialize as a string, data-carrying ones as a one-key object.
+        server_overloaded=info == "server_overloaded"
+        or (isinstance(info, dict) and "server_overloaded" in info),
+    )
 
 
 def _codex_ask_error(
-    response: SessionAskResponse, cause: AgentTransportFailureCause, exc: Exception
+    response: SessionAskResponse, cause: AgentTransportFailureCause, failure: _ReportedFailure
 ) -> SessionAskError:
-    """Build the ask failure for a started Codex thread that produced no reply."""
+    """Build the ask failure for a Codex run that produced no reply."""
     call_info = cast(AgentCallInfo, response.call_info)
     return SessionAskError(
         cause=cause,
         exit_code=call_info.exit_code,
-        stderr_tail=stderr_tail(str(exc)),
+        stderr_tail=stderr_tail(failure.reason),
         elapsed=call_info.elapsed,
         call_info=call_info,
+        server_overloaded=failure.server_overloaded,
     )
 
 
 class _CodexProtocolError(Exception):
     """Codex output did not satisfy its JSONL response protocol."""
-
-
-class _CodexTurnFailedError(Exception):
-    """Codex reported a failed turn through its JSONL event stream.
-
-    The thread id is the one the stream announced before the failure, if any;
-    it lets a recoverable turn failure leave the thread resumable.
-    """
-
-    def __init__(self, reason: str, thread_id: str | None) -> None:
-        super().__init__(reason)
-        self.thread_id = thread_id
 
 
 def _json_object(output: str, *, operation: SessionOperation) -> dict[str, object]:

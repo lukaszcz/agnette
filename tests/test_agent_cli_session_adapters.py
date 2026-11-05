@@ -116,6 +116,13 @@ def _open(
     )
 
 
+def _codex_reply(text: str, thread_id: str = "first") -> str:
+    return (
+        f'{{"type":"thread.started","thread_id":"{thread_id}"}}\n'
+        f'{{"type":"item.completed","item":{{"type":"agent_message","text":"{text}"}}}}'
+    )
+
+
 @pytest.mark.parametrize("single_prompt", [False, True])
 @pytest.mark.parametrize("echo", [False, True])
 def test_codex_captures_large_events_from_nonblocking_stdout(
@@ -644,14 +651,14 @@ def test_session_id_cli_backends_reuse_ids_and_names_after_reset(
 def test_codex_single_prompt_session_uses_the_standard_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    transport = CaptureTransport([CaptureOutcome("answer")])
+    transport = CaptureTransport([CaptureOutcome(_codex_reply("answer"))])
     transport.install(monkeypatch)
     backend = _open(AgentCodex("m", "t"), single_prompt=True)
 
     assert backend.ask(SessionAskRequest("prompt")).content == "answer"
     assert transport.calls == [
         (
-            ["codex", "exec", "--model", "m", "-c", "model_reasoning_effort=t", "-"],
+            ["codex", "exec", "--json", "--model", "m", "-c", "model_reasoning_effort=t", "-"],
             "prompt",
         )
     ]
@@ -711,7 +718,7 @@ def test_codex_reset_after_successful_creation_starts_a_new_jsonl_thread(
     ]
 
 
-def test_codex_initial_ask_parses_jsonl_and_resume_returns_plaintext(
+def test_codex_starts_then_resumes_its_thread_through_jsonl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     transport = CaptureTransport(
@@ -728,7 +735,7 @@ def test_codex_initial_ask_parses_jsonl_and_resume_returns_plaintext(
                     )
                 )
             ),
-            CaptureOutcome("later answer"),
+            CaptureOutcome(_codex_reply("later answer")),
         ]
     )
     transport.install(monkeypatch)
@@ -762,6 +769,7 @@ def test_codex_initial_ask_parses_jsonl_and_resume_returns_plaintext(
                 "exec",
                 "resume",
                 "first",
+                "--json",
                 "--model",
                 "m",
                 "-c",
@@ -1356,7 +1364,7 @@ def test_codex_resumes_the_started_thread_after_a_failed_turn(
                     )
                 )
             ),
-            CaptureOutcome("later answer"),
+            CaptureOutcome(_codex_reply("later answer")),
         ]
     )
     transport.install(monkeypatch)
@@ -1369,7 +1377,18 @@ def test_codex_resumes_the_started_thread_after_a_failed_turn(
     assert backend.ask(SessionAskRequest("later")).content == "later answer"
     assert [argv for argv, _ in transport.calls] == [
         ["codex", "exec", "--json", "--model", "m", "-c", "model_reasoning_effort=t", "-"],
-        ["codex", "exec", "resume", "first", "--model", "m", "-c", "model_reasoning_effort=t", "-"],
+        [
+            "codex",
+            "exec",
+            "resume",
+            "first",
+            "--json",
+            "--model",
+            "m",
+            "-c",
+            "model_reasoning_effort=t",
+            "-",
+        ],
     ]
 
 
@@ -1554,7 +1573,7 @@ def test_sandboxed_codex_disables_the_daemon_on_creation_resume_and_reset(
         '{"type":"thread.started","thread_id":"first"}\n'
         '{"type":"item.completed","item":{"type":"agent_message","text":"answer"}}'
     )
-    transport = CaptureTransport([created, CaptureOutcome("resumed"), created])
+    transport = CaptureTransport([created, CaptureOutcome(_codex_reply("resumed")), created])
     transport.install(monkeypatch)
     backend = _open(
         AgentCodex("m", "t"),
@@ -1648,3 +1667,199 @@ def test_backends_without_a_native_fork_cannot_be_snapshotted(agent: AgentSpec) 
         _open(agent).portable()
 
     assert raised.value.operation == SessionOperation.FORK
+
+
+_CODEX_OVERLOAD = (
+    '{"type":"thread.started","thread_id":"first"}\n'
+    '{"type":"turn.failed","error":{"message":"high demand",'
+    '"codex_error_info":"server_overloaded"}}'
+)
+
+
+@pytest.mark.parametrize("single_prompt", [False, True])
+@pytest.mark.parametrize(
+    "failure_event",
+    [
+        '{"type":"turn.failed","error":{"message":"model unsupported"}}',
+        '{"type":"task_complete","last_agent_message":null,'
+        '"error":{"message":"model unsupported","codex_error_info":"model_not_found"}}',
+        '{"type":"event_msg","payload":{"type":"task_complete",'
+        '"error":{"message":"model unsupported"}}}',
+    ],
+)
+def test_codex_nonzero_exit_reports_the_stdout_failure_instead_of_stderr(
+    monkeypatch: pytest.MonkeyPatch, single_prompt: bool, failure_event: str
+) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n' + failure_event,
+                returncode=1,
+                stderr="unrelated log noise",
+            )
+        ]
+    )
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("", ""), single_prompt=single_prompt)
+
+    with pytest.raises(SessionAskError) as raised:
+        backend.ask(SessionAskRequest("first"))
+
+    assert raised.value.cause == "nonzero_exit"
+    assert raised.value.exit_code == 1
+    assert "model unsupported" in raised.value.stderr_tail
+    assert "noise" not in raised.value.stderr_tail
+    assert not raised.value.server_overloaded
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    ['{"type":"thread.started","thread_id":"first"}', "not json", '{"type":"task_complete"}'],
+)
+def test_codex_nonzero_exit_without_a_reported_failure_keeps_the_stderr_tail(
+    monkeypatch: pytest.MonkeyPatch, stdout: str
+) -> None:
+    transport = CaptureTransport([CaptureOutcome(stdout, returncode=1, stderr="crashed")])
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("", ""))
+
+    with pytest.raises(SessionAskError) as raised:
+        backend.ask(SessionAskRequest("first"))
+
+    assert raised.value.cause == "nonzero_exit"
+    assert "crashed" in raised.value.stderr_tail
+
+
+def test_codex_resumes_the_thread_of_a_turn_that_exited_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n'
+                '{"type":"turn.failed","error":{"message":"upstream rate limit"}}',
+                returncode=1,
+            ),
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"answer"}}'
+            ),
+        ]
+    )
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("", ""))
+
+    with pytest.raises(SessionAskError):
+        backend.ask(SessionAskRequest("first"))
+
+    assert backend.ask(SessionAskRequest("later")).content == "answer"
+    assert transport.calls[1][0] == ["codex", "exec", "resume", "first", "--json", "-"]
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+@pytest.mark.parametrize(
+    "error_info", ['"server_overloaded"', '{"server_overloaded":{"retry_after":3}}']
+)
+def test_codex_flags_a_server_overloaded_failure(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, error_info: str
+) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n'
+                '{"type":"turn.failed","error":{"message":"high demand",'
+                f'"codex_error_info":{error_info}}}}}',
+                returncode=returncode,
+            )
+        ]
+    )
+    transport.install(monkeypatch)
+    backend = _open(AgentCodex("", ""))
+
+    with pytest.raises(SessionAskError) as raised:
+        backend.ask(SessionAskRequest("first"))
+
+    assert raised.value.server_overloaded
+
+
+def _codex_service(sleeps: list[float]) -> SessionService:
+    return SessionService(
+        lambda request: open_cli_session(
+            request, idle_timeout=None, get_sandbox_context=unavailable_sandbox_context
+        ),
+        overload_retry_delays=(1.0, 2.0),
+        sleep=sleeps.append,
+    )
+
+
+def test_service_retries_an_overloaded_ask_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome(_CODEX_OVERLOAD, returncode=1),
+            CaptureOutcome(_CODEX_OVERLOAD, returncode=1),
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"answer"}}'
+            ),
+        ]
+    )
+    transport.install(monkeypatch)
+    sleeps: list[float] = []
+    service = _codex_service(sleeps)
+    handle = service.open(AgentCodex("", ""), SessionTransport.CLI, env={})
+    notes: list[str] = []
+
+    response = service.ask(
+        handle,
+        SessionAskRequest(
+            "prompt", output_callback=lambda phase, text, **_: notes.append(f"{phase}:{text}")
+        ),
+    )
+
+    assert response.content == "answer"
+    assert sleeps == [1.0, 2.0]
+    assert len([note for note in notes if note.startswith("stderr:")]) == 2
+    assert [argv[2:4] for argv, _ in transport.calls] == [
+        ["--json", "-"],
+        ["resume", "first"],
+        ["resume", "first"],
+    ]
+
+
+def test_service_fails_an_overloaded_ask_once_retries_run_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = CaptureTransport([CaptureOutcome(_CODEX_OVERLOAD, returncode=1)] * 3)
+    transport.install(monkeypatch)
+    sleeps: list[float] = []
+    service = _codex_service(sleeps)
+    handle = service.open(AgentCodex("", ""), SessionTransport.CLI, env={})
+
+    with pytest.raises(SessionAskError) as raised:
+        service.ask(handle, SessionAskRequest("prompt"))
+
+    assert raised.value.server_overloaded
+    assert sleeps == [1.0, 2.0]
+    assert len(transport.calls) == 3
+
+
+def test_service_does_not_retry_other_ask_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    transport = CaptureTransport(
+        [
+            CaptureOutcome(
+                '{"type":"thread.started","thread_id":"first"}\n'
+                '{"type":"turn.failed","error":{"message":"model unsupported"}}',
+                returncode=1,
+            )
+        ]
+    )
+    transport.install(monkeypatch)
+    sleeps: list[float] = []
+    service = _codex_service(sleeps)
+    handle = service.open(AgentCodex("", ""), SessionTransport.CLI, env={})
+
+    with pytest.raises(SessionAskError):
+        service.ask(handle, SessionAskRequest("prompt"))
+
+    assert sleeps == []
+    assert len(transport.calls) == 1

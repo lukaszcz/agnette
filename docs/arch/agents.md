@@ -21,9 +21,9 @@ Empty native fields (Pi provider, model, effort) are filled when an agent is *us
 
 Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral session. Production hosts back sessions with `SessionService`, so asks run through its CLI adapters or Pi RPC; `agl/runtime/agents.py:value_driven_agent_factory` is the dispatcher only for hosts without a session service. A decoded `AgentRequest` carries the call's evaluated environment.
 
-`SessionService` (`agent/session/service.py`) gives one backend-neutral lifecycle for continuing conversations: opaque handles, backend instances, and release of every owned process at the command or interpreter boundary. Permission mode, sandbox limits, and environment are fixed when a session opens, with no per-ask override. Two backend families implement it:
+`SessionService` (`agent/session/service.py`) gives one backend-neutral lifecycle for continuing conversations: opaque handles, backend instances, and release of every owned process at the command or interpreter boundary. `SessionService.ask` resends an ask whose `SessionAskError` is `server_overloaded` with backoff (`OVERLOAD_RETRY_DELAYS`). Permission mode, sandbox limits, and environment are fixed when a session opens, with no per-ask override. Two backend families implement it:
 
-- **CLI adapters** map the lifecycle to each agent CLI's create/continue/compact/fork flags, preparing a fresh sandboxed command per prompt.
+- **CLI adapters** map the lifecycle to each agent CLI's create/continue/compact/fork flags, preparing a fresh sandboxed command per prompt. Codex always runs with `--json`; a failure it reports there replaces the stderr tail.
 - **Pi RPC** owns one persistent streaming JSONL child process (`agent/session/rpc.py`); one `poll`-driven pump on the calling thread multiplexes stdin writes with stdout/stderr reads, so the backend starts no Python thread; signals wake the pump (`core.signals`), so Ctrl-C is prompt without an idle deadline.
 
 Sessions are owned by the process that opened them: in a forked child every inherited session is inert (its backend drops only its descriptor copies, never the shared process), the default session reopens fresh, and sweeps close only the child's own sessions.

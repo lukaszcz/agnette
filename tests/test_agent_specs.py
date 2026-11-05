@@ -123,7 +123,7 @@ def test_claude_turn_output_uses_verbose_print_mode() -> None:
 def test_session_argv_omits_empty_field_flags() -> None:
     assert AgentClaude("", "").session_argv("s") == ["claude", "-p", "--session-id", "s"]
     assert AgentCodex("", "").session_argv() == ["codex", "exec", "--json", "-"]
-    assert AgentCodex("", "").session_argv("s") == ["codex", "exec", "resume", "s", "-"]
+    assert AgentCodex("", "").session_argv("s") == ["codex", "exec", "resume", "s", "--json", "-"]
     assert AgentPi("", "", "").session_argv("s") == ["pi", "-p", "--session-id", "s"]
     assert AgentPi("", "", "").rpc_argv() == ["pi", "--mode", "rpc"]
     assert AgentPi("anthropic", "", "").rpc_argv() == [
@@ -571,6 +571,7 @@ def test_codex_resumed_session_argv_re_asserts_no_approval_policy(
         "exec",
         "resume",
         "sid",
+        "--json",
         "--model",
         "o3",
         "-c",

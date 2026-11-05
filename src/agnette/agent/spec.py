@@ -206,19 +206,13 @@ class AgentCodex:
         session_id: str | None = None,
         *,
         permission_mode: PermissionMode = PermissionMode.NONE,
-        json_output: bool | None = None,
     ) -> list[str]:
-        """Build the argv that starts or resumes a Codex CLI session."""
-        command = ["codex", "exec"]
-        if session_id is None:
-            command.append("--json")
-        else:
-            command.extend(("resume", session_id))
+        """Build the JSONL-reporting argv that starts or resumes a Codex CLI session."""
         return self._exec_argv(
-            command,
+            ["codex", "exec"] if session_id is None else ["codex", "exec", "resume", session_id],
             permission_mode=permission_mode,
             resuming=session_id is not None,
-            json_output=session_id is None if json_output is None else json_output,
+            json_output=True,
         )
 
     def _exec_argv(

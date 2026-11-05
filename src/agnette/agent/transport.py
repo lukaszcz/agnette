@@ -75,6 +75,7 @@ class AgentTransportError(Exception):
         elapsed: float,
         call_info: AgentCallInfo,
         detail: str | None = None,
+        server_overloaded: bool = False,
     ) -> None:
         super().__init__(cause)
         self.cause = cause
@@ -85,3 +86,5 @@ class AgentTransportError(Exception):
         # Where a stream stopped being valid UTF-8, which the cause alone
         # cannot locate. Carried to whichever host error model reports it.
         self.detail = detail
+        # The agent reported its server overloaded: a transient failure worth retrying.
+        self.server_overloaded = server_overloaded
