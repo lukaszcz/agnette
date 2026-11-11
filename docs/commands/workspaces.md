@@ -6,7 +6,7 @@
 | `agm close [-f\|--force] [-D] [--keep-branch] [--keep-workspace] BRANCH` | Shortcut for `agm workspace close` |
 | `agm workspace open [-d\|--detach] [-n\|--num-panes PANES] [-p\|--parent PARENT] [--fetch \| --no-fetch] TARGET` | Open the main workspace or a branch workspace, creating or checking it out when needed |
 | `agm workspace close [-f\|--force] [-D] [--keep-branch] [--keep-workspace] BRANCH` | Remove a branch workspace and close its tmux session |
-| `agm workspace list [-v\|--verbose]` | List all open AgM workspaces |
+| `agm workspace list [-v\|--verbose]` | List all AgM workspaces |
 | `agm workspace setup` | Run setup scripts for the current workspace |
 | `agm workspace shell-regen SHELL_DIR` | Regenerate the per-session shell wrapper and rc files in `SHELL_DIR` |
 | `agm wsp open [-d\|--detach] [-n\|--num-panes PANES] [-p\|--parent PARENT] [--fetch \| --no-fetch] TARGET` | Alias form of `agm workspace open` |
@@ -24,7 +24,8 @@
 An AgM workspace is the main repo or a linked Git worktree in the project's worktrees directory,
 combined with AgM project config, workspace config, dependency environment, setup scripts, and tmux
 session lifecycle. A branch workspace is named by its path under the worktrees directory (the
-branch it was opened for); other Git worktrees of the repo are not workspaces.
+branch it was opened for); other Git worktrees of the repo, including ones nested inside a branch
+workspace's checkout, are not workspaces.
 
 `agm workspace open` behavior:
 

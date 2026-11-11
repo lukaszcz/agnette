@@ -8373,7 +8373,7 @@ class TestAgentWorkflows:
 
 
 class TestListCommand:
-    """agm workspace list: print open workspaces with the main repo first."""
+    """agm workspace list: print workspaces with the main repo first."""
 
     def test_lists_main_only_when_no_branch_worktrees(
         self, tmp_path: Path, env: dict[str, str]
@@ -8403,6 +8403,18 @@ class TestListCommand:
         assert lines[0] == "* main"
         # Branch worktrees are sorted alphabetically after the main repo.
         assert lines[1:] == ["  feat/alpha", "  feat/beta"]
+
+    def test_omits_git_worktrees_nested_inside_a_branch_workspace(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        project = _make_workspace_project(tmp_path, env)
+        run_agm(["wt", "new", "feat"], env=env, cwd=str(project / "repo"))
+        nested = project / "worktrees" / "feat" / ".agent-files" / "task"
+        _git("worktree", "add", "-b", "task", str(nested), cwd=str(project / "repo"), env=env)
+
+        result = run_agm(["workspace", "list"], env=env, cwd=str(project / "repo"))
+
+        assert result.stdout.splitlines() == ["* main", "  feat"]
 
     def test_verbose_includes_worktree_paths(self, tmp_path: Path, env: dict[str, str]) -> None:
         project = _make_workspace_project(tmp_path, env)

@@ -323,20 +323,25 @@ def _workspace_name(workspace: Workspace) -> str:
 def project_workspaces(project_dir: Path, *, env: dict[str, str] | None = None) -> list[Workspace]:
     """Return the main workspace, then branch workspaces sorted by name.
 
-    Git worktrees outside the project's worktrees directory are not workspaces.
+    Git worktrees outside the project's worktrees directory, or nested inside a branch
+    workspace's checkout, are not workspaces.
     """
 
     repo_dir = project_repo_dir(project_dir).resolve(strict=False)
     worktrees_dir = default_worktrees_dir(project_dir).resolve(strict=False)
     main: list[Workspace] = []
-    branches: list[Workspace] = []
+    candidates: dict[Path, git_helpers.WorktreeInfo] = {}
     for worktree in git_helpers.worktree_list(repo_dir, env=env):
         path = worktree.path.resolve(strict=False)
         if path == repo_dir:
             main.append(Workspace(MAIN_WORKSPACE_NAME, worktree.path, worktree.branch, main=True))
         elif worktrees_dir in path.parents:
-            name = path.relative_to(worktrees_dir).as_posix()
-            branches.append(Workspace(name, worktree.path, worktree.branch, main=False))
+            candidates[path] = worktree
+    branches = [
+        Workspace(path.relative_to(worktrees_dir).as_posix(), wt.path, wt.branch, main=False)
+        for path, wt in candidates.items()
+        if not any(parent in candidates for parent in path.parents)
+    ]
     return main + sorted(branches, key=_workspace_name)
 
 

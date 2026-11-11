@@ -41,6 +41,17 @@ def test_ignores_git_worktrees_outside_the_worktrees_dir(
     assert [ws.name for ws in project_workspaces(project_dir, env=env)] == ["repo"]
 
 
+def test_ignores_git_worktrees_nested_inside_a_branch_workspace(
+    tmp_path: Path, env: dict[str, str]
+) -> None:
+    project_dir, repo_dir = _split_project(tmp_path, env)
+    feat_dir = add_linked_worktree(repo_dir, project_dir / "worktrees" / "feat", env, branch="feat")
+    add_linked_worktree(repo_dir, feat_dir / ".scratch" / "task", env, branch="task")
+    git_run(repo_dir, ["worktree", "add", "-q", "--detach", str(feat_dir / "deep" / "wt")], env)
+
+    assert [ws.name for ws in project_workspaces(project_dir, env=env)] == ["repo", "feat"]
+
+
 def test_detached_workspaces_keep_their_name(tmp_path: Path, env: dict[str, str]) -> None:
     project_dir, repo_dir = _split_project(tmp_path, env)
     feat_dir = add_linked_worktree(repo_dir, project_dir / "worktrees" / "feat", env, branch="feat")

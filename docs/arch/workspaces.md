@@ -8,7 +8,7 @@ A project has fixed roles — repository, branch worktrees, config directory, de
 
 ## Workspaces and Worktrees
 
-A *workspace* is the main repository or a linked worktree in the project's worktrees directory; `project_workspaces` is the single source of that set. Opening a branch creates its worktree (and the branch, if missing) through one preparation flow (`commands/workspace/open.py`): config and environment, worktree, generated config commit, session. Branch resolution across remotes follows git's rule. Only branch workspaces can be closed.
+A *workspace* is the main repository or a linked worktree in the project's worktrees directory, not nested in another workspace; `project_workspaces` is the single source of that set. Opening a branch creates its worktree (and the branch, if missing) through one preparation flow (`commands/workspace/open.py`): config and environment, worktree, generated config commit, session. Branch resolution across remotes follows git's rule. Only branch workspaces can be closed.
 
 ## Dependencies
 
