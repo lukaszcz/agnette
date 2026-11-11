@@ -110,7 +110,7 @@ its JSON decode failure. A value for a plain enum — one whose every member is
 fieldless — may also be a member's bare JSON name, which takes precedence over
 another member's declared name of the same spelling. An `Agent`-typed value
 reads a JSON object, then an `Agent` member constructor call, then compact
-shorthand (`claude/opus:high`), and otherwise a verbatim command
+shorthand (`claude/opus@high`), and otherwise a verbatim command
 ([host Agent syntax](../../commands/agl.md#host-agent-syntax)). A config file
 may give any structured host value — a program argument, module parameter,
 or engine setting — natively, as a table or array in the value's [JSON

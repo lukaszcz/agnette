@@ -3468,7 +3468,7 @@ class TestProgramValueArguments:
 
         home = tmp_path / "home"
         (home / ".agm").mkdir(parents=True)
-        (home / ".agm" / "config.toml").write_text('[prog.main]\nworker = "pi/openai/gpt-5:low"\n')
+        (home / ".agm" / "config.toml").write_text('[prog.main]\nworker = "pi/openai/gpt-5@low"\n')
         monkeypatch.setattr(
             exec_engine,
             "current_config_context",

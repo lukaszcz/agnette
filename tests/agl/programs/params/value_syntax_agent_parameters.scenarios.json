@@ -3,7 +3,7 @@
     {
       "name": "shorthand",
       "params": {
-        "worker": "claude/sonnet:medium"
+        "worker": "claude/sonnet@medium"
       },
       "expect": {
         "stdout": "claude sonnet medium\nno backup\n"
@@ -57,7 +57,7 @@
     {
       "name": "option_agent_nested_constructor",
       "params": {
-        "worker": "claude/sonnet:medium",
+        "worker": "claude/sonnet@medium",
         "backup": "Some(AgentCodex(model = \"o3\", thinking = \"high\"))"
       },
       "expect": {

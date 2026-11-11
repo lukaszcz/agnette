@@ -161,7 +161,7 @@ class TestValueSyntaxOnHostSurfaces:
 
         assert (
             exec_command.run(
-                _exec_args_no_trace(agl_file, argument_tokens=["--backup", "claude/opus:high"])
+                _exec_args_no_trace(agl_file, argument_tokens=["--backup", "claude/opus@high"])
             )
             is None
         )
@@ -188,7 +188,7 @@ class TestValueSyntaxOnHostSurfaces:
         ("token", "expected"),
         [
             ("claude", 'Agent::AgentClaude(model = "", thinking = "")'),
-            ("Codex:high", 'Agent::AgentCodex(model = "", thinking = "high")'),
+            ("Codex@high", 'Agent::AgentCodex(model = "", thinking = "high")'),
             ("pi/anthropic", 'Agent::AgentPi(provider = "anthropic", model = "", thinking = "")'),
             ("claude -p", 'Agent::AgentCommand(command = "claude -p")'),
         ],
@@ -224,7 +224,7 @@ class TestValueSyntaxOnHostSurfaces:
     def test_agent_typed_toml_string_reads_host_agent_shorthand(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        _config_home(tmp_path, monkeypatch, '[prog.main]\nworker = "codex/o3:high"\n')
+        _config_home(tmp_path, monkeypatch, '[prog.main]\nworker = "codex/o3@high"\n')
         agl_file = _agent_program(tmp_path)
 
         assert exec_command.run(_exec_args_no_trace(agl_file)) is None
@@ -501,7 +501,7 @@ class TestConfigStringsReadAlikeAtEveryDepth:
             "]\n"
             'sandboxes = ["Native", { "$case" = "none" }, '
             '{ "$case" = "Sandbox", memory = \'Some("8G")\' }]\n'
-            'workers = ["claude/opus:high", "runner --flag"]\n'
+            'workers = ["claude/opus@high", "runner --flag"]\n'
             'limits = { low = "1", high = 2 }\n',
         )
         assert out[2] == (

@@ -77,14 +77,14 @@ def test_each_engine_key_seed_has_the_same_cli_config_presence_matrix(
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("claude/sonnet:medium", agent_value("AgentClaude", model="sonnet", thinking="medium")),
-        ("codex/o3:high", agent_value("AgentCodex", model="o3", thinking="high")),
+        ("claude/sonnet@medium", agent_value("AgentClaude", model="sonnet", thinking="medium")),
+        ("codex/o3@high", agent_value("AgentCodex", model="o3", thinking="high")),
         (
-            "pi/openai/gpt-5:low",
+            "pi/openai/gpt-5@low",
             agent_value("AgentPi", provider="openai", model="gpt-5", thinking="low"),
         ),
         (
-            "anthropic/claude-opus:custom",
+            "anthropic/claude-opus@custom",
             agent_value("AgentPi", provider="anthropic", model="claude-opus", thinking="custom"),
         ),
         ("worker --flag", agent_value("AgentCommand", command="worker --flag")),
@@ -107,7 +107,7 @@ def test_cli_agent_values_decode_to_the_typed_agent_value(raw: str, expected: ob
 
 
 def test_toml_agent_decodes_through_the_same_host_text_dispatch() -> None:
-    seeds = programless_seeds(exec_table={"agent": "claude/sonnet:experimental"})
+    seeds = programless_seeds(exec_table={"agent": "claude/sonnet@experimental"})
 
     assert seeds["agent"] == agent_value("AgentClaude", model="sonnet", thinking="experimental")
 

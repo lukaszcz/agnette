@@ -295,22 +295,22 @@ order (a config value may instead be a native TOML table, read directly as the t
    constructor call (`AgentCodex(model = "o3", thinking = "high")`, `AgentClaude("opus")`, bare
    or qualified `Agent::AgentPi(...)`) or a member name alone for its defaults (`AgentClaude`);
 3. compact shorthand, every name and the effort optional:
-   - `claude[/MODEL][:EFFORT]` → `AgentClaude(MODEL, EFFORT)`
-   - `codex[/MODEL][:EFFORT]` → `AgentCodex(MODEL, EFFORT)`
-   - `pi[/PROVIDER[/MODEL]][:EFFORT]` → `AgentPi(PROVIDER, MODEL, EFFORT)`
-   - any other `PROVIDER/MODEL[:EFFORT]` → `AgentPi(PROVIDER, MODEL, EFFORT)`
+   - `claude[/MODEL][@EFFORT]` → `AgentClaude(MODEL, EFFORT)`
+   - `codex[/MODEL][@EFFORT]` → `AgentCodex(MODEL, EFFORT)`
+   - `pi[/PROVIDER[/MODEL]][@EFFORT]` → `AgentPi(PROVIDER, MODEL, EFFORT)`
+   - any other `PROVIDER/MODEL[@EFFORT]` → `AgentPi(PROVIDER, MODEL, EFFORT)`
 4. otherwise a verbatim `AgentCommand` (`--agent 'worker --flag'`).
 
-In shorthand the effort follows the last `:`. An omitted name or effort is `""`, filled at
+In shorthand the effort follows the last `@`. An omitted name or effort is `""`, filled at
 dispatch from the [agent defaults](#agent-defaults): bare `claude` is `AgentClaude()`,
-`claude:high` sets only the effort, and `pi/anthropic` only the provider. Provider and effort start with a letter or
-digit and continue with `[A-Za-z0-9._@+-]`, so `./agent` stays a command; a model may also contain `:`, `[`, and `]` (`claude/opus[1m]:high`), so a
-model with a colon takes a trailing colon for no effort (`ollama/llama3:8b:`) or an explicit effort (`ollama/llama3:8b:high`).
-Examples: `claude`, `codex:high`, `claude/sonnet:medium`, `pi/anthropic`, `pi/openai/gpt-5:low`,
+`claude@high` sets only the effort, and `pi/anthropic` only the provider. Provider and effort start with a letter or
+digit and continue with `[A-Za-z0-9._+-]`, so `./agent` stays a command; a model may also contain `@`, `:`, `[`, and `]` (`claude/opus[1m]@high`, `ollama/llama3:8b`), so a
+model with an `@` takes a trailing `@` for no effort (`vertex/claude-sonnet-4@20250514@`) or an explicit effort (`vertex/claude-sonnet-4@20250514@high`).
+Examples: `claude`, `codex@high`, `claude/sonnet@medium`, `pi/anthropic`, `pi/openai/gpt-5@low`,
 `openrouter/qwen3`.
 
 Native text, ignoring surrounding whitespace, starts with `claude`, `codex`, or `pi` in any case,
-followed by the end of the text, `/`, or `:`. Native text that breaks its form (`claude/`, `pi/`, `pi/anthropic/`, surrounding whitespace as in ` claude` or
+followed by the end of the text, `/`, `@`, or `:`. Native text that breaks its form (`claude/`, `claude:high`, `pi/`, `pi/anthropic/`, surrounding whitespace as in ` claude` or
 `claude `) is a host error, never a verbatim command. A name followed by anything else is not
 native: `claude -p` and `claudex` are commands. Other two-segment text
 such as `bin/agent` reads as Pi shorthand, so write a relative command path as `./bin/agent`.
@@ -419,7 +419,7 @@ effort = ""
 
 With this config, `AgentClaude()` — `--agent claude` —
 passes `--model opus --effort high`: the model comes from `[agent.claude]`, then the effort from
-`[agent.claude.opus]`. `AgentClaude("sonnet")` gets `--effort medium`, `claude:low` runs
+`[agent.claude.opus]`. `AgentClaude("sonnet")` gets `--effort medium`, `claude@low` runs
 `opus` at `low`, and `AgentPi()` — the built-in `std/config::agent` — runs provider `anthropic`, model `claude-sonnet-4-5`, effort
 `high`. Every Claude call omitting `sandbox` runs `Native`.
 

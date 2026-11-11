@@ -11,7 +11,7 @@ AgL runs native agents and custom commands through a shared subprocess and sessi
 
 ## Host Agent Values
 
-Every CLI token or TOML string typed as `Agent` (including `--agent`) decodes through the shared host value decoder: tagged JSON, AgL value syntax, compact shorthand (`agent/values.py`: `claude[/MODEL][:EFFORT]`, `pi[/PROVIDER[/MODEL]][:EFFORT]`, …), else a verbatim command.
+Every CLI token or TOML string typed as `Agent` (including `--agent`) decodes through the shared host value decoder: tagged JSON, AgL value syntax, compact shorthand (`agent/values.py`: `claude[/MODEL][@EFFORT]`, `pi[/PROVIDER[/MODEL]][@EFFORT]`, …), else a verbatim command.
 
 ## Agent Defaults
 

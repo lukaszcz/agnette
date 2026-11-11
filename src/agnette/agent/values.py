@@ -17,8 +17,8 @@ from agnette.agent.spec import (
 __all__ = ["AgentShorthandError", "agent_spec_shape", "parse_agent_shorthand"]
 
 # Provider and effort characters, starting alphanumeric so ``./agent`` and ``../agent`` stay
-# commands; a model may also contain ``:``, ``[`` and ``]`` (``opus[1m]``).
-_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@+-]*")
+# commands; a model may also contain ``@``, ``:``, ``[`` and ``]`` (``opus[1m]``).
+_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 _MODEL = re.compile(r"[A-Za-z0-9._@+:\[\]-]+")
 
 
@@ -27,9 +27,9 @@ class AgentShorthandError(ValueError):
 
 
 def _split_effort(text: str) -> tuple[str, str | None]:
-    """Split ``NAMES[:EFFORT]`` at the final colon; the effort is ``None`` when omitted or empty."""
-    names, colon, effort = text.rpartition(":")
-    return (names, effort or None) if colon else (text, None)
+    """Split ``NAMES[@EFFORT]`` at the final ``@``; the effort is ``None`` when omitted or empty."""
+    names, at, effort = text.rpartition("@")
+    return (names, effort or None) if at else (text, None)
 
 
 def _shorthand_reader(
@@ -55,10 +55,10 @@ def _shorthand_reader(
 
 
 def _shorthand_form(spec_cls: type[NativeAgentSpec]) -> str:
-    """The expected-form text for *spec_cls*, e.g. ``pi[/PROVIDER[/MODEL]][:EFFORT]``."""
+    """The expected-form text for *spec_cls*, e.g. ``pi[/PROVIDER[/MODEL]][@EFFORT]``."""
     fields = model_fields(spec_cls)
     names = "".join(f"[/{field.upper()}" for field in fields) + "]" * len(fields)
-    return f"{spec_cls.CLI_NAME}{names}[:EFFORT]"
+    return f"{spec_cls.CLI_NAME}{names}[@EFFORT]"
 
 
 # Native name (matched case-insensitively) -> (expected form, reader).
@@ -69,13 +69,13 @@ _NATIVE_SHORTHANDS: dict[
     for spec_cls in NATIVE_AGENT_SPECS
 }
 
-# A native name ending the text or followed by ``/`` or ``:``.
+# A native name ending the text or followed by ``/``, ``@``, or ``:`` (rejecting ``claude:high``).
 _NATIVE_NAME = re.compile(
-    "(?:" + "|".join(map(re.escape, _NATIVE_SHORTHANDS)) + r")(?=[/:]|\Z)",
+    "(?:" + "|".join(map(re.escape, _NATIVE_SHORTHANDS)) + r")(?=[/@:]|\Z)",
     re.IGNORECASE | re.ASCII,
 )
 
-# Any other ``PROVIDER/MODEL[:EFFORT]`` text reads as a Pi agent.
+# Any other ``PROVIDER/MODEL[@EFFORT]`` text reads as a Pi agent.
 _provider_shorthand = _shorthand_reader(AgentPi)
 _PROVIDER_LEVELS = len(model_fields(AgentPi))
 
@@ -83,13 +83,13 @@ _PROVIDER_LEVELS = len(model_fields(AgentPi))
 def parse_agent_shorthand(text: str) -> AgentSpec | None:
     """Parse compact native-agent syntax, returning ``None`` when *text* is not shorthand.
 
-    Forms: ``claude[/MODEL][:EFFORT]``, ``codex[/MODEL][:EFFORT]``,
-    ``pi[/PROVIDER[/MODEL]][:EFFORT]``, and any other ``PROVIDER/MODEL[:EFFORT]``
+    Forms: ``claude[/MODEL][@EFFORT]``, ``codex[/MODEL][@EFFORT]``,
+    ``pi[/PROVIDER[/MODEL]][@EFFORT]``, and any other ``PROVIDER/MODEL[@EFFORT]``
     (Pi). Omitted native names and effort are ``""``. The effort follows the final
-    colon and is opaque to AgM; a trailing colon leaves it empty. Provider and effort are
-    ``[A-Za-z0-9][A-Za-z0-9._@+-]*``; the model also admits ``:``, ``[`` and ``]``.
+    ``@`` and is opaque to AgM; a trailing ``@`` leaves it empty. Provider and effort are
+    ``[A-Za-z0-9][A-Za-z0-9._+-]*``; the model also admits ``@``, ``:``, ``[`` and ``]``.
     Native text is stripped text starting with a native name (ASCII, any case) followed by
-    its end, ``/`` or ``:``; native text breaking its form -- surrounding whitespace
+    its end, ``/``, ``@`` or ``:``; native text breaking its form -- surrounding whitespace
     included -- raises :class:`AgentShorthandError`.
     """
     stripped = text.strip()
