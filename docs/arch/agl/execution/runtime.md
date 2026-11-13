@@ -11,7 +11,7 @@ The runtime package is the eval-free services layer: agent dispatch and session 
 
 ## Codecs
 
-`runtime/codec.py` keeps strict parsing and lenient recovery separate: agent and shell output use the configured policy, casts and value parsing are always strict (strict JSON or one [AgL value-syntax](../../../agl/reference/host-environment.md#value-syntax) literal via `runtime/value_decode.py`). Contracts consume the typeless schemas and decode walks compiled during lowering. Every JSON/TOML decoder reads numbers exactly and rejects non-finite values and duplicate object keys. Extern `AglJson` payloads are a companion obligation, not walked.
+`runtime/codec.py` keeps strict parsing and lenient recovery separate: agent and shell output use the configured policy, casts and value parsing are always strict (strict JSON or one [AgL value-syntax](../../../agl/reference/host-environment.md#value-syntax) literal via `runtime/value_decode.py`). Production session hosts select native response schemas for supported Claude/Codex contracts; other contracts and dispatcher hosts use prompt instructions (`runtime/request.py`, `runtime/sessions.py`). Both paths retain AgL validation and parse retries. Contracts consume the typeless schemas and decode walks compiled during lowering. Every JSON/TOML decoder reads numbers exactly and rejects non-finite values and duplicate object keys. Extern `AglJson` payloads are a companion obligation, not walked.
 
 ## Rendering and Serialization
 

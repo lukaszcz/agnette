@@ -335,6 +335,13 @@ parse and validate is a host error.
 
 ### Agents
 
+`ask` uses native response schemas for Claude Code (`--json-schema`) and Codex
+(`--output-schema`) when the target fits their strict schema subset. AgM wraps and
+unwraps the response for transport; the AgL result type is unchanged. Pi, custom
+commands, unconstrained `json`, open dictionaries, and records with defaulted
+fields use schema instructions in the prompt. All responses retain AgL validation
+and configured parse retries. Text and unit results do not request a native schema.
+
 `ask` takes a typed `Agent` value as `agent`. Without one it uses the lazy default session,
 which snapshots `std/config::agent` and `std/config::sandbox` at first use; later
 free asks reuse that agent, sandboxing, and conversation. This program-body fragment

@@ -59,10 +59,12 @@ class SessionAskRequest:
 
     Carries no sandboxing of its own: a session's ``permission_mode``/
     ``sandbox`` are fixed once, at open (see ``SessionOpenRequest``), for its
-    whole lifetime -- there is no per-ask override.
+    whole lifetime -- there is no per-ask override. ``output_schema`` is the
+    adapted native response envelope, selected separately for each ask.
     """
 
     prompt: str
+    output_schema: str | None = None
     output_callback: AgentOutputCallback | None = field(default=None, repr=False, compare=False)
 
 

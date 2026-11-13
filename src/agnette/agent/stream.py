@@ -139,7 +139,7 @@ class ClaudeOutputStream:
                             )
 
 
-def decode_claude_stream_json(output: str) -> str:
+def decode_claude_stream_json(output: str, *, structured: bool = False) -> str:
     """Extract the final assistant response from Claude's stream-json output."""
     final_response: str | None = None
     for line in output.split("\n"):
@@ -153,6 +153,11 @@ def decode_claude_stream_json(output: str) -> str:
             raise ValueError("Claude stream-json event was not an object")
         event = cast(dict[str, object], decoded)
         if event.get("type") == "result":
+            if structured:
+                from agnette.agent.output_schema import json_field
+
+                final_response = json_field(line, "structured_output")
+                continue
             result = event.get("result")
             if not isinstance(result, str):
                 raise ValueError("Claude final stream-json result was not text")

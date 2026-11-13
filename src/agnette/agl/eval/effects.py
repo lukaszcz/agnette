@@ -74,6 +74,7 @@ from agnette.agl.runtime.sandbox_values import (
 )
 from agnette.agl.runtime.serialize import value_to_trace_json_obj
 from agnette.agl.runtime.sessions import (
+    NativeOutputSessionHost,
     SessionAgentError,
     SessionAskError,
     SessionHostError,
@@ -908,6 +909,11 @@ class EffectHandlers:
                 output_callback=self._agent_output_callback(intermediate_output),
                 intermediate_output=intermediate_output,
             )
+            host = self._ctx._host.sessions
+            if isinstance(host, NativeOutputSessionHost) and isinstance(
+                output_contract, JsonContractRequest
+            ):
+                request.native_output_schema = host.output_schema(spec, output_contract.json_schema)
             request.prompt = self._compose_session_prompt(
                 request, continues=snapshot.continues_conversation
             )

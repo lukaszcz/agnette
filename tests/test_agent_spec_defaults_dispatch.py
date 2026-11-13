@@ -164,7 +164,10 @@ def test_every_retry_attempt_carries_the_configured_effort(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agent_transport: FakeAgentTransport
 ) -> None:
     fake_agent_transport.queue(
-        fake_agent_transport.success("not a number"), fake_agent_transport.success("7")
+        fake_agent_transport.success(
+            '{"type":"result","structured_output":{"result":"not a number"}}'
+        ),
+        fake_agent_transport.success('{"type":"result","structured_output":{"result":7}}'),
     )
     source = (
         'let answer: int = AgentClaude("opus", "").ask("hi", '

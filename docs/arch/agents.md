@@ -5,7 +5,7 @@ AgL runs native agents and custom commands through a shared subprocess and sessi
 ## Agent Specs and the Runner
 
 - An agent is an immutable host *spec* (`agent/spec.py`): one per native kind, each building its own argv, plus a verbatim custom command. AgL's `Agent` enum decodes into this catalog.
-- `agent/spec.py` holds each native CLI's permission-mode flag table (`PermissionMode`: native, unrestricted, none); the only other argv edit is sandbox preparation's `--no-daemon` for Codex.
+- `agent/spec.py` holds each native CLI's permission-mode flag table (`PermissionMode`: native, unrestricted, none); session adapters attach native response-schema flags, and sandbox preparation adds `--no-daemon` for Codex.
 - The runner (`agent/runner.py`) delivers rendered prompts (placeholder, `@<path>` argument, or stdin), prepares the sandbox from a `SandboxRun` ([sandbox.md](sandbox.md)), captures output, and enforces an idle timeout. Results keep streams undecoded until their text is needed. Arguments interpolate `%{name}` holes through `util/interp.py`.
 - Interactive chats are ordinary stdlib externs reusing spec-owned interactive argv builders; they inherit the terminal, with no capture or idle timeout.
 
@@ -20,6 +20,8 @@ Empty native fields (Pi provider, model, effort) are filled when an agent is *us
 ## Dispatch and Sessions
 
 Every AgL `ask` dispatches through a session: a one-shot call opens an ephemeral session. Production hosts back sessions with `SessionService`, so asks run through its CLI adapters or Pi RPC; `agl/runtime/agents.py:value_driven_agent_factory` is the dispatcher only for hosts without a session service. A decoded `AgentRequest` carries the call's evaluated environment.
+
+Structured responses carry a per-ask schema through `AglSessionHost` and `SessionAskRequest`. `agent/output_schema.py` adapts closed schemas for Claude and Codex; adapters unwrap native results before AgL validation. Pi, custom commands, unconstrained JSON, open dictionaries, and optional fields use prompt instructions.
 
 `SessionService` (`agent/session/service.py`) gives one backend-neutral lifecycle for continuing conversations: opaque handles, backend instances, and release of every owned process at the command or interpreter boundary. `SessionService.ask` resends an ask whose `SessionAskError` is `server_overloaded` with backoff (`OVERLOAD_RETRY_DELAYS`). Permission mode, sandbox limits, and environment are fixed when a session opens, with no per-ask override. Two backend families implement it:
 

@@ -6,11 +6,14 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Generic, Self, TypeVar, assert_never, cast
 from uuid import uuid4
 
 from agnette.agent import runner
+from agnette.agent.output_schema import unwrap_native_output
 from agnette.agent.runner import (
     PromptDelivery,
     cleanup_temp_files,
@@ -158,6 +161,7 @@ class _CliPromptBackend(SandboxFixture):
         decode_stdout: Callable[[str], str] | None = None,
         reported_failure: Callable[[str], _ReportedFailure | None] | None = None,
         stdout_to_file: bool = False,
+        output_schema: str | None = None,
     ) -> SessionAskResponse:
         """Run one prepared prompt and translate process failures for sessions.
 
@@ -169,6 +173,19 @@ class _CliPromptBackend(SandboxFixture):
         with preserve_primary_error(
             lambda: cleanup_temp_files(temp_files), label="Temporary prompt cleanup"
         ):
+            if output_schema is not None:
+                if command[0] == "codex":
+                    with NamedTemporaryFile(
+                        "w", encoding="utf-8", delete=False, suffix=".json"
+                    ) as handle:
+                        temp_files.append(Path(handle.name))
+                        handle.write(output_schema)
+                    command = [*command[:-1], "--output-schema", handle.name, command[-1]]
+                else:
+                    # JSON escapes keep schema text out of runner interpolation.
+                    command = [*command, "--json-schema", output_schema.replace("%", r"\u0025")]
+                    if "--output-format" not in command:
+                        command.extend(("--output-format", "json"))
             try:
                 prepared = runner.prepare_rendered_prompt_run(
                     prompt,
@@ -377,7 +394,13 @@ class _SessionIdCliBackend(_CliPromptBackend, Generic[_SessionAgentT], ABC):
                 output_callback=request.output_callback,
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
-                decode_stdout=(decode_claude_stream_json if stdout_stream is not None else None),
+                decode_stdout=(
+                    partial(_decode_claude_reply, structured=request.output_schema is not None)
+                    if isinstance(session.agent, AgentClaude)
+                    and (stdout_stream is not None or request.output_schema is not None)
+                    else None
+                ),
+                output_schema=request.output_schema,
             )
         except SessionAskError as error:
             if not was_started and _creation_not_launched(error):
@@ -572,6 +595,7 @@ class CodexCliSessionBackend(_CliPromptBackend):
                 stdout_callback=None if stdout_stream is None else stdout_stream.feed,
                 stdout_finalizer=None if stdout_stream is None else stdout_stream.finish,
                 reported_failure=reported_failure,
+                output_schema=request.output_schema,
             )
         except SessionAskError as error:
             if starting and _creation_not_launched(error):
@@ -591,7 +615,16 @@ class CodexCliSessionBackend(_CliPromptBackend):
             ) from exc
         if starting:
             session.session_id = turn.thread_id
-        return replace(response, content=turn.reply)
+        if request.output_schema is not None:
+            try:
+                reply = unwrap_native_output(turn.reply)
+            except ValueError as exc:
+                raise _codex_ask_error(
+                    response, "protocol_failure", _ReportedFailure(str(exc))
+                ) from exc
+        else:
+            reply = turn.reply
+        return replace(response, content=reply)
 
     def _settle_failed_turn(self, turn: _CodexTurn, *, starting: bool) -> _ReportedFailure | None:
         """Keep a failed starting turn's thread resumable; return the turn's failure."""
@@ -792,3 +825,9 @@ def _json_object(output: str, *, operation: SessionOperation) -> dict[str, objec
             f"Claude did not return a JSON object for {operation.value}", operation.value
         )
     return cast(dict[str, object], payload)
+
+
+def _decode_claude_reply(output: str, *, structured: bool) -> str:
+    """Read either Claude's ordinary text result or its structured value."""
+    reply = decode_claude_stream_json(output, structured=structured)
+    return unwrap_native_output(reply) if structured else reply

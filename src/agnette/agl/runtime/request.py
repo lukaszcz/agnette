@@ -100,6 +100,7 @@ class AgentRequest:
     previous_invalid_output: str | None = None
     validation_errors: list[ValidationError] = field(default_factory=list)
     output_contract: "TextContractRequest | JsonContractRequest | None" = None
+    native_output_schema: str | None = None
     permission_mode: PermissionMode = PermissionMode.NONE
     sandbox: "SandboxLimits | None" = None
     transport: SessionTransport = SessionTransport.CLI
@@ -121,6 +122,10 @@ class AgentResponse:
 def compose_initial_agent_prompt(request: AgentRequest) -> str:
     """Compose the initial prompt and its optional output-format instructions."""
     parts = [request.prompt]
+    if request.native_output_schema is not None:
+        return "\n\n".join(
+            (*parts, "Return the requested value in the result field of the response object.")
+        )
     if request.output_contract is not None and request.output_contract.format_instructions:
         parts.append(request.output_contract.format_instructions)
     return "\n\n".join(parts)

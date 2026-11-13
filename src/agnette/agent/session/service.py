@@ -233,6 +233,12 @@ class AglSessionHost:
     def ask(self, handle: str, prompt: str) -> str:
         return self._ask(handle, prompt).content
 
+    def output_schema(self, agent: "AgentSpec", schema: str) -> str | None:
+        """Select the native schema supported by this agent."""
+        from agnette.agent.output_schema import native_output_schema
+
+        return native_output_schema(agent, schema)
+
     def ask_request(self, handle: str, request: "AgentRequest") -> "AgentResponse":
         """Preserve a session response's metadata across the AgL firewall.
 
@@ -240,11 +246,13 @@ class AglSessionHost:
         session's fixed-at-open settings for tracing, but never reach the
         backend here: a session's sandboxing and transport are fixed once, at
         ``open`` (or, for the ephemeral session a one-shot ``ask``/``Agent::ask``
-        opens, when it is opened), so this call sends only the prompt.
+        opens, when it is opened). The output schema is per ask.
         """
         from agnette.agl.runtime.request import AgentResponse
 
-        response = self._ask(handle, request.prompt, request.output_callback)
+        response = self._ask(
+            handle, request.prompt, request.output_callback, request.native_output_schema
+        )
         return AgentResponse(
             content=response.content,
             metadata=dict(response.metadata),
@@ -256,10 +264,14 @@ class AglSessionHost:
         handle: str,
         prompt: str,
         output_callback: "AgentOutputCallback | None" = None,
+        output_schema: str | None = None,
     ) -> SessionAskResponse:
         try:
             return self._service.ask(
-                handle, SessionAskRequest(prompt, output_callback=output_callback)
+                handle,
+                SessionAskRequest(
+                    prompt, output_schema=output_schema, output_callback=output_callback
+                ),
             )
         except SessionAskError as error:
             self._raise_ask_error(error)

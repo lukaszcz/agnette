@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AgentDispatcherSessionHost",
+    "NativeOutputSessionHost",
     "SessionAgentError",
     "SessionAskError",
     "SessionHost",
@@ -128,6 +129,13 @@ class SessionRequestHost(Protocol):
     """
 
     def ask_request(self, handle: str, request: AgentRequest) -> AgentResponse: ...
+
+
+@runtime_checkable
+class NativeOutputSessionHost(Protocol):
+    """Optional host seam for native response schemas."""
+
+    def output_schema(self, agent: "AgentSpec", schema: str) -> str | None: ...
 
 
 @runtime_checkable
