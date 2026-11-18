@@ -38,6 +38,11 @@ def make-tasks-prompt(plan-file: path, tasks-dir: path, instructions: text = "")
 
   Save the task files to %{tasks-dir}/TASK_*.md. Create a task index in %{tasks-dir}/TASK_INDEX.md. Create %{tasks-dir}/PROGRESS.md to track task progress - list of completed and remaining tasks, next unblocked task.
 
+  ## Requirements
+
+  - NONE of the created tasks may contain any unverified assumptions or open decisions. Make reasonable decisions to settle all questions and perform necessary verifications. Ask about major decisions only when you're unable to resolve them yourself.
+  - When the plan requires benchmarking or time-consuming validation, make sure the validation is not excessive and does not block iterative development. Avoid requiring heavy benchmarks or validation in multiple tasks. Prefer light intermediate checks and full validation only at the end of major milestones.
+
   ## Format of PROGRESS.md
 
   Only three sections:

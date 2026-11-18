@@ -16,6 +16,8 @@ def plan-prompt(plan-file: path) -> text =
   For every owner decision, present several alternatives with pros and cons and a single recommendation. Before writing the plan, ask me, one-by-one, about each major decision, explaining the issue and presenting the options together with your recommendation.
 
   The plan must NOT contain any unverified assumptions or open decisions. Ask about major decisions and settle all else yourself.
+
+  Make sure any required benchmarking or validation is not excessive and does not block iterative development. Prefer light intermediate checks, with full expensive validation only at the end of major milestones.
   """
 
 def design-prompt(design-file: path, reports-dir: path) -> text =
