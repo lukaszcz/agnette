@@ -26,7 +26,7 @@ def design-prompt(design-file: path, reports-dir: path) -> text =
 
   Your task is to create a design document for the above. Save the design to %{design-file}
 
-  This is a deep research task. Search the web, investigate precedents and related designs. Read relevant research literature.
+  This is a deep research task. Search the web, investigate precedents and related designs. Read relevant research literature. Use subagents for the research, and cite every source by link.
 
   Save any research reports created in this session to %{reports-dir}/*.md
 
@@ -35,6 +35,8 @@ def design-prompt(design-file: path, reports-dir: path) -> text =
   If anything is unclear, don't make assumptions, but ask me questions instead. Do NOT silently make major architectural decisions that are not explicitly specified by the owner.
 
   For every owner decision, present several alternatives with pros and cons and a single recommendation. Before writing the design doc, ask me, one-by-one, about each decision, explaining the issue and presenting the options together with your recommendation.
+
+The design is a high-level design document, not a detailed implementation plan - it settles major design decisions based on extensive research. Do NOT leave unverified assumptions or open design decisions in the design doc. Ask about major design decisions, settle others yourself, or leave implementation decisions to subsequent implementation planning.
   """
 
 @command("devel plan")

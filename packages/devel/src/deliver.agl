@@ -41,7 +41,7 @@ def make-tasks-prompt(plan-file: path, tasks-dir: path, instructions: text = "")
   ## Requirements
 
   - NONE of the created tasks may contain any unverified assumptions or open decisions. Make reasonable decisions to settle all questions and perform necessary verifications. Ask about major decisions only when you're unable to resolve them yourself.
-  - When the plan requires benchmarking or time-consuming validation, make sure the validation is not excessive and does not block iterative development. Avoid requiring heavy benchmarks or validation in multiple tasks. Prefer light intermediate checks and full validation only at the end of major milestones.
+  - When the plan requires benchmarking or time-consuming validation, make sure the validation is not excessive and does not block iterative development (but don't overrule the plan where it is explicit). Unless explicitly specified otherwise in the plan, avoid requiring heavy benchmarks or validation in multiple tasks, and prefer light intermediate checks with full validation only at the end of major milestones.
 
   ## Format of PROGRESS.md
 
