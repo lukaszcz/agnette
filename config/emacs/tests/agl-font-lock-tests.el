@@ -52,9 +52,10 @@
   "Return non-nil when every character of NEEDLE carries FACE."
   (let ((start (agl-flt--pos-before needle))
         (ok t))
-    (dotimes (i (length needle) ok)
+    (dotimes (i (length needle))
       (unless (eq (agl-flt--face-at (+ start i)) face)
-        (setq ok nil)))))
+        (setq ok nil)))
+    ok))
 
 ;; --- Declaration forms: the declared name gets the right face ---
 

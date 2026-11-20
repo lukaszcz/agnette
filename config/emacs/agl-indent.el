@@ -959,8 +959,9 @@ Typing `|\=' or `@\=' at the start of a line, finishing one of the words
 `else\=', `catch\=', `finally\=', `until\=', `done\=', or `end\=' there,
 or separating a declaration keyword such as `def\=' from the name after
 it all decide which construct the line belongs to, so the line is
-re-indented immediately.  A newline settles the lone modifier line it ends, which no
-keystroke of its own ever will, and the line it opens then follows."
+re-indented immediately.  A newline settles the lone modifier line it
+ends, which no keystroke of its own ever will, and the line it opens
+then follows."
   (when (and (eq major-mode 'agl-mode)
              (not (agl--opaque-line-p)))
     (cond ((eq last-command-event ?\n)
