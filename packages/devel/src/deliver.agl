@@ -242,7 +242,18 @@ def TaskRun::remove(self) -> unit =
   The first failure terminates the running tasks and is raised again, after removing their worktrees.
   Branches with unmerged commits are kept. Raises `RangeError` if `jobs` is not positive.
 """)
-def Session::deliver-plan-parallel(self, plan-file: path, tasks-dir: path, exec-agent: Agent, review-agent: Agent, revise-agent: Agent, verify: bool, max-refine-steps: int, save-reviews: bool, jobs: int) -> unit =
+def Session::deliver-plan-parallel(
+  self,
+  plan-file: path,
+  tasks-dir: path,
+  exec-agent: Agent,
+  review-agent: Agent,
+  revise-agent: Agent,
+  verify: bool,
+  max-refine-steps: int,
+  save-reviews: bool,
+  jobs: int
+) -> unit =
   if jobs < 1 =>
     raise RangeError(message = "jobs must be positive, got %{jobs}")
   let main-dir = os::cwd()
@@ -396,14 +407,18 @@ program def implement-plan-main(
   agent: Agent = config::agent,
   plan-file: path = ".agent-files/PLAN.md",
   tasks-dir: path = default-tasks-dir,
+  @inherit("devel.implement-tasks.impl-model")
   @doc("Implementation model. Empty string means not specified.")
   impl-model: text = "",
+  @inherit("devel.implement-tasks.review-model")
   @doc("Review model. Empty string means not specified.")
   review-model: text = "",
   @opt-short("j")
+  @inherit("devel.implement-tasks.jobs")
   @doc("Number of parallel jobs.")
   jobs: int = 0,
   @opt-short("i")
+  @inherit("devel.implement-tasks.interactive")
   interactive: bool = false,
   @doc("Extra instructions for task creation.")
   instructions: text = ""
